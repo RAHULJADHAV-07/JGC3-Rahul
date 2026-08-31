@@ -27,6 +27,10 @@ const ADDR_SRC = "/Company Address .png";
    stamps a letter (30). Both go on the page and into the workbook. */
 const SIGN_FILE = "/Sign.png";
 const STAMP_FILE = "/Stamp.png";
+/* The gross-mass declaration (27) is printed on a letterhead of its own — the
+   name, the trade and the mark scanned as one strip, rather than set in type
+   the way the letters set it. */
+const HEAD27_FILE = "/DOC 27 header .png";
 /* Their sheet anchors the mark just inside the left margin of the letterhead
    block, about three quarters of an inch square (EMU: 914400 to the inch). */
 const PLACE = { col: 0, colOff: 57150, row: 1, rowOff: 142876, cy: 685800 };
@@ -38,6 +42,9 @@ export const ADDR_ASPECT = 509 / 115;
 /* The other two, as they were scanned. */
 export const SIGN_ASPECT = 562 / 179;
 export const STAMP_ASPECT = 177 / 178;
+/* The declaration's letterhead strip, as it was scanned — a long shallow band,
+   so a form that has the width works its depth out from this. */
+export const HEAD27_ASPECT = 955 / 174;
 
 const held = {};
 const pending = {};
@@ -61,7 +68,8 @@ function fetchOnce(src) {
         if (src === SRC) LOGO_SRC = uri;
         else if (src === ADDR_SRC) ADDRESS_SRC = uri;
         else if (src === SIGN_FILE) SIGN_SRC = uri;
-        else STAMP_SRC = uri;
+        else if (src === STAMP_FILE) STAMP_SRC = uri;
+        else HEAD27_SRC = uri;
         return held[src];
       })
       .catch(() => null);
@@ -71,7 +79,7 @@ function fetchOnce(src) {
 
 /** Start (or reuse) the fetches. Resolves once the letterhead is in hand. */
 export function primeLogo() {
-  return Promise.all([SRC, ADDR_SRC, SIGN_FILE, STAMP_FILE].map(fetchOnce)).then(([mark]) => mark);
+  return Promise.all([SRC, ADDR_SRC, SIGN_FILE, STAMP_FILE, HEAD27_FILE].map(fetchOnce)).then(([mark]) => mark);
 }
 
 /** The mark a sheet builder attaches, or null while it is still loading. */
@@ -102,6 +110,12 @@ export function stampImage(cx) {
   return { data: held[STAMP_FILE], ext: "png", name: "Stamp", cx, cy: Math.round(cx / STAMP_ASPECT) };
 }
 
+/** The declaration's own letterhead strip, sized to the width it is given. */
+export function head27Image(cx) {
+  if (!held[HEAD27_FILE]) return null;
+  return { data: held[HEAD27_FILE], ext: "png", name: "Letterhead", cx, cy: Math.round(cx / HEAD27_ASPECT) };
+}
+
 /* What a preview points an <img> at. Empty until the fetch lands — a module
    binding, so a document built after it lands reads the URI rather than the
    blank it started as. */
@@ -109,6 +123,7 @@ export let LOGO_SRC = "";
 export let ADDRESS_SRC = "";
 export let SIGN_SRC = "";
 export let STAMP_SRC = "";
+export let HEAD27_SRC = "";
 
 /** One of them as an <img> for a preview, or nothing at all while it loads —
  *  an <img> with no src is a broken picture, and a letterhead that has not

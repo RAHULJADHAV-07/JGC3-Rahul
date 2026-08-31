@@ -4230,3 +4230,96 @@ export function balanceFallback(ctx, title, fname) {
     { v: usd(sum(rows, "fobTotal")), r: 1, sum: "val", t: "usd" }];
   return { name: fname, html: `<div class="title">${esc(title)}</div><div class="sub">Invoice ${esc(ctx.inv.invoiceNo)} DT ${ddmm(ctx.inv.date)} · open the Reports tab for the full live balance register across all invoices.</div>${tableOf(cols, rows, foot)}` };
 }
+
+/* ============================================================================
+   34 · Container weight declaration — what the road carrier is handed before
+   the box is moved (Docs/Jaikvin Process/Numbering/
+   34-Container Weight Declaration Form (CWD).docx).
+
+   Not one of the exporter's own papers: it is the Australian statutory form
+   their forwarder issues, so it is printed as their file prints it — the title
+   over three ruled blocks, the four ways of arriving at a weight, the space the
+   declaration is signed in, and the seven notes the form carries. It is on no
+   letterhead at all, which is why this one is not built on the letter paper the
+   declarations either side of it use.
+
+   Their file is a Word document, so the download beside the PDF hands over a
+   .docx rather than a workbook — see WORD_DOCS in docs/index.js. */
+
+/* The tare their form declares for the twenty-foot box, in kilograms. It is
+   stamped on the container door rather than recorded here, and their own filled
+   copy carries this figure, so it stands as the form's own. */
+export const CWD_TARE = 2185;
+
+/* The goods, as their form words them — the same three families the proforma
+   bands the order into, said in one line. */
+export const CWD_COMMODITY = "PP EXTRUDED PIPES , PP & NYLON MOULDED FITTINGS AND CORRUGATED BOXES";
+
+/* The runs of choices their form prints for the carrier to ring. The one that
+   applies is marked here rather than left to a pen: what this shipment is comes
+   from the same facts document 27 declares — a full twenty-foot box of ordinary
+   goods — so the two papers cannot contradict one another. */
+export const CWD_STATUS = ["Full", "Empty"];
+export const CWD_CARGO = ["General", "Hazardous", "Oversize", "Reefer"];
+export const CWD_BOX = ["20ft", "40ft", "40HC", "Other"];
+export const CWD_RING = { status: "Full", cargo: "General", box: "20ft", method: 3 };
+
+/* The ink their form marks its own instructions in — the "circle where
+   applicable" notes and the one over the load box. */
+export const CWD_BLUE = "#0070C0";
+
+/* Their form sets each weight as two lines — the figure, and the unit under it. */
+export const CWD_UNIT = "Kgs";
+
+/* The four ways of arriving at a weight, theirs verbatim. Their form rings the
+   third on the signed copy — the box and what is in it, weighed together, which
+   is what the weighbridge ticket behind document 27 certifies. */
+export const CWD_METHOD = ["Estimation", "Weighing of Contents",
+  "Weighing of Container & Contents", "Weighing of Truck & Container"];
+
+/* The seven notes at the foot, theirs verbatim, and the line the form closes
+   on. Note 1 runs to a second line on their sheet, so it is carried as two. */
+export const CWD_NOTES = [
+  "1. The “Responsible entity” is responsible for providing an accurate Container Weight Declaration (CWD):",
+  "This is usually the person in Australia who engages the road carrier or offers the container for transport by road in Australia.",
+  "2. Including details of the packer enables easy identification of the person who packed the container. The packer could also be the “responsible entity”.",
+  "3. Separating the weight of the container and its contents ensures there is no confusion as to whether the declared weight is a net weight or a gross weight.",
+  "4. This enables the person who is relying on the CWD to determine its likely accuracy.",
+  "5. CWD details could be included in another document e.g., the Export Pre Receival Advice (PRA), or provided separately.",
+  "6. The contents of the CWD must be readily available to an authorised officer or police officer who seeks to ascertain its contents, there and then in the presence of the container (whether by examining documents located on or in the vehicle or by obtaining the information by radio or mobile or other means).",
+  "7. Information contained in the Container Weight Declaration is provided to Fremantle Mart International Pty Ltd by the responsible entity. Freight Mart International accepts no liability for any losses arising from any inaccuracy of information provided to Freight Mart International by the responsible entity.",
+];
+
+export const CWD_CLOSE = "The Container Weight Declaration (CWD) is a statutory requirement for all container movements (full or empty) and should be sent no later than the day prior to the scheduled movement.";
+
+/* Their form dates the declaration with spaced slashes, as it is typed. */
+export const cwdDate = (s) => slashDate(s).replace(/\//g, " / ");
+
+/* What the form has to say, gathered off the shipment.
+
+   The three weights are the ones their form separates on purpose — note 3 says
+   why: the tare off the door, the goods as packed, and the two added. The
+   packed weight is the shipment's own gross, which is a weighed figure; only
+   the tare is the container's, and it is the form's own. */
+export function cwd34(ctx) {
+  const E = ctx.EXPORTER, b = ctx.buyer, s = ctx.inv.ship || {};
+  const cargo = Number(s.grossWt) || sum(L(ctx), "grossTotal");
+  const kg = (n) => Number(n || 0).toFixed(3);
+  const line = (parts, sep = ", ") => parts.filter(Boolean).join(sep);
+  return {
+    container: s.container || "",
+    /* Both parties are named the way their form names them: who they are and
+       where, then the number they are reached on, on a line of its own. */
+    consignor: [line([E.name, E.addr]), E.tel ? `Phone: +91${E.tel}` : ""].filter(Boolean),
+    consignee: [
+      line([`${b.name || ""}${b.brand ? `, T/A ${b.brand}` : ""}`, b.addr || b.shipTo,
+        b.country ? `(${b.country})` : ""], ", "),
+      b.tel ? `Tel : +${b.tel}` : "",
+    ].filter(Boolean),
+    tare: kg(CWD_TARE),
+    cargo: kg(cargo),
+    gross: kg(CWD_TARE + cargo),
+    name: SIGNATORY.toUpperCase(),
+    date: cwdDate(ctx.inv.ship?.blDate || ctx.inv.date),
+  };
+}

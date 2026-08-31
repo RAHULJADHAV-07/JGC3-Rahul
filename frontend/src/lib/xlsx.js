@@ -136,6 +136,13 @@ const FONTS = [
   { key: "cal12", xml: '<font><sz val="12"/><color theme="1"/><name val="Calibri"/><family val="2"/></font>' },
   { key: "cal12b", xml: '<font><b/><sz val="12"/><color theme="1"/><name val="Calibri"/><family val="2"/></font>' },
   { key: "cal12bu", xml: '<font><b/><u/><sz val="12"/><color theme="1"/><name val="Calibri"/><family val="2"/></font>' },
+  /* Calibri 18, 11 underlined and 7 — the container weight declaration (34) is
+     a typed form of their forwarder's: its title is set large, the choice that
+     applies is ruled under rather than ringed, since a cell cannot draw a
+     circle, and the seven notes at the foot are set very small. */
+  { key: "cal18b", xml: '<font><b/><sz val="18"/><color theme="1"/><name val="Calibri"/><family val="2"/></font>' },
+  { key: "calbu", xml: '<font><b/><u/><sz val="11"/><color theme="1"/><name val="Calibri"/><family val="2"/></font>' },
+  { key: "cal7", xml: '<font><sz val="7"/><color theme="1"/><name val="Calibri"/><family val="2"/></font>' },
   { key: "calbl", xml: '<font><sz val="11"/><color rgb="FF0000FF"/><name val="Calibri"/><family val="2"/></font>' },
   { key: "calr", xml: '<font><sz val="11"/><color rgb="FFFF0000"/><name val="Calibri"/><family val="2"/></font>' },
   /* Times New Roman — the customs declarations are typed forms, and that is
