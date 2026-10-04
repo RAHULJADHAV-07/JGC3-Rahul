@@ -112,7 +112,11 @@ export const DOC_GROUPS = [
   // moment the buyer's order is entered — nothing here waits on an invoice.
   { k: "PO", t: "PO Reports", hint: "Raised when the buyer places an order", docs: ["1", "2", "3", "4", "5", "6"], source: "po" },
   { k: "SUP", t: "Suppliers' Reports", hint: "Raised when suppliers deliver boxes", docs: ["7", "8", "9", "10", "11"] },
-  { k: "PRE", t: "Pre-Shipment Reports", hint: "Everything customs needs before loading", docs: ["12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "24", "25", "26", "27", "28", "29"] },
+  /* 23 · Suppliers' details is filed under Other Reports in the client's own
+     menu, but it also travels with the pre-shipment set, so it is listed under
+     both heads. A paper may belong to more than one head: the command palette
+     and the whole-library bundle each count a shared document once. */
+  { k: "PRE", t: "Pre-Shipment Reports", hint: "Everything customs needs before loading", docs: ["12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29"] },
   { k: "POST", t: "Post Shipment Reports", hint: "Sent after the container sails, incl. bill regularisation for the bank", docs: ["30", "31", "32", "33", "34", "40"] },
   { k: "OTH", t: "Other Reports", hint: "Costing, supplier details and balance registers", docs: ["35", "23", "38", "36", "37", "39"] },
 ];
