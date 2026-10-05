@@ -112,7 +112,11 @@ export const DOC_GROUPS = [
   // moment the buyer's order is entered — nothing here waits on an invoice.
   { k: "PO", t: "PO Reports", hint: "Raised when the buyer places an order", docs: ["1", "2", "3", "4", "5", "6"], source: "po" },
   { k: "SUP", t: "Suppliers' Reports", hint: "Raised when suppliers deliver boxes", docs: ["7", "8", "9", "10", "11"] },
-  { k: "PRE", t: "Pre-Shipment Reports", hint: "Everything customs needs before loading", docs: ["12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "24", "25", "26", "27", "28", "29"] },
+  /* 23 · Suppliers' details is filed under Other Reports in the client's own
+     menu, but it also travels with the pre-shipment set, so it is listed under
+     both heads. A paper may belong to more than one head: the command palette
+     and the whole-library bundle each count a shared document once. */
+  { k: "PRE", t: "Pre-Shipment Reports", hint: "Everything customs needs before loading", docs: ["12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29"] },
   { k: "POST", t: "Post Shipment Reports", hint: "Sent after the container sails, incl. bill regularisation for the bank", docs: ["30", "31", "32", "33", "34", "40"] },
   { k: "OTH", t: "Other Reports", hint: "Costing, supplier details and balance registers", docs: ["35", "23", "38", "36", "37", "39"] },
 ];
@@ -175,7 +179,7 @@ export function hasBuilder(no) { return !!B[no] || ["36", "37", "38", "39"].incl
    beside the PDF hands over a .docx — a spreadsheet of it would only have to be
    retyped. They still take their place as a sheet in a whole-stage workbook,
    which is a bundle rather than the document itself. */
-export const WORD_DOCS = ["24"];
+export const WORD_DOCS = ["24", "34"];
 
 export const isWordDoc = (no) => WORD_DOCS.includes(String(no));
 
@@ -357,6 +361,10 @@ export const PREVIEW_CSS = `
      content. All eight collapsed, and every cell narrower than the full span
      printed blank. 760px is the width .wb.fit gives a portrait sheet. */
   .docprev table.bpo{table-layout:fixed;width:760px;}
+  /* The order runs to a sheet per page (see doc17.js) — on screen they stack,
+     so a rule between them shows where the paper would change. */
+  .docprev .bpo-page+.bpo-page{border-top:1px dashed #cdd8e3;padding-top:18px;margin-top:6px;}
+  .docprev table.bpo .pg{font-size:9.5px;}
   .docprev table.bpo td,.docprev table.bpo th{font-size:10px;padding:0 5px;line-height:1.3;}
   .docprev table.bpo .big{font-size:20px;font-weight:700;color:#000;}
   .docprev table.bpo .tag{font-size:14px;}
@@ -664,6 +672,56 @@ export const PREVIEW_CSS = `
   .docprev .vgm .sg>tbody>tr>td:first-child{width:52%;}
   .docprev .vgm .sg .k{min-width:96px;}
   .docprev .vgm .sgr{text-align:right;vertical-align:top;}
+  /* The scanned letterhead across the head of it, and the stamp and signature
+     it goes out under — the same three pictures the printed sheet carries. */
+  .docprev .vgm .vghimg{width:74%;height:auto;display:block;}
+  .docprev .vgm .sg .sgst{width:20%;text-align:center;vertical-align:middle;}
+  .docprev .vgm .vgstamp{width:78px;height:auto;}
+  .docprev .vgm .vgsign{width:186px;height:auto;display:block;margin-left:auto;}
+
+  /* 34 · Container weight declaration — their forwarder's typed form, on no
+     letterhead, so it previews as their file sets it. */
+  .docprev .cwd{font-family:Calibri,Arial,sans-serif;font-size:13px;color:#000;line-height:1.2;}
+  .docprev .cwd .ttl{font-size:23px;font-weight:700;text-align:center;margin:0 0 16px;}
+  .docprev .cwd table.cwt{width:100%;border-collapse:collapse;margin:0 0 12px;table-layout:fixed;}
+  .docprev .cwd table.cwt td{border:1px solid #000;padding:3px 6px;vertical-align:top;font-size:13px;word-break:break-word;}
+  .docprev .cwd .k{font-weight:700;background:none;color:#000;white-space:normal;}
+  .docprev .cwd .hd .gap td{border:none;height:9px;padding:0;}
+  .docprev .cwd .hint{font-size:10px;font-weight:700;text-decoration:underline;}
+  .docprev .cwd .b{font-weight:700;}
+  .docprev .cwd .bl,.docprev .cwd .note{color:#0070C0;}
+  .docprev .cwd .note{font-weight:700;text-align:center;vertical-align:middle;}
+  .docprev .cwd .hint.bl{text-decoration:none;font-size:11px;}
+  .docprev .cwd .opt{text-align:center;vertical-align:middle;}
+  .docprev .cwd .opt.on span{border:1.2px solid #000;border-radius:50%;display:block;width:94%;margin:0 auto;padding:1px 0;}
+  .docprev .cwd .oth{vertical-align:top;}
+  .docprev .cwd .spec{font-size:8px;}
+  .docprev .cwd .cmd{font-size:12px;vertical-align:middle;}
+  .docprev .cwd .wh,.docprev .cwd .wv{text-align:center;vertical-align:middle;font-size:12px;}
+  .docprev .cwd table.ld,.docprev .cwd table.sg{width:67%;}
+  .docprev .cwd .lb{position:relative;height:70px;}
+  .docprev .cwd .dr{position:absolute;top:3px;right:5px;font-size:10px;line-height:1.1;text-align:center;}
+  .docprev .cwd .xm{display:block;width:44px;height:44px;margin:7px auto 0;}
+  .docprev .cwd .xm line{stroke:#000;stroke-width:1.2;}
+  .docprev .cwd table.mth{width:100%;border-collapse:collapse;margin:0 0 12px;table-layout:fixed;}
+  .docprev .cwd table.mth td{border:none;padding:0 5px 0 0;vertical-align:top;font-size:12px;}
+  .docprev .cwd .ml1{width:26%;font-size:11px;}
+  .docprev .cwd .ml{width:32%;}
+  .docprev .cwd .sk{width:12%;text-align:center;vertical-align:middle;}
+  .docprev .cwd .sn{width:30%;text-align:right;vertical-align:middle;}
+  .docprev .cwd .ml .opt{text-align:left;padding:0;white-space:nowrap;}
+  .docprev .cwd .ml .opt.on span{display:inline-block;width:auto;padding:0 12px;}
+  .docprev .cwd .cwstamp{width:78px;height:auto;}
+  .docprev .cwd .cwsign{width:190px;height:auto;}
+  .docprev .cwd p{margin:0 0 5px;font-size:13px;}
+  .docprev .cwd .re{margin-top:12px;}
+  .docprev .cwd .sg td{height:28px;font-size:12px;}
+  .docprev .cwd .ul{border-bottom:1px solid #000;display:inline-block;min-width:88%;}
+  .docprev .cwd .rule{border-bottom:1px solid #000;display:inline-block;width:62%;margin-left:4px;}
+  .docprev .cwd .du{border-bottom:1px solid #000;display:inline-block;padding:0 3px;}
+  .docprev .cwd .nt{font-size:9px;margin:0 0 3px;line-height:1.3;}
+  .docprev .cwd .hd2{font-size:10px;margin-top:10px;}
+  .docprev .cwd .cl{margin-top:12px;font-size:12px;}
 
   /* 29 · E-way bill, export leg — the portal's printed bill: five numbered
      sections in ruled boxes, at the size the portal prints them. */
@@ -800,4 +858,6 @@ export const PREVIEW_CSS = `
   .docprev .dl table.bx td{border:1px solid #000;padding:3px 6px;}
   .docprev .dl .dlfoot{margin-top:2px;font-size:12px;color:#8b0000;}
   .docprev .dl .dlfoot .r{text-align:right;}
+  /* The contact strip set open, as the printed sheet sets it. */
+  .docprev .dl .dlfoot div+div{margin-top:6px;}
 `;

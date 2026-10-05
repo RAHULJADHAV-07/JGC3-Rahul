@@ -206,6 +206,18 @@ const PRINT_CSS = `
   table.bpo td.bx { padding: 0; }
   table.bpo table.in { width: 100%; table-layout: fixed; border-collapse: collapse; margin: 0; }
   table.bpo table.in td { border: none !important; padding: 1px 5px; font-size: 7pt; }
+  /* Their order runs to as many sheets as the goods need, and doc17.js cuts the
+     pages itself — one table to a sheet, each with the masthead and the contact
+     strip their form repeats. So the inset is taken here rather than on .jg-doc:
+     a run the print engine broke across pages keeps its padding only at the top
+     of the first page and the foot of the last, and @page has no margin to fall
+     back on, which left the goods flush against the edge of the paper. Each
+     sheet is its own unbroken block, so each gets the whole inset. */
+  .jg-doc:has(.bpo-page) { padding: 0; }
+  .bpo-page { padding: 10mm; }
+  .bpo-page + .bpo-page { page-break-before: always; }
+  /* The sheet number, top right, once the order runs past one sheet. */
+  table.bpo .pg { font-size: 7pt; }
 
   /* 18 · Custom invoice — the customs copy, ruled as one frame rather than a
      grid: solid down the columns, hairline between the goods, open wherever
@@ -404,11 +416,39 @@ const PRINT_CSS = `
   .vgm .sg>tbody>tr>td:first-child { width: 52%; }
   .vgm .sg .k { min-width: 88px; }
   .vgm .sgr { text-align: right; vertical-align: top; }
+  /* Their letterhead as it really prints — the scanned strip across the head of
+     the sheet, sized to the width of the paper. */
+  .vgm .vghead { text-align: left; }
+  /* The scan carries two dead columns of black down its right edge — the edge
+     of the platen, not the letterhead — so that sliver is clipped off rather
+     than printed as a rule down the middle of the sheet. Trimming a clean
+     scan by the same fraction would not show. */
+  .vgm .vghimg { width: 100%; height: auto; display: block; clip-path: inset(0 0.32% 0 0); }
+  /* The stamp and the signature the declaration goes out under, standing where
+     their own signed copy puts them: the stamp between the particulars and the
+     signature, the scan itself against the right margin. The scan carries the
+     "For M/s." line and the name under it, so no type is set beside it.
+
+     Both are sized as a share of the run they stand in rather than in points,
+     so they hold their proportion of the paper whatever it is printed on. */
+  .vgm .sg .sgst { width: 20%; text-align: center; vertical-align: middle; }
+  .vgm .sg .sgr { width: 28%; }
+  .vgm .vgstamp { width: 55%; height: auto; }
+  .vgm .vgsign { width: 100%; height: auto; display: block; margin-left: auto; }
   /* The whole declaration is a one-page paper, so it is set close enough to
      come off one — fifteen ruled particulars, the signature block and the notes
      under them do not fit at the size the letters are set at. */
   .dl.vgm { font-size: 9.5pt; line-height: 1.25; }
-  .dl.vgm p { margin: 0 0 5px; }
+  /* The paragraph rule the letters are set by (.dl p, further down) carries a
+     size and a leading of its own, and being the more specific of the two it was
+     re-setting every line of this sheet back to the letters' 10.5pt on 1.45 —
+     so the notes came out a size large and a line apart, though the sheet asks
+     for 9.5 on 1.25 just above. Handing them back to the sheet keeps the whole
+     declaration on one measure. */
+  .dl.vgm p { margin: 0 0 5px; font-size: inherit; line-height: inherit; }
+  /* The remarks are a block of lines, not a run of paragraphs: their own gap is
+     none. Stated at this weight so it outranks the rule above. */
+  .dl.vgm .nb { margin: 0; }
   .dl.vgm .vgmt { margin: 6px 0 8px; }
   .dl.vgm .vgmt td { padding: 1px 4px; }
   .dl.vgm .rule { margin: 5px 0 8px; }
@@ -666,6 +706,87 @@ const PRINT_CSS = `
   .dl table.bx td { border: 1px solid #000 !important; padding: 2px 5px; }
   .dl .dlfoot { margin-top: 2px; font-size: 9pt; color: #8b0000 !important; }
   .dl .dlfoot .r { text-align: right; }
+  /* The contact strip is set open on their paper, not run together — the space
+     goes between the lines rather than around them, so the block gains air
+     without the rule above it drifting off the foot of the sheet. */
+  .dl .dlfoot div + div { margin-top: 6px; }
+
+  /* 34 · Container weight declaration — their forwarder's typed form. Not one
+     of the exporter's papers and on no letterhead, so it is set as their file
+     sets it: Calibri on a plain ruled grid, the title large over it, and the
+     instructions on it in their own blue. The sizes below are their file's:
+     the title 18pt, the hints 8, the notes 7, the weights and signature 10. */
+  .cwd { font-family: Calibri, Arial, sans-serif; font-size: 11pt; color: #000; line-height: 1.2; }
+  .cwd .ttl { font-size: 18pt; font-weight: 700; text-align: center; margin: 0 0 14px; }
+  .cwd table.cwt { width: 100%; border-collapse: collapse; margin: 0 0 10px; table-layout: fixed; }
+  .cwd table.cwt td { border: 1px solid #000 !important; padding: 2px 5px; vertical-align: top;
+    font-size: 11pt; word-break: break-word; }
+  /* The library bands a key cell navy-on-grey; this form is typed on plain
+     paper, so that is cleared rather than inherited, and its labels wrap. */
+  .cwd .k { font-weight: 700; background: none !important; color: #000 !important; white-space: normal; }
+  /* Their head table sets a clear row between one block and the next, so the
+     three read as three boxes rather than one ruled run. */
+  .cwd .hd .gap td { border: none !important; height: 7px; padding: 0; }
+  /* The note over each box saying what belongs in it — small, bold, ruled under. */
+  .cwd .hint { font-size: 8pt; font-weight: 700; text-decoration: underline; }
+  .cwd .v { font-size: 11pt; }
+  .cwd .b { font-weight: 700; }
+  /* Their form writes its own instructions to the reader in blue. */
+  .cwd .bl, .cwd .note { color: #0070C0 !important; }
+  .cwd .note { font-weight: 700; text-align: center; vertical-align: middle; }
+  .cwd .hint.bl { text-decoration: none; font-size: 9pt; }
+  /* A choice is ringed rather than ticked, as their form asks for it to be —
+     an oval very nearly as wide as the cell, which is how theirs is drawn. */
+  .cwd .opt { text-align: center; vertical-align: middle; }
+  .cwd .opt.on span { border: 1pt solid #000; border-radius: 50%;
+    display: block; width: 94%; margin: 0 auto; padding: 1px 0; }
+  /* "Other" carries its own "Please specify" under it, in one cell. */
+  .cwd .oth { vertical-align: top; }
+  .cwd .spec { font-size: 6pt; }
+  /* The goods stand on one line of their sheet. Calibri is not on every machine
+     that prints this, and the fallback sets wider, so the line is given a size
+     that holds it rather than a rule that would run it off the edge of the box. */
+  .cwd .cmd { font-size: 9.5pt; vertical-align: middle; }
+  /* The three weights: the tare in a single column, the other two across two
+     each, so each figure sits under the heading that names it. The tare column
+     is narrow enough that its figure turns onto a second line, as theirs does. */
+  .cwd .wh, .cwd .wv { text-align: center; vertical-align: middle; font-size: 10pt; }
+  /* The load box is set narrower than the page, as a form leaves room beside it
+     to write in. The door edge is labelled in its top corner and the centre of
+     mass marked with a cross drawn corner to corner. */
+  .cwd table.ld, .cwd table.sg { width: 67%; }
+  .cwd .lb { position: relative; height: 54pt; }
+  .cwd .dr { position: absolute; top: 2pt; right: 4pt; font-size: 8pt; line-height: 1.1; text-align: center; }
+  .cwd .xm { display: block; width: 34pt; height: 34pt; margin: 5pt auto 0; }
+  .cwd .xm line { stroke: #000; stroke-width: 1.2; }
+  /* The four methods, the instruction beside them, and the stamp and signature
+     the sheet goes out under — which stand to the right of the run on their own
+     signed copy rather than inside the block below it. */
+  .cwd table.mth { width: 100%; border-collapse: collapse; margin: 0 0 10px; table-layout: fixed; }
+  .cwd table.mth td { border: none !important; padding: 0 4px 0 0; vertical-align: top; font-size: 9pt; }
+  .cwd .ml1 { width: 26%; font-size: 8.5pt; }
+  .cwd .ml { width: 32%; }
+  .cwd .sk { width: 12%; text-align: center; vertical-align: middle; }
+  .cwd .sn { width: 30%; text-align: right; vertical-align: middle; }
+  /* Each method stands on one line — theirs does, and a ring drawn round a
+     phrase that has turned reads as a ring round nothing. */
+  .cwd .ml .opt { text-align: left; padding: 0; white-space: nowrap; }
+  .cwd .ml .opt.on span { display: inline-block; width: auto; padding: 0 10px; }
+  .cwd .cwstamp { width: 62pt; height: auto; }
+  .cwd .cwsign { width: 150pt; height: auto; }
+  .cwd p { margin: 0 0 4px; font-size: 11pt; }
+  .cwd .re { margin-top: 10px; }
+  /* The lines their form leaves to be written on, and the rules under the day,
+     the month and the year of the date. */
+  .cwd .sg td { height: 22pt; font-size: 10pt; }
+  .cwd .ul { border-bottom: 1px solid #000; display: inline-block; min-width: 88%; }
+  .cwd .rule { border-bottom: 1px solid #000; display: inline-block; width: 62%; margin-left: 3pt; }
+  .cwd .du { border-bottom: 1px solid #000; display: inline-block; padding: 0 3px; }
+  /* The seven notes are set very small on their sheet, and run close. */
+  .cwd .nt { font-size: 7pt; margin: 0 0 2px; line-height: 1.3; }
+  .cwd .hd2 { font-size: 8pt; margin-top: 8px; }
+  .cwd .cl { margin-top: 10px; font-size: 10pt; }
+
 `;
 
 const escHtml = (s) => String(s ?? "")

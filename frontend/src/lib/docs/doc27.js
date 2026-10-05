@@ -1,4 +1,5 @@
 import { DL, VGM_NOTES, esc, formGrid, letterFootBlock, letterFootRows, letterSheet, letterheadBlock, letterheadRows, vgm27Rows, vgm27Sign } from "./common.js";
+import { HEAD27_SRC, SIGN_SRC, STAMP_SRC, imgTag } from "../logo.js";
 
 /* 27 · Declaration of verified gross mass. Their letter paper, a heading, and
    the fifteen particulars ruled into three columns — the serial, what is asked,
@@ -42,8 +43,16 @@ export function vgmDeclaration(ctx) {
   const body = vgm27Rows(ctx).map(([sr, ask, answer]) => `<tr>
       <td class="sr">${esc(sr)}</td><td class="ask">${esc(ask)}</td><td class="ans">${esc(answer)}</td></tr>`).join("");
   const sign = vgm27Sign(ctx).map(([k, v]) => `<tr><td class="k">${esc(k)}</td><td>:</td><td>${esc(v)}</td></tr>`).join("");
+  /* This one is headed by the scanned strip rather than by the name set in
+     type, so the paper carries their letterhead as it really prints. Should the
+     scan not have arrived — offline, or the fetch blocked — the letters' own
+     typeset head stands in, rather than the sheet coming out with no head. */
+  const head = HEAD27_SRC
+    ? `<div class="vghead">${imgTag(HEAD27_SRC, "vghimg")}</div><div class="rule"></div>`
+    : letterheadBlock(E);
+
   return `<div class="dl vgm">
-    ${letterheadBlock(E)}
+    ${head}
 
     <p class="mid b u">DECLARATION OF VERIFIED GROSS MASS OF CONTAINER</p>
 
@@ -54,8 +63,9 @@ export function vgmDeclaration(ctx) {
     <p>Signature of authorized person of shipper</p>
     <table class="sg"><tr><td>
       <table class="ins">${sign}</table>
-    </td><td class="sgr">
-      <div>For M/s. ${esc(E.name)}</div><div>Proprietor- ${esc(vgm27Sign(ctx)[0][1])}</div>
+    </td><td class="sgst">${imgTag(STAMP_SRC, "vgstamp")}</td><td class="sgr">
+      ${SIGN_SRC ? imgTag(SIGN_SRC, "vgsign")
+    : `<div>For M/s. ${esc(E.name)}</div><div>Proprietor- ${esc(vgm27Sign(ctx)[0][1])}</div>`}
     </td></tr></table>
 
     <p class="u nb">Remarks:</p>

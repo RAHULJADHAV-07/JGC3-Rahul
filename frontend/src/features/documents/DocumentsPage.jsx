@@ -112,6 +112,9 @@ export default function DocumentsPage({ group }) {
   const groupMeta = group ? DOC_GROUPS.find((g) => g.k === group) : null;
   const catalogue = groupMeta ? [groupMeta] : DOC_GROUPS;
   const heading = groupMeta ? groupMeta.t : "Documents";
+  /* Every document on this screen, once each — a paper filed under two menu
+     heads (23) would otherwise be built twice in the whole-library bundle. */
+  const allDocs = [...new Set(catalogue.flatMap((g) => g.docs))];
 
   const [invId, setInvId] = useState("");
   const [poNo, setPoNo] = useState("");
@@ -377,11 +380,11 @@ export default function DocumentsPage({ group }) {
           </div>
           <DownloadPair size="md" variant="dark"
             onExcel={() => {
-              const nums = catalogue.flatMap((g) => g.docs);
+              const nums = allDocs;
               if (downloadStageExcel(`${heading.replace(/[^A-Za-z0-9]+/g, "_")}_${stamp}`, nums, ctxFor)) toast(`Downloading all ${nums.length} documents`);
             }}
             onPDF={() => {
-              const nums = catalogue.flatMap((g) => g.docs);
+              const nums = allDocs;
               if (downloadStagePDF(heading, nums, ctxFor)) toast(`Opening the print dialog for ${nums.length} documents`);
             }}
           />

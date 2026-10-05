@@ -26,10 +26,12 @@ function Palette({ onClose, go, has }) {
   const entries = useMemo(() => {
     const pages = VIEWS.filter((n) => has(n.perm))
       .map((n) => ({ kind: "page", id: n.to, label: n.label, sub: n.desc, icon: n.icon }));
+    /* A paper filed under two menu heads (23 is both a pre-shipment report and
+       one of the other reports) answers the search once, under the first. */
     const docs = has(VIEWS.find((v) => v.id === "documents").perm)
       ? DOC_GROUPS.flatMap((g) => g.docs.map((no) => ({
         kind: "doc", id: no, label: `${no} · ${DOC_META[no] || ""}`, sub: g.t, icon: FileText,
-      })))
+      }))).filter((e, i, a) => a.findIndex((x) => x.id === e.id) === i)
       : [];
     const all = [...pages, ...docs];
     const s = q.trim().toLowerCase();
@@ -255,7 +257,7 @@ export default function AppShell() {
 
         <footer className="footer">
           <span>Maintained and Developed By <b style={{ color: "var(--ink)" }}>Avita Technologies</b></span>
-          <span className="mono">V-6.2.3</span>
+          <span className="mono">V-6.3.0</span>
         </footer>
       </div>
 
