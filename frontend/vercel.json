@@ -4,10 +4,16 @@
   "outputDirectory": "dist",
   "framework": "vite",
 
+  "functions": {
+    "api/[...path].js": {
+      "maxDuration": 60
+    }
+  },
+
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://jaikvin-global-api.onrender.com/api/:path*"
+      "destination": "https://jgc3.onrender.com/api/:path*"
     }
   ],
 

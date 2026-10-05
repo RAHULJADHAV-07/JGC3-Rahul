@@ -87,12 +87,9 @@ services:
 
   frontend:
     build:
+      # No API URL to pass: the build always calls same-origin /api and nginx
+      # proxies it to the backend container (frontend/nginx.conf).
       context: ./frontend
-      args:
-        # Empty → the browser calls same-origin /api and nginx proxies it. A
-        # full URL here makes the call cross-site and the session cookie stops
-        # being sent — see frontend/DEPLOY.md.
-        VITE_API_URL: ""
     depends_on:
       - backend
     ports:

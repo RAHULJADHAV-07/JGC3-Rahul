@@ -6,12 +6,10 @@ COPY package.json package-lock.json ./
 # version nobody reviewed — which is how a dependency compromise arrives.
 RUN npm ci
 COPY . .
-# VITE_API_URL is baked at build time; empty means same-origin /api (the nginx
-# proxy here, the rewrite in vercel.json on Vercel). Setting it to the backend's
-# own URL makes the browser call cross-site, and the session cookie stops
-# travelling — see frontend/DEPLOY.md.
-ARG VITE_API_URL=""
-ENV VITE_API_URL=$VITE_API_URL
+# There is no API URL to bake in. A production build always calls same-origin
+# /api — nginx proxies it here, api/[...path].js does on Vercel — because the
+# session cookie and the CSP both refuse a cross-site call. See
+# frontend/DEPLOY.md and the note at the top of src/api/client.js.
 RUN npm run build
 
 # --- Serve stage ---
