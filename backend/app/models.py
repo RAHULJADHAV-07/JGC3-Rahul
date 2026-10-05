@@ -40,6 +40,11 @@ class User(Base):
     email = Column(String, nullable=False, unique=True, index=True)
     password_hash = Column(String, nullable=False)
     name = Column(String, nullable=False)
+    # The name in two parts, as Setup → Users now asks for it. `name` stays the
+    # full name every older reader (mail greetings, the audit trail) uses; the
+    # top bar greets people by `first_name` alone.
+    first_name = Column(String, default="")
+    last_name = Column(String, default="")
     role = Column(String, nullable=False, default="user")     # admin | user
     status = Column(String, nullable=False, default="pending")  # pending | active | disabled
     access = Column(JSON, nullable=False, default=list)        # ["orders.entry", ...]
@@ -133,6 +138,10 @@ class Supplier(Base):
     # The supplier's own reference for our orders — prints under the shipping
     # marks on their purchase order, beside our own reference.
     your_reference = Column(String, default="")
+    # GST charged on this supplier's goods, in percent (12 means 12 %). Every
+    # item the supplier makes is taxed at it. NULL means "not set", and the
+    # documents fall back to the rate the item's HSN code implies, as before.
+    gst_pct = Column(Float, nullable=True)
 
 
 class Buyer(Base):
@@ -164,6 +173,10 @@ class Buyer(Base):
     # upload reads the file straight into one) or a path under public/. Kept as
     # Text since a data: URL runs well past String's practical length.
     logo = Column(Text, default="")
+    # The ports this buyer takes delivery at, picked from Setup → Additional
+    # settings → Ship to port. `ship_to` stays the free-text field the
+    # documents print; the list is what the shipment forms offer.
+    ports = Column(JSON, nullable=False, default=list)
 
 
 class Item(Base):
@@ -207,6 +220,9 @@ class Item(Base):
     group = Column(String, default="")
     source_sheet = Column(String, default="")     # provenance in Masters.xlsx
     supplier_id = Column(String, ForeignKey("suppliers.id"), nullable=True)
+    # What the item travels in — one of Setup → Additional settings →
+    # Packaging types. Every row in the master started out in cartons.
+    packaging_type = Column(String, default="Cartons")
 
 
 class Transport(Base):
@@ -259,7 +275,11 @@ class Invoice(Base):
     step_skip = Column(JSON, default=dict)           # { vehicle, container, ship }
     packing_transports = Column(JSON, default=dict)  # { supplierId: transportId }
     created_at = Column(DateTime, default=datetime.utcnow)
-    lines = relationship("InvoiceLine", back_populates="invoice", cascade="all, delete-orphan")
+    # Read back in the order the cartons were numbered in — `position` is set
+    # when the invoice is written (see routers/invoices.py), so the serial
+    # ranges every screen and document derives from it can never reshuffle.
+    lines = relationship("InvoiceLine", back_populates="invoice", cascade="all, delete-orphan",
+                         order_by="InvoiceLine.position")
 
 
 class InvoiceLine(Base):
@@ -283,6 +303,12 @@ class InvoiceLine(Base):
     value_mode = Column(String, nullable=True)    # piece | 100 | custom
     unit_fob100 = Column(Float, nullable=True)    # $ per piece / per 100, as invoiced
     fob_mode = Column(String, nullable=True)      # piece | 100 | custom
+    # Where this line sits on the invoice. Carton serials run down the lines in
+    # this order, so it is stored rather than left to whatever order the
+    # database hands rows back in. New invoices are written in the item
+    # sequence (calc.item_rank); invoices that predate the column keep the
+    # order they were always read in (migrate.py backfills it).
+    position = Column(Integer, nullable=True)
     invoice = relationship("Invoice", back_populates="lines")
 
 

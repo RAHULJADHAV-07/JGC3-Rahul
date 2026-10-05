@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Layers, Globe, Truck, Route, Users as UsersIcon, Plus, Trash2, AlertTriangle } from "lucide-react";
+import { Layers, Globe, Truck, Route, Users as UsersIcon, Plus, Trash2, AlertTriangle, SlidersHorizontal } from "lucide-react";
 import {
   Card, CardHead, Btn, Seg, Field, Input, Select, Pill, Mono, EditBtn, Empty, Note, Step,
 } from "../../components/ui/index.jsx";
@@ -10,12 +10,13 @@ import {
   useSuppliers, useCreateSupplier, useUpdateSupplier, useDeleteSupplier,
   useBuyers, useCreateBuyer, useUpdateBuyer, useDeleteBuyer,
   useTransports, useCreateTransport, useUpdateTransport, useDeleteTransport,
-  useItemGroups, useUsers,
+  useItemGroups, useUsers, useOptions,
 } from "../../api/hooks.js";
 import { EMPTY_SUPPLIER } from "../../lib/constants.js";
 import UsersPanel from "./UsersPanel.jsx";
 import ItemsPanel from "./ItemsPanel.jsx";
 import RecordModal from "./RecordModal.jsx";
+import AdditionalSettingsPanel from "./AdditionalSettingsPanel.jsx";
 
 /* Setup — everything you configure once and rarely touch again.
 
@@ -61,16 +62,27 @@ const SUPPLIER_SCHEMA = [
     hint: "The supplier's own reference for our orders — prints under the shipping marks on their purchase order.",
   },
   {
+    key: "gst_pct", label: "GST %", type: "pct",
+    hint: "GST on this supplier's items, e.g. 12. Left blank, the documents use the rate the item's HSN code implies.",
+  },
+  {
     key: "weights", label: "Weights", type: "select", allowEmpty: false,
     options: [{ value: "auto", label: "Auto" }, { value: "manual", label: "Manual" }],
     hint: "Whether this supplier's box weights are worked out or entered by hand",
   },
 ];
-const BUYER_SCHEMA = [
+/* `ports` is picked from Setup → Additional settings → Ship to port, so the
+   schema is built with that list in hand. */
+const BUYER_SCHEMA = (portOpts) => [
   { key: "name", label: "Buyer name *", span: 2 }, { key: "brand", label: "Trading as (brand)", span: 2 },
   { key: "addr", label: "Address", type: "textarea", span: 4 },
-  { key: "country", label: "Country" }, { key: "ship_to", label: "Ship to (port)" },
-  { key: "curr", label: "Currency" }, { key: "order_no", label: "Buyer order no." },
+  { key: "country", label: "Country" },
+  { key: "curr", label: "Currency" }, { key: "order_no", label: "Buyer order no.", span: 2 },
+  {
+    key: "ports", label: "Ports (ship to)", type: "multiselect", options: portOpts, span: 4,
+    hint: "Pick every port this buyer takes delivery at — from Additional settings → Ship to port.",
+    empty: "No ports yet — add them under Setup → Additional settings → Ship to port.",
+  },
   {
     key: "our_reference", label: "Our reference", span: 2,
     hint: "Our own file reference for this buyer — prints under the shipping marks on the supplier purchase order.",
@@ -92,11 +104,23 @@ const BUYER_SCHEMA = [
 
 // The add forms start from the same blanks the edit modals save back to, so a
 // field can never exist in one and be missing from the other.
-const BLANK_SUPPLIER = { code: "", name: "", place: "", gstin: "", addr: "", pin: "", state: "", your_reference: "" };
+const BLANK_SUPPLIER = { code: "", name: "", place: "", gstin: "", addr: "", pin: "", state: "", your_reference: "", gst_pct: "" };
 const BLANK_BUYER = {
   name: "", brand: "", country: "", curr: "USD", ship_to: "", addr: "", order_no: "", our_reference: "",
   tagline: "", ac_code: "", abn: "", acn: "", tel: "", fax: "", web: "", email: "", po_box: "", logo: "",
+  ports: [],
 };
+
+/* The documents still print one "ship to" port for a buyer; it is the first of
+   the ports picked, so the papers and the list never disagree. A buyer saved
+   with no ports keeps whatever port it had. A GST % typed into the side form
+   arrives as text — blank is "not set", which is not 0 %. */
+const withShipTo = (b) => ({ ...b, ports: b.ports || [], ship_to: (b.ports && b.ports[0]) || b.ship_to || "" });
+const gstOf = (v) => (v === "" || v == null ? null : Number(v));
+
+/* A buyer's ports, offered from the master list; a buyer saved before ports
+   were a list shows its old single port ticked. */
+const portsOf = (b) => (b.ports?.length ? b.ports : (b.ship_to ? [b.ship_to] : []));
 const BLANK_TRANSPORT = { name: "", transport_id: "", supplier_ids: [] };
 
 export default function SetupPage() {
@@ -105,6 +129,9 @@ export default function SetupPage() {
   const canItems = has("setup.items");
   const canParties = has("setup.parties");
   const [tab, setTab] = useState(canItems ? "items" : canParties ? "buyers" : "users");
+  const options = useOptions().data || {};
+  const portOpts = (options.ports_ship_to || []).map((p) => ({ value: p, label: p }));
+  const buyerSchema = BUYER_SCHEMA(portOpts);
   const [editing, setEditing] = useState(null);
   // On a phone the add form is a dialog rather than a column beside the list.
   const [creating, setCreating] = useState(null);
@@ -144,11 +171,13 @@ export default function SetupPage() {
         ...(canItems ? [["items", `Items · ${itemCount}`, Layers]] : []),
         ...(canParties ? [["buyers", `Buyers · ${buyers.length}`, Globe], ["suppliers", `Suppliers · ${suppliers.length}`, Truck], ["transports", `Transport · ${transports.length}`, Route]] : []),
         ...(isAdmin ? [["users", `Users · ${users.length}`, UsersIcon]] : []),
+        ...((canItems || canParties) ? [["additional", "Additional settings", SlidersHorizontal]] : []),
       ]} value={tab} onChange={setTab} />
 
       {failed && <Note tone="amber" icon={AlertTriangle}>{failed}</Note>}
 
       {tab === "items" && canItems && <ItemsPanel />}
+      {tab === "additional" && (canItems || canParties) && <AdditionalSettingsPanel />}
 
       {/* ---------------- BUYERS ---------------- */}
       {tab === "buyers" && (
@@ -163,7 +192,20 @@ export default function SetupPage() {
                 <Field label="Country"><Input value={bDraft.country} onChange={(e) => setBDraft({ ...bDraft, country: e.target.value })} placeholder="e.g. Australia" /></Field>
                 <Field label="Currency"><Input value={bDraft.curr} onChange={(e) => setBDraft({ ...bDraft, curr: e.target.value })} /></Field>
               </div>
-              <Field label="Ship to (port)"><Input value={bDraft.ship_to} onChange={(e) => setBDraft({ ...bDraft, ship_to: e.target.value })} placeholder="e.g. Fremantle" /></Field>
+              <Field label="Ports (ship to)" hint="Every port this buyer takes delivery at — added under Setup → Additional settings → Ship to port.">
+                <div className="row wrap" style={{ gap: 6, padding: "4px 0" }}>
+                  {portOpts.length ? portOpts.map((o) => {
+                    const on = bDraft.ports.includes(o.value);
+                    return (
+                      <button key={o.value} type="button" className={`pill${on ? " pill-teal" : ""}`}
+                        style={{ cursor: "pointer", border: "1px solid var(--line)" }}
+                        onClick={() => setBDraft((p) => ({ ...p, ports: on ? p.ports.filter((x) => x !== o.value) : [...p.ports, o.value] }))}>
+                        {on ? "✓ " : ""}{o.label}
+                      </button>
+                    );
+                  }) : <span style={{ fontSize: 12, color: "var(--faint)" }}>No ports yet — add them under Additional settings → Ship to port.</span>}
+                </div>
+              </Field>
               <Field label="Address" hint="Prints as the consignee on the proforma, the customs invoice and the BL annexure.">
                 <textarea className="input" rows={2} style={{ resize: "vertical", fontFamily: "inherit" }}
                   value={bDraft.addr} onChange={(e) => setBDraft({ ...bDraft, addr: e.target.value })}
@@ -175,7 +217,7 @@ export default function SetupPage() {
               </Field>
               <div>
                 <Btn icon={Plus} disabled={!bDraft.name || createBuyer.isPending} onClick={() => createBuyer.mutate(
-                  bDraft,
+                  withShipTo(bDraft),
                   { onSuccess: () => { toast(`Buyer ${bDraft.name} added`); setBDraft(BLANK_BUYER); } },
                 )}>Add buyer</Btn>
               </div>
@@ -198,7 +240,7 @@ export default function SetupPage() {
                 </div>
               </div>
               <div className="grid-3" style={{ marginTop: 12, gap: 12 }}>
-                {[["Country", b.country], ["Currency", b.curr], ["Ship to", b.ship_to], ["Address", b.addr],
+                {[["Country", b.country], ["Currency", b.curr], ["Ports", portsOf(b).join(", ")], ["Address", b.addr],
                   ["Order no.", b.order_no], ["Our reference", b.our_reference], ["Tagline", b.tagline],
                   ["A/C code", b.ac_code], ["Telephone", b.tel], ["E-mail", b.email]].map(([k, v]) => (
                   <div key={k}><div style={{ fontSize: 10.5, color: "var(--faint)" }}>{k}</div><div style={{ fontSize: 12.5, color: "var(--ink-2)", fontWeight: 500 }}>{v || "—"}</div></div>
@@ -231,12 +273,18 @@ export default function SetupPage() {
                 <Field label="PIN code"><Input value={sDraft.pin} onChange={(e) => setSDraft({ ...sDraft, pin: e.target.value })} placeholder="e.g. 396210" /></Field>
                 <Field label="State"><Input value={sDraft.state} onChange={(e) => setSDraft({ ...sDraft, state: e.target.value })} placeholder="e.g. Maharashtra" /></Field>
               </div>
-              <Field label="Your reference" hint="The supplier's own reference for our orders. It prints under the shipping marks on their purchase order and carries into the Excel exports.">
-                <Input value={sDraft.your_reference} onChange={(e) => setSDraft({ ...sDraft, your_reference: e.target.value })} placeholder="e.g. KP/JG/2026-27" />
-              </Field>
+              <div className="grid-2">
+                <Field label="Your reference" hint="The supplier's own reference for our orders. It prints under the shipping marks on their purchase order and carries into the Excel exports.">
+                  <Input value={sDraft.your_reference} onChange={(e) => setSDraft({ ...sDraft, your_reference: e.target.value })} placeholder="e.g. KP/JG/2026-27" />
+                </Field>
+                <Field label="GST %" hint="GST on every item this supplier makes, e.g. 12. Left blank, the documents use the rate the HSN code implies.">
+                  <Input value={sDraft.gst_pct} inputMode="decimal" placeholder="e.g. 12"
+                    onChange={(e) => setSDraft({ ...sDraft, gst_pct: e.target.value.replace(/[^\d.]/g, "").replace(/(\..*)\./g, "$1") })} />
+                </Field>
+              </div>
               <div>
                 <Btn icon={Plus} disabled={!sDraft.name || createSupplier.isPending} onClick={() => createSupplier.mutate(
-                  { ...EMPTY_SUPPLIER, ...sDraft, code: sDraft.code || sDraft.name.slice(0, 2).toUpperCase() },
+                  { ...EMPTY_SUPPLIER, ...sDraft, gst_pct: gstOf(sDraft.gst_pct), code: sDraft.code || sDraft.name.slice(0, 2).toUpperCase() },
                   { onSuccess: () => { toast(`Supplier ${sDraft.name} added`); setSDraft(BLANK_SUPPLIER); } },
                 )}>Add supplier</Btn>
               </div>
@@ -248,6 +296,7 @@ export default function SetupPage() {
                 <div className="row" style={{ gap: 7 }}>
                   <span style={{ color: "var(--ink)", fontWeight: 650, fontSize: 13.5 }}>{s.name}</span>
                   <Pill>{s.code}</Pill>
+                  {s.gst_pct != null && <Pill tone="teal">GST {Number(s.gst_pct)}%</Pill>}
                 </div>
                 <div style={{ fontSize: 11.5, color: "var(--faint)", marginTop: 2 }}>{s.place || "—"} · <Mono>{s.gstin || "—"}</Mono></div>
                 {s.addr && <div style={{ fontSize: 11.5, color: "var(--faint)", marginTop: 2 }}>{s.addr} {s.pin} {s.state}</div>}
@@ -325,9 +374,9 @@ export default function SetupPage() {
       {tab === "users" && isAdmin && <UsersPanel />}
 
       {creating?.type === "buyer" && (
-        <RecordModal title="Add a buyer" cols={4} schema={BUYER_SCHEMA} value={BLANK_BUYER}
+        <RecordModal title="Add a buyer" cols={4} schema={buyerSchema} value={BLANK_BUYER}
           saving={createBuyer.isPending} onClose={() => setCreating(null)}
-          onSave={(body) => createBuyer.mutate(body, {
+          onSave={(body) => createBuyer.mutate(withShipTo(body), {
             onError: (e) => setFailed(e.message),
             onSuccess: () => { toast(`Buyer ${body.name} added`); setCreating(null); },
           })} />
@@ -353,9 +402,10 @@ export default function SetupPage() {
       )}
 
       {editing?.type === "buyer" && (
-        <RecordModal title={`Edit buyer · ${editing.value.name}`} cols={4} schema={BUYER_SCHEMA} value={editing.value}
+        <RecordModal title={`Edit buyer · ${editing.value.name}`} cols={4} schema={buyerSchema}
+          value={{ ...editing.value, ports: portsOf(editing.value) }}
           saving={updateBuyer.isPending} onClose={() => setEditing(null)}
-          onSave={(body) => updateBuyer.mutate({ id: editing.value.id, body }, { onSuccess: () => { toast("Buyer updated"); setEditing(null); } })} />
+          onSave={(body) => updateBuyer.mutate({ id: editing.value.id, body: withShipTo(body) }, { onSuccess: () => { toast("Buyer updated"); setEditing(null); } })} />
       )}
       {editing?.type === "supplier" && (
         <RecordModal title={`Edit supplier · ${editing.value.name}`} cols={4} schema={SUPPLIER_SCHEMA} value={editing.value}

@@ -14,6 +14,7 @@ import { useToast } from "../../providers/ToastProvider.jsx";
 import { inr, usdp, num, todayISO } from "../../lib/format.js";
 import { useDebounced } from "../../lib/useDebounced.js";
 import { downloadGridExcel, downloadGridPDF } from "../../lib/download.js";
+import { useHiddenFields, pruneColumns } from "../../lib/columnPrefs.js";
 
 /* ============================================================
    Costing — the Cost Working sheet, laid out like a new buyer order.
@@ -54,6 +55,7 @@ export default function CostingPanel() {
   const [draftParams, setDraftParams] = useState(null); // null = showing saved values
   const [prices, setPrices] = useState({});             // item id → typed ₹/pc
   const [sup, setSup] = useState("");
+  const hidden = useHiddenFields();
   const [q, setQ] = useState("");
   const [showFormulas, setShowFormulas] = useState(false);
 
@@ -125,11 +127,11 @@ export default function CostingPanel() {
   const real = Number(shown.real_rate) || 0;
   const barcode = Number(shown.barcode_sheet) || 0;
   const carton = Number(shown.carton_price) || 0;
-  const exportCols = [
-    { h: "GD", key: "gd", f: (r) => r.gd },
-    { h: "Code", key: "code", f: (r) => r.code },
-    { h: "Description", key: "description", f: (r) => r.description, w: 32 },
-    { h: "Supplier", key: "supplier", f: (r) => supCode(r.supplier_id) },
+  const exportCols = pruneColumns([
+    { h: "GD", key: "gd", field: "gd", f: (r) => r.gd },
+    { h: "Code", key: "code", field: "code", f: (r) => r.code },
+    { h: "Description", key: "description", field: "description", f: (r) => r.description, w: 32 },
+    { h: "Supplier", key: "supplier", field: "supplier", f: (r) => supCode(r.supplier_id) },
     { h: "Dia", key: "dia", f: (r) => r.dia },
     { h: "Length", key: "length", f: (r) => r.length },
     { h: "Pcs / box", key: "box", t: "int", v: (r) => r.box },
@@ -150,7 +152,7 @@ export default function CostingPanel() {
     { h: "Sell now $/pc", key: "fobnow", t: "usd4", v: (r) => r.fob_now },
     { h: "Profit / pc ₹", key: "profit", t: "inr", fml: `{fobnow}*${real}-{perpc}` },
     { h: "Profit %", key: "profitpct", t: "num1", fml: "IF({perpc}=0,0,{profit}*100/{perpc})" },
-  ];
+  ], hidden);
   const exportOpts = {
     title: "Cost working",
     subtitle: `${sup ? supCode(sup) : "All suppliers"} · exchange ₹${ex}/$ · realisation ₹${real}/$ · as on ${todayISO()}`,

@@ -30,6 +30,9 @@ BACKFILL = {
         "sticker_rule": "'pp'",
         "uom": "'PCS'",
         "source_sheet": "''",
+        # Every item in the master travelled in cartons before packaging types
+        # existed, so that is what the existing rows are given.
+        "packaging_type": "'Cartons'",
     },
     # Accounts that pre-date email verification start out unverified — their
     # owner proves the address on the next sign-in, exactly like a new user.
@@ -52,6 +55,12 @@ BACKFILL = {
         "tel": "''", "fax": "''", "web": "''", "email": "''", "po_box": "''", "logo": "''",
     },
     "transports": {"supplier_ids": None},   # JSON — leave NULL, read as []
+    # buyers.ports is JSON too — NULL reads back as [] (schemas.BuyerBase).
+    # suppliers.gst_pct is deliberately absent: NULL means "not set", and the
+    # documents then use the rate the HSN code implies, exactly as before.
+    # users.first_name / last_name are split out of `name` in Python below.
+    # invoice_lines.position is filled in Python below, in the order the lines
+    # have always been read back in.
     # po_lines price columns are deliberately absent: NULL is meaningful there
     # ("no snapshot — read the item master"), so they must not be backfilled.
     # users.password_history is JSON — leave NULL, which reads back as [].
@@ -88,6 +97,57 @@ def _drop_retired_columns(conn, insp, live_tables: set[str]) -> list[str]:
     return dropped
 
 
+def _backfill_user_names(conn) -> int:
+    """Split the one-box `name` of accounts made before first/last name existed.
+
+    The first word becomes the first name and the rest the last name — the
+    same split the top bar would otherwise have to guess at on every page.
+    """
+    rows = conn.execute(text(
+        'SELECT id, name FROM users WHERE first_name IS NULL OR last_name IS NULL'
+    )).all()
+    for uid, name in rows:
+        parts = str(name or "").strip().split()
+        conn.execute(
+            text('UPDATE users SET first_name = :f, last_name = :l WHERE id = :id'),
+            {"f": parts[0] if parts else "", "l": " ".join(parts[1:]), "id": uid},
+        )
+    return len(rows)
+
+
+# The column each database keeps rows in physical order by — what an
+# un-ordered SELECT hands back, and so the order invoice lines were displayed,
+# numbered and printed in before `position` existed.
+_PHYSICAL_ORDER = {"postgresql": "ctid", "sqlite": "rowid"}
+
+
+def _backfill_line_positions(conn, dialect_name: str) -> int:
+    """Give every invoice line without a `position` the place it already had.
+
+    Carton serial numbers run down an invoice's lines in order, and until now
+    that order was whatever the database returned. Shipped paperwork was
+    printed in that order, so it is frozen exactly as it stood — nothing about
+    an existing invoice's serial ranges moves. Only new invoices are written in
+    the item sequence.
+    """
+    phys = _PHYSICAL_ORDER.get(dialect_name)
+    tail = f", {phys}" if phys else ""
+    invoices = [r[0] for r in conn.execute(text(
+        'SELECT DISTINCT invoice_id FROM invoice_lines WHERE "position" IS NULL'
+    ))]
+    done = 0
+    for inv_id in invoices:
+        ids = [r[0] for r in conn.execute(text(
+            'SELECT id FROM invoice_lines WHERE invoice_id = :i '
+            f'ORDER BY CASE WHEN "position" IS NULL THEN 1 ELSE 0 END, "position"{tail}'
+        ), {"i": inv_id})]
+        for pos, lid in enumerate(ids):
+            conn.execute(text('UPDATE invoice_lines SET "position" = :p WHERE id = :id'),
+                         {"p": pos, "id": lid})
+        done += len(ids)
+    return done
+
+
 def run_migrations() -> list[str]:
     """Add every model column the database is missing. Returns what it did."""
     applied: list[str] = []
@@ -118,6 +178,17 @@ def run_migrations() -> list[str]:
                     ))
 
         dropped = _drop_retired_columns(conn, insp, live_tables)
+
+        # Value backfills that need more than a constant. Each one only touches
+        # rows still missing the value, so a second boot does nothing.
+        if "users" in live_tables:
+            named = _backfill_user_names(conn)
+            if named:
+                applied.append(f"users.first_name/last_name×{named}")
+        if "invoice_lines" in live_tables:
+            placed = _backfill_line_positions(conn, dialect.name)
+            if placed:
+                applied.append(f"invoice_lines.position×{placed}")
 
     if applied:
         log.info("schema migration added: %s", ", ".join(applied))

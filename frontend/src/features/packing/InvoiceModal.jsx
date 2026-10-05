@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
 import { Globe, Truck, Download, Pencil, FileText, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { Modal, Btn, Seg, Pill, Mono, DataTable, Note } from "../../components/ui/index.jsx";
-import { useItems, useBuyers, useSuppliers, usePoLines, useInvoices } from "../../api/hooks.js";
+import { useItems, useBuyers, useSuppliers, usePoLines, useInvoices, useOptions } from "../../api/hooks.js";
+import { useHiddenFields } from "../../lib/columnPrefs.js";
 import { useToast } from "../../providers/ToastProvider.jsx";
 import { dmy, num } from "../../lib/format.js";
 import { hidePriceCols } from "../../lib/priceCols.js";
@@ -20,6 +21,8 @@ export default function InvoiceModal({ inv, onEditShip, onClose }) {
   const poLines = usePoLines().data || [];
   const invoices = useInvoices().data || [];
   const toast = useToast();
+  const sequence = useOptions().data?.item_sequence;
+  const hidden = useHiddenFields();
   const [tab, setTab] = useState("buyer");
 
   const byId = useMemo(() => Object.fromEntries(items.map((i) => [i.id, i])), [items]);
@@ -57,7 +60,7 @@ export default function InvoiceModal({ inv, onEditShip, onClose }) {
     buyerAmt: a.buyerAmt + x.buyerAmt, supAmt: a.supAmt + x.supAmt,
   }), { boxes: 0, pieces: 0, volume: 0, buyerAmt: 0, supAmt: 0 });
 
-  const ctx = () => docCtx({ invoice: inv, items, buyers, suppliers, poLines, invoices });
+  const ctx = () => docCtx({ invoice: inv, items, buyers, suppliers, poLines, invoices, sequence, hidden });
   const grab = (no) => { buildDocument(no, ctx()); toast(`Document ${no} · ${DOC_META[no]} downloaded`); };
 
   /* Rates and amounts are held off screen like everywhere else; the invoice

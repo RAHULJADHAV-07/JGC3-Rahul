@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ShieldCheck, BadgeCheck, MailWarning, KeyRound, Check, Copy,
-  Mail, RotateCw, Timer, Lock, Unlock, LogOut, ShieldAlert,
+  Mail, RotateCw, Timer, Lock, Unlock, LogOut, ShieldAlert, Pencil, X,
 } from "lucide-react";
 import {
   Btn, Field, Input, Modal, Note, Pill, Mono, PasswordInput, PasswordRules,
@@ -38,6 +38,59 @@ const Row = ({ label, children }) => (
     <span className="ud-v">{children}</span>
   </div>
 );
+
+/* First and last name, editable in place — accounts made before the two were
+   asked for were split at the first space, which is right for most names and
+   easy to correct here when it is not. */
+function NameRows({ user, onSaved }) {
+  const firstOf = () => user.first_name || String(user.name || "").trim().split(/\s+/)[0] || "";
+  const lastOf = () => user.last_name ?? String(user.name || "").trim().split(/\s+/).slice(1).join(" ");
+  const [edit, setEdit] = useState(false);
+  const [first, setFirst] = useState(firstOf());
+  const [last, setLast] = useState(lastOf());
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  useEffect(() => { setFirst(firstOf()); setLast(lastOf()); }, [user.id, user.first_name, user.last_name, user.name]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const save = async () => {
+    if (!first.trim()) { setErr("A first name is needed."); return; }
+    setBusy(true);
+    try {
+      await api.users.update(user.id, { first_name: first.trim(), last_name: last.trim() });
+      setErr("");
+      setEdit(false);
+      onSaved?.();
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  };
+
+  if (!edit) {
+    return (
+      <>
+        <Row label="First name">
+          <span className="row nowrap" style={{ gap: 6 }}>
+            {firstOf() || "—"}
+            <button type="button" className="icon-btn bare" title="Edit the name" onClick={() => setEdit(true)}><Pencil size={13} /></button>
+          </span>
+        </Row>
+        <Row label="Last name">{lastOf() || "—"}</Row>
+      </>
+    );
+  }
+  return (
+    <div style={{ gridColumn: "1 / -1" }} className="stack-sm">
+      <div className="grid-2">
+        <Field label="First name"><Input className="input-sm" value={first} onChange={(e) => setFirst(e.target.value)} /></Field>
+        <Field label="Last name"><Input className="input-sm" value={last} onChange={(e) => setLast(e.target.value)} /></Field>
+      </div>
+      {err && <Note tone="amber">{err}</Note>}
+      <div className="row" style={{ gap: 8 }}>
+        <Btn size="sm" icon={Check} disabled={busy} onClick={save}>{busy ? "Saving…" : "Save name"}</Btn>
+        <Btn size="sm" variant="ghost" icon={X} onClick={() => { setEdit(false); setErr(""); }}>Cancel</Btn>
+      </div>
+    </div>
+  );
+}
 
 export default function UserDetailModal({ user, permTree, presets, allPerms, onClose, onSaved }) {
   const step = useStepUp();
@@ -158,7 +211,7 @@ export default function UserDetailModal({ user, permTree, presets, allPerms, onC
     >
       <div className="stack-sm">
         <div className="ud-grid">
-          <Row label="Name">{user.name}</Row>
+          <NameRows user={user} onSaved={onSaved} />
           <Row label="Email"><Mono>{user.email}</Mono></Row>
           <Row label="Role">
             {user.role === "admin"

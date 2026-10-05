@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..deps import require
-from .. import models, calc
+from .. import models, calc, options
 
 router = APIRouter(prefix="/api/reports", tags=["reports"])
 
@@ -22,7 +22,7 @@ def item_order_detail(db: Session = Depends(get_db)):
     """Item-wise order detail with a column per PO, plus the boxes received
     and still pending against each item (doc 37)."""
     items, po_lines, invoices = _ctx(db)
-    return calc.build_item_order_detail(po_lines, items, invoices)
+    return calc.build_item_order_detail(po_lines, items, invoices, rank=options.item_rank(db))
 
 
 @router.get("/supply-details", dependencies=[Depends(_read)])
@@ -45,7 +45,7 @@ def supply_details(
         mode = "po"
     return calc.build_supply_details(
         po_lines, invoices, items, mode=mode, supplier_id=supplier_id or None,
-        date_from=date_from or None, date_to=date_to or None,
+        date_from=date_from or None, date_to=date_to or None, rank=options.item_rank(db),
     )
 
 
@@ -71,6 +71,9 @@ def balance_register(db: Session = Depends(get_db)):
                 "po": d["po"], "buyer_id": d["buyer_id"], "qty": d["qty"], "ordered": d["ordered"],
                 "recd": recd, "pending": d["remaining"], "volume": d["ordered"] * (it.volume or 0),
                 "invoices": sorted(d["invoices"]),
+                # How many boxes each of those invoices delivered on this line.
+                "cleared": calc.cleared_list(d),
+                "supplier_id": it.supplier_id,
             })
         open_demands = [d for d in b["demands"] if d["remaining"] > 0]
         item_rows.append({
@@ -124,7 +127,10 @@ def balance_register(db: Session = Depends(get_db)):
             "pending": pending_by_item.get(e["item_id"], 0),
         })
 
-    po_rows.sort(key=lambda r: (r["po"], r["gd"]))
-    item_rows.sort(key=lambda r: r["gd"])
-    sup_rows.sort(key=lambda r: (r["supplier_id"] or "", r["gd"]))
+    # In the item sequence (Setup → Additional settings), within each order /
+    # supplier — the order every list in the app is read in.
+    rank = options.item_rank(db)
+    po_rows.sort(key=lambda r: (r["po"], rank(items[r["item_id"]])))
+    item_rows.sort(key=lambda r: rank(items[r["item_id"]]))
+    sup_rows.sort(key=lambda r: (rank(items[r["item_id"]]), r["supplier_id"] or ""))
     return {"po": po_rows, "item": item_rows, "supplier": sup_rows}

@@ -1,11 +1,13 @@
 import { useState } from "react";
 import { Check, Pencil } from "lucide-react";
 import { Modal, Btn, Field, Input, Select } from "../../components/ui/index.jsx";
+import PackagingSelect from "./PackagingSelect.jsx";
 
 /* Generic create/edit form driven by a field schema:
 
      { key, label, hint,
-       type: "text" | "number" | "select" | "bool" | "multiselect" | "textarea" | "image",
+       type: "text" | "number" | "pct" | "select" | "bool" | "multiselect" | "textarea" | "image"
+             | "packaging",
        options: [{ value, label }],   // select / multiselect
        span,                          // columns this field occupies
        allowEmpty: false }            // select must keep a value
@@ -31,6 +33,8 @@ export default function RecordModal({ title, schema, value, onSave, onClose, sav
     const out = { ...f };
     fields.forEach((s) => {
       if (s.type === "number") out[s.key] = Number(out[s.key]) || 0;
+      // A percentage left blank is "not set", which is not the same as 0 %.
+      if (s.type === "pct") out[s.key] = out[s.key] === "" || out[s.key] == null ? null : Number(out[s.key]);
       if (s.type === "bool") out[s.key] = out[s.key] === true || out[s.key] === "yes";
       if (s.type === "multiselect") out[s.key] = Array.isArray(out[s.key]) ? out[s.key] : [];
       // An unselected optional select (e.g. supplier) must be null, not "" —
@@ -46,6 +50,15 @@ export default function RecordModal({ title, schema, value, onSave, onClose, sav
   };
 
   const control = (s) => {
+    if (s.type === "packaging") {
+      return <PackagingSelect className="input-sm" value={f[s.key]} onChange={(v) => set(s.key, v)} />;
+    }
+    if (s.type === "pct") {
+      return (
+        <Input className="input-sm" type="text" inputMode="decimal" placeholder={s.placeholder || "e.g. 12"}
+          value={f[s.key] ?? ""} onChange={(e) => set(s.key, e.target.value.replace(/[^\d.]/g, "").replace(/(\..*)\./g, "$1"))} />
+      );
+    }
     if (s.type === "select") {
       return (
         <Select className="input-sm" value={f[s.key] ?? ""} onChange={(e) => set(s.key, e.target.value)}>
@@ -65,9 +78,13 @@ export default function RecordModal({ title, schema, value, onSave, onClose, sav
     }
     if (s.type === "multiselect") {
       const cur = Array.isArray(f[s.key]) ? f[s.key] : [];
+      // A value already saved but since dropped from the option list still
+      // shows, ticked, so saving the record does not silently lose it.
+      const opts = [...s.options, ...cur.filter((v) => !s.options.some((o) => o.value === v)).map((v) => ({ value: v, label: v }))];
+      if (!opts.length) return <div style={{ fontSize: 12, color: "var(--faint)", padding: "6px 0" }}>{s.empty || "Nothing to pick from yet."}</div>;
       return (
         <div className="row wrap" style={{ gap: 6, padding: "4px 0" }}>
-          {s.options.map((o) => (
+          {opts.map((o) => (
             <button key={o.value} type="button" onClick={() => toggle(s.key, o.value)}
               className={`pill${cur.includes(o.value) ? " pill-teal" : ""}`}
               style={{ cursor: "pointer", border: "1px solid var(--line)" }}>

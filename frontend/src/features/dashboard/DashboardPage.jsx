@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Boxes, Ship, ClipboardList, Container, ChevronRight, EyeOff, Undo2, Check } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { Card, CardHead, Btn, Pill, Mono, DataTable, Modal, Empty, Note, Spinner, ErrorState } from "../../components/ui/index.jsx";
+import { Card, CardHead, Btn, Pill, Mono, DataTable, Modal, Empty, Note, Spinner, ErrorState, XScroll } from "../../components/ui/index.jsx";
 import { useDashboardMatrix, useInvoices, useItems, useBuyers, useHiddenPoMutations } from "../../api/hooks.js";
 import { dmy, num } from "../../lib/format.js";
 import { useIsMobile } from "../../lib/useIsMobile.js";
@@ -43,7 +43,7 @@ function BalanceCards({ M, empty, sel, onToggle, onOpenPo }) {
 
       <div className="dt-cards">
         {open.length ? open.map((po) => (
-          <div key={po} className="dt-card click" onClick={onOpenPo}>
+          <div key={po} className="dt-card click" onClick={() => onOpenPo(po)}>
             <div className="dt-card-head">
               <span className="dt-card-title">PO {po}</span>
               <span className="dt-card-n">{dmy(M.po_date[po])}</span>
@@ -77,7 +77,7 @@ function BalanceCards({ M, empty, sel, onToggle, onOpenPo }) {
             <dl className="dt-card-body">
               <div className="dt-pair"><dt>Boxes pending</dt><dd className="r"><b>{totBox}</b></dd></div>
               <div className="dt-pair"><dt>Volume m³</dt><dd className="r">{num(totVol, 2)}</dd></div>
-              <div className="dt-pair"><dt>Containers</dt><dd className="r">{totVol > 0 ? (totVol / M.cntr_vol).toFixed(2) : "—"}</dd></div>
+              <div className="dt-pair"><dt>Containers</dt><dd className="r">{totVol > 0 ? (totVol / M.cntr_vol).toFixed(3) : "—"}</dd></div>
             </dl>
           </div>
         )}
@@ -112,7 +112,7 @@ function InvoiceCards({ rows, brand, onOpen }) {
   return (
     <div className="dt-cards">
       {rows.map(({ inv, boxes, volume }) => (
-        <div key={inv.id} className="dt-card click" onClick={onOpen}>
+        <div key={inv.id} className="dt-card click" onClick={() => onOpen(inv)}>
           <div className="dt-card-head">
             <span className="dt-card-title"><Mono>{inv.invoice_no}</Mono></span>
             <ChevronRight size={15} style={{ color: "var(--faint)", flexShrink: 0 }} />
@@ -205,7 +205,13 @@ export default function DashboardPage() {
   if (mq.error) return <ErrorState error={mq.error} onRetry={mq.refetch} />;
 
   const M = mq.data;
-  const cntr = (vol) => (vol > 0 ? (vol / M.cntr_vol).toFixed(2) : "—");
+  /* CNTRS = pending volume ÷ 30 m³ (the API's cntr_vol), to three places —
+     12.06 m³ reads 0.402. */
+  const cntr = (vol) => (vol > 0 ? (vol / M.cntr_vol).toFixed(3) : "—");
+  /* A PO header opens that purchase order — straight into its item-wise
+     detail — rather than the summary of every order. */
+  const openPo = (po) => nav(`/orders?po=${encodeURIComponent(po)}`);
+  const openInv = (inv) => nav(`/shipments?inv=${encodeURIComponent(inv.id)}`);
   const toggle = (po) => setSel((p) => (p.includes(po) ? p.filter((x) => x !== po) : [...p, po]));
   const removeSelected = () => hide.mutate(sel, { onSuccess: () => { setSel([]); setConfirm(false); } });
 
@@ -239,9 +245,9 @@ export default function DashboardPage() {
         )}
 
         {M.rows.length || emptyPos.length ? (mobile ? (
-          <BalanceCards M={M} empty={emptyPos} sel={sel} onToggle={toggle} onOpenPo={() => nav("/orders")} />
+          <BalanceCards M={M} empty={emptyPos} sel={sel} onToggle={toggle} onOpenPo={openPo} />
         ) : (
-          <div className="tbl-wrap">
+          <XScroll className="tbl-wrap" deps={[M.pos.length, M.rows.length]}>
             <table className="matrix">
               <thead>
                 <tr>
@@ -250,7 +256,7 @@ export default function DashboardPage() {
                     const done = emptyPos.includes(po);
                     return (
                       <th key={po} colSpan={2} className={`mx-po${done ? " mx-done" : ""}${sel.includes(po) ? " mx-picked" : ""}`}
-                        onClick={() => nav("/orders")} title={`Open PO ${po}`}>
+                        onClick={() => openPo(po)} title={`Open PO ${po}`}>
                         <span className="mx-poname">
                           {done && (
                             <input type="checkbox" className="ck mx-ck" checked={sel.includes(po)}
@@ -314,7 +320,7 @@ export default function DashboardPage() {
                 </tr>
               </tfoot>
             </table>
-          </div>
+          </XScroll>
         )) : (
           <Empty icon={Boxes} title="Every order is filled">No boxes are pending across any purchase order.</Empty>
         )}
@@ -322,7 +328,7 @@ export default function DashboardPage() {
           <div className="row wrap" style={{ gap: 18, fontSize: 12, color: "var(--muted)" }}>
             <span className="row" style={{ gap: 6 }}><Boxes size={13} /> {M.totals.totBox} boxes pending</span>
             <span className="row" style={{ gap: 6 }}><ClipboardList size={13} /> {M.pos.length} open PO(s)</span>
-            <span className="row" style={{ gap: 6 }}><Container size={13} /> ≈ {M.containers} container(s) · {num(M.totals.totVol, 2)} m³</span>
+            <span className="row" style={{ gap: 6 }}><Container size={13} /> {num(M.containers_exact ?? (M.totals.totVol / M.cntr_vol), 3)} container(s) at {num(M.cntr_vol, 0)} m³ · {num(M.totals.totVol, 2)} m³</span>
             {hiddenPos.length > 0 && (
               <span className="row wrap" style={{ gap: 6 }}>
                 <EyeOff size={13} /> {hiddenPos.length} removed from this board
@@ -340,7 +346,7 @@ export default function DashboardPage() {
           {!mobile && <span style={{ fontSize: 11.5, color: "var(--faint)" }}>Click a row to open the shipment</span>}
         </CardHead>
         {invoices.length ? (mobile ? (
-          <InvoiceCards rows={invRows} brand={brand} onOpen={() => nav("/shipments")} />
+          <InvoiceCards rows={invRows} brand={brand} onOpen={openInv} />
         ) : (
           <DataTable serial
             freeze={5}
@@ -354,7 +360,7 @@ export default function DashboardPage() {
               { key: "status", label: "Status", render: (r) => <Pill tone={INV_STATUS_TONE[r.inv.status] || ""}>{r.inv.status}</Pill> },
             ]}
             rows={invRows} rowKey={(r) => r.inv.id}
-            onRowClick={() => nav("/shipments")}
+            onRowClick={(r) => openInv(r.inv)}
           />
         )) : <Empty icon={Ship} title="No invoices yet">Record packing to create the first invoice.</Empty>}
       </Card>

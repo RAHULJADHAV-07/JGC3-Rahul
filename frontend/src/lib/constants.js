@@ -37,9 +37,9 @@ export const EMPTY_ITEM = {
   bg_per_box: 0, p_per_box: 0, type_up: 0, sticker_mult: 1.1, sticker_round: false,
   stickers_fixed: 0, label_spoilage: 1, sticker_rule: "pp", uom: "PCS",
   value_mode: "piece", unit_value: 0, fob_mode: "100", unit_fob100: 0,
-  group: "", source_sheet: "", supplier_id: null,
+  group: "", source_sheet: "", supplier_id: null, packaging_type: "Cartons",
 };
 
 export const EMPTY_SUPPLIER = {
-  code: "", name: "", place: "", gstin: "", addr: "", pin: "", state: "", weights: "auto",
+  code: "", name: "", place: "", gstin: "", addr: "", pin: "", state: "", weights: "auto", gst_pct: null,
 };

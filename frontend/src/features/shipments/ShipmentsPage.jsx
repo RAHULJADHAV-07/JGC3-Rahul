@@ -1,6 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Ship, FileText, Pencil, ChevronRight, ArrowRight, Truck, Container } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   Card, CardHead, Btn, Pill, Mono, DataTable, Empty, Note, Stat, Spinner, ErrorState,
 } from "../../components/ui/index.jsx";
@@ -24,6 +24,16 @@ export default function ShipmentsPage() {
   const items = useItems().data || [];
   const buyers = useBuyers().data || [];
   const invoices = invq.data || [];
+  const [params, setParams] = useSearchParams();
+
+  /* /shipments?inv=… — the dashboard's invoice rows land here with that
+     invoice already open. The link is spent once used. */
+  useEffect(() => {
+    const want = params.get("inv");
+    if (!want || invq.isLoading) return;
+    if (invoices.some((i) => i.id === want)) setOpenId(want);
+    setParams({}, { replace: true });
+  }, [params, invq.isLoading, invoices]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const byId = useMemo(() => Object.fromEntries(items.map((i) => [i.id, i])), [items]);
   const brand = (id) => buyers.find((b) => b.id === id)?.brand || "—";

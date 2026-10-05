@@ -69,13 +69,16 @@ def create_user(
     db: Session = Depends(get_db),
     me: models.User = Depends(require_admin),
 ):
+    if not body.first_name:
+        raise HTTPException(400, "Enter the person's first name")
     if db.query(models.User).filter(models.User.email == _norm(body.email)).first():
         raise HTTPException(409, "That email is already registered")
     check_match(body.password, body.confirm_password)
     check_password(body.password, name=body.name, email=body.email)
     role = "admin" if body.role == "admin" else "user"
     obj = models.User(
-        email=_norm(body.email), name=body.name.strip(),
+        email=_norm(body.email), name=body.name,
+        first_name=body.first_name, last_name=body.last_name,
         password_hash=hash_password(body.password), role=role,
         status=body.status if body.status in ("active", "pending", "disabled") else "active",
         access=list(ALL_PERMS) if role == "admin" else clean_access(body.access),
@@ -141,8 +144,18 @@ def update_user(
         if obj.status != data["status"]:
             changed.append("status")
         obj.status = data["status"]
-    if "name" in data and data["name"]:
+    # The name arrives either in two halves or as one line; whichever it is,
+    # all three columns are kept in step so no reader sees a stale half.
+    if data.get("first_name") is not None or data.get("last_name") is not None:
+        first = (data.get("first_name") if data.get("first_name") is not None else obj.first_name) or ""
+        last = (data.get("last_name") if data.get("last_name") is not None else obj.last_name) or ""
+        if not first.strip():
+            raise HTTPException(400, "Enter the person's first name")
+        obj.first_name, obj.last_name = first.strip(), last.strip()
+        obj.name = schemas.full_name(obj.first_name, obj.last_name)
+    elif "name" in data and data["name"]:
         obj.name = data["name"].strip()
+        obj.first_name, obj.last_name = schemas.split_name(obj.name)
     if "access" in data and data["access"] is not None:
         obj.access = clean_access(data["access"])
         changed.append("access")

@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..deps import active_user, require_admin
-from .. import models, schemas, calc, masters_import
+from .. import models, schemas, calc, masters_import, options
 
 router = APIRouter(prefix="/api/masters", tags=["masters"])
 
@@ -75,7 +75,7 @@ def order_master(po: str, db: Session = Depends(get_db)):
     lines = db.query(models.PurchaseOrderLine).filter(models.PurchaseOrderLine.po == po).all()
     if not lines:
         raise HTTPException(404, "Purchase order not found")
-    return calc.build_order_master(po, lines, items)
+    return calc.build_order_master(po, lines, items, rank=options.item_rank(db))
 
 
 @router.get("/supplier/{supplier_id}", dependencies=[Depends(active_user)])
@@ -84,7 +84,8 @@ def supplier_master(supplier_id: str, date_from: str | None = None,
     """Master 7A — one supplier's order, every open PO rolled together."""
     items = {i.id: i for i in db.query(models.Item).all()}
     lines = db.query(models.PurchaseOrderLine).all()
-    return calc.build_supplier_master(supplier_id, lines, items, date_from, date_to)
+    return calc.build_supplier_master(supplier_id, lines, items, date_from, date_to,
+                                      rank=options.item_rank(db))
 
 
 @router.get("/order-lines", dependencies=[Depends(active_user)])

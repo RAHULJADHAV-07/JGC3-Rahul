@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..deps import require, active_user
-from .. import models, schemas, calc
+from .. import models, schemas, calc, options
 
 router = APIRouter(prefix="/api/items", tags=["items"])
 
@@ -55,6 +55,9 @@ def list_items(
             terms.append(models.Item.supplier_id.in_(sup_ids))
         query = query.filter(or_(*terms))
     rows = query.order_by(models.Item.group, models.Item.gd, models.Item.code).all()
+    # The item sequence every list is read in: Oswin by bore, then VP-PP,
+    # Hansa-PP, Hansa-GRN, VP-GRN (Setup → Additional settings).
+    rows.sort(key=options.item_rank(db))
     return [_out(r) for r in rows]
 
 

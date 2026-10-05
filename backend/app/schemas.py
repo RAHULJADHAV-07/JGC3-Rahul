@@ -24,6 +24,8 @@ class UserOut(ORMModel):
     id: str
     email: str
     name: str
+    first_name: str = ""
+    last_name: str = ""
     role: str
     status: str
     access: list[str] = []
@@ -44,6 +46,11 @@ class UserOut(ORMModel):
     @classmethod
     def _none_is_false(cls, v):
         return bool(v)
+
+    @field_validator("first_name", "last_name", mode="before")
+    @classmethod
+    def _none_is_blank(cls, v):
+        return v or ""
 
 
 class LoginRequest(_Email):
@@ -137,16 +144,46 @@ class ForcedPasswordChange(BaseModel):
     confirm_password: str = ""
 
 
-class BootstrapRequest(_Email):
+def full_name(first: str | None, last: str | None, name: str | None = None) -> str:
+    """The one-line name every older reader uses, built from its two halves
+    when they were given, or the single name when only that was."""
+    joined = " ".join(p for p in (str(first or "").strip(), str(last or "").strip()) if p)
+    return joined or str(name or "").strip()
+
+
+def split_name(name: str | None) -> tuple[str, str]:
+    parts = str(name or "").strip().split()
+    return (parts[0] if parts else "", " ".join(parts[1:]))
+
+
+class _Named(BaseModel):
+    """A person's name, taken either in two halves (first / last — how Setup
+    → Users asks for it now) or as one string (how older callers send it).
+    Whichever arrives, all three fields leave here filled in."""
+    name: str = ""
+    first_name: str = ""
+    last_name: str = ""
+
+    @field_validator("name", "first_name", "last_name", mode="before")
+    @classmethod
+    def _strip(cls, v):
+        return str(v or "").strip()
+
+    def model_post_init(self, __context) -> None:
+        if self.first_name or self.last_name:
+            self.name = full_name(self.first_name, self.last_name)
+        elif self.name:
+            self.first_name, self.last_name = split_name(self.name)
+
+
+class BootstrapRequest(_Named, _Email):
     """Creates the very first admin — only works while no users exist."""
-    name: str
     email: EmailStr
     password: str
     confirm_password: str = ""
 
 
-class UserCreate(_Email):
-    name: str
+class UserCreate(_Named, _Email):
     email: EmailStr
     password: str
     confirm_password: str = ""
@@ -160,6 +197,8 @@ class UserCreate(_Email):
 
 class UserUpdate(BaseModel):
     name: Optional[str] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
     email: Optional[EmailStr] = None
     password: Optional[str] = None
     role: Optional[str] = None
@@ -185,6 +224,20 @@ class AuditRow(ORMModel):
 
 
 # ---------- Supplier ----------
+def _pct_or_none(v):
+    """A percentage typed into a form: blank means "not set", anything else
+    must be a number from 0 to 100."""
+    if v is None or (isinstance(v, str) and not v.strip()):
+        return None
+    try:
+        n = float(v)
+    except (TypeError, ValueError):
+        raise ValueError("GST % must be a number, e.g. 12")
+    if n < 0 or n > 100:
+        raise ValueError("GST % must be between 0 and 100")
+    return n
+
+
 class SupplierBase(BaseModel):
     code: str
     name: str
@@ -195,11 +248,19 @@ class SupplierBase(BaseModel):
     state: str = ""
     weights: str = "auto"
     your_reference: str = ""
+    # GST on this supplier's goods, in percent. None = not set (the documents
+    # fall back to the HSN rate). Blank in the form arrives as "" — also None.
+    gst_pct: Optional[float] = None
 
     @field_validator("your_reference", mode="before")
     @classmethod
     def _ref_none_is_blank(cls, v):
         return v or ""
+
+    @field_validator("gst_pct", mode="before")
+    @classmethod
+    def _gst_blank_is_unset(cls, v):
+        return _pct_or_none(v)
 
 
 class SupplierCreate(SupplierBase):
@@ -208,6 +269,7 @@ class SupplierCreate(SupplierBase):
 
 class SupplierUpdate(BaseModel):
     model_config = ConfigDict(extra="ignore")
+    gst_pct: Optional[float] = None
     code: Optional[str] = None
     name: Optional[str] = None
     place: Optional[str] = None
@@ -217,6 +279,11 @@ class SupplierUpdate(BaseModel):
     state: Optional[str] = None
     weights: Optional[str] = None
     your_reference: Optional[str] = None
+
+    @field_validator("gst_pct", mode="before")
+    @classmethod
+    def _gst_blank_is_unset(cls, v):
+        return _pct_or_none(v)
 
 
 class Supplier(SupplierBase, ORMModel):
@@ -249,11 +316,18 @@ class BuyerBase(BaseModel):
     email: str = ""
     po_box: str = ""
     logo: str = ""
+    ports: list[str] = Field(default_factory=list)
 
     @field_validator("our_reference", *BUYER_LETTERHEAD, mode="before")
     @classmethod
     def _ref_none_is_blank(cls, v):
         return v or ""
+
+    # Rows written before the column existed read back as NULL.
+    @field_validator("ports", mode="before")
+    @classmethod
+    def _ports_none_is_empty(cls, v):
+        return [str(p).strip() for p in (v or []) if str(p).strip()]
 
 
 class BuyerCreate(BuyerBase):
@@ -280,6 +354,7 @@ class BuyerUpdate(BaseModel):
     email: Optional[str] = None
     po_box: Optional[str] = None
     logo: Optional[str] = None
+    ports: Optional[list[str]] = None
 
 
 class Buyer(BuyerBase, ORMModel):
@@ -318,6 +393,12 @@ class ItemBase(BaseModel):
     group: str = ""
     source_sheet: str = ""
     supplier_id: Optional[str] = None
+    packaging_type: str = "Cartons"
+
+    @field_validator("packaging_type", mode="before")
+    @classmethod
+    def _packaging_default(cls, v):
+        return str(v or "").strip() or "Cartons"
 
 
 class ItemCreate(ItemBase):
@@ -356,6 +437,7 @@ class ItemUpdate(BaseModel):
     group: Optional[str] = None
     source_sheet: Optional[str] = None
     supplier_id: Optional[str] = None
+    packaging_type: Optional[str] = None
 
 
 class Item(ItemBase, ORMModel):
@@ -440,6 +522,7 @@ class InvoiceLineOut(ORMModel):
     value_mode: Optional[str] = None
     unit_fob100: Optional[float] = None
     fob_mode: Optional[str] = None
+    position: Optional[int] = None
 
 
 class InvoiceCreate(BaseModel):
@@ -449,6 +532,10 @@ class InvoiceCreate(BaseModel):
     rbi: float = 0.0
     serial_start: int = 0
     packing_transports: dict[str, Any] = Field(default_factory=dict)
+    # Shipment terms picked while recording the packing — delivery and payment
+    # terms, ports, the bank, the carting date and the booking number. The
+    # same `ship` block the shipment details screen edits later.
+    ship: dict[str, Any] = Field(default_factory=dict)
     lines: list[InvoiceLineIn]
 
 
@@ -463,6 +550,15 @@ class InvoiceUpdate(BaseModel):
     step_skip: Optional[dict[str, Any]] = None
     packing_transports: Optional[dict[str, Any]] = None
     lines: Optional[list[InvoiceLineIn]] = None
+
+
+class AllocationPreviewIn(BaseModel):
+    """Boxes about to be packed, asked "which orders would these clear?"
+    before the invoice exists. `exclude_invoice_id` is the invoice being
+    edited, whose own boxes must not count as already delivered."""
+    date: str
+    lines: list[InvoiceLineIn] = []
+    exclude_invoice_id: Optional[str] = None
 
 
 class InvoiceOut(ORMModel):

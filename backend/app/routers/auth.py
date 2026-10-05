@@ -234,11 +234,14 @@ def bootstrap(
     ratelimit.check(db, ratelimit.ip_bucket("bootstrap", request), settings.rl_login_ip)
     if db.query(models.User).count() > 0:
         raise HTTPException(409, "This system already has an admin — please sign in")
+    if not body.first_name:
+        raise HTTPException(400, "Enter your first name")
     check_match(body.password, body.confirm_password)
     check_password(body.password, name=body.name, email=body.email)
     now = datetime.utcnow()
     user = models.User(
-        email=_norm(body.email), name=body.name.strip(),
+        email=_norm(body.email), name=body.name,
+        first_name=body.first_name, last_name=body.last_name,
         password_hash=hash_password(body.password),
         role="admin", status="active", access=list(ALL_PERMS),
         last_login=now,

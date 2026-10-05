@@ -1,11 +1,12 @@
 import { useMemo, useState } from "react";
 import { FileText, Check, Trash2, Hash, Plus, X } from "lucide-react";
 import {
-  Modal, Btn, Field, Input, NumberInput, Pill, Mono, Note, Empty,
+  Modal, Btn, Field, Input, NumberInput, Pill, Mono, Note, Empty, XScroll,
 } from "../../components/ui/index.jsx";
 import ItemPicker from "../../components/ItemPicker.jsx";
-import { useItems, useSuppliers, useInvoiceMutations } from "../../api/hooks.js";
+import { useItems, useSuppliers, useInvoiceMutations, useOptions } from "../../api/hooks.js";
 import { useToast } from "../../providers/ToastProvider.jsx";
+import { bySequence } from "../../lib/sequence.js";
 
 /* Edit an invoice — number, date, serial start, and the lines themselves:
    retype the boxes, drop an item that never went on the container, or add one
@@ -33,15 +34,24 @@ export default function InvoiceEditModal({ inv, onClose }) {
 
   const byId = useMemo(() => Object.fromEntries(items.map((i) => [i.id, i])), [items]);
   const supCode = (id) => suppliers.find((s) => s.id === id)?.code || "—";
+  const sequence = useOptions().data?.item_sequence;
 
   const setBoxes = (key, v) => setLines((p) => p.map((l) => (l.key === key ? { ...l, boxes: v } : l)));
   const drop = (key) => setLines((p) => p.filter((l) => l.key !== key));
-  /* Everything typed into the picker joins the invoice in one action. */
+  /* Everything typed into the picker joins the invoice in one action — each
+     line slotted in where the item sequence puts it, ahead of the first line
+     that comes after it. The lines already there keep their order, so the
+     cartons already numbered on this invoice do not move. */
   const add = (picked) => {
-    setLines((p) => [...p, ...picked.map(({ variant, qty }, i) => ({
-      key: `new:${variant.item_id}:${Date.now()}:${i}`, item_id: variant.item_id,
-      supplier_id: variant.supplier_id, boxes: String(qty), fresh: true,
-    }))]);
+    const cmp = bySequence({ suppliers, sequence, getItem: (l) => byId[l.item_id] || {}, supplierOf: (l) => l.supplier_id });
+    setLines((p) => picked.reduce((list, { variant, qty }, i) => {
+      const line = {
+        key: `new:${variant.item_id}:${Date.now()}:${i}`, item_id: variant.item_id,
+        supplier_id: variant.supplier_id, boxes: String(qty), fresh: true,
+      };
+      const at = list.findIndex((l) => cmp(line, l) < 0);
+      return at < 0 ? [...list, line] : [...list.slice(0, at), line, ...list.slice(at)];
+    }, p));
     setAdding(false);
   };
 
@@ -112,7 +122,7 @@ export default function InvoiceEditModal({ inv, onClose }) {
       {lines.length ? (
         // The table scrolls sideways on its own, so a narrow screen does not
         // drag the invoice fields off with it.
-        <div className="tbl-wrap edit-tbl">
+        <XScroll className="tbl-wrap edit-tbl" deps={[lines.length]}>
         <table className="tbl">
           <thead>
             <tr>
@@ -147,7 +157,7 @@ export default function InvoiceEditModal({ inv, onClose }) {
             })}
           </tbody>
         </table>
-        </div>
+        </XScroll>
       ) : (
         <Empty icon={FileText} title="Every line has been removed">
           An invoice needs at least one item. Add one above, or delete the invoice outright.

@@ -1,4 +1,20 @@
-import { L, P7, RUPEE, bcDescription, ddmm, esc, fitSheet, hsnText, hsnValue, poBannerList, poStack, sum, wbRupee } from "./common.js";
+import { L, P7, RUPEE, bcDescription, ddmm, esc, fitSheet, hsnText, hsnValue, poBannerList, poStack, sum, supplierGst, wbRupee } from "./common.js";
+
+/* The IGST the sheet closes on. 18 % unless the supplier carries a GST % of
+   its own (Setup → Suppliers); a sheet holding several suppliers at
+   different rates taxes each one's lines at its own rate. */
+export function purchaseGst(ctx, rows) {
+  const rateOf = (r) => supplierGst(ctx, r.supId) ?? 0.18;
+  const rates = [...new Set(rows.map(rateOf))];
+  const pct = (x) => `${Number((x * 100).toFixed(2))}%`;
+  return {
+    rateOf,
+    label: rates.length <= 1 ? `IGST @ ${pct(rates[0] ?? 0.18)}` : "IGST (supplier GST %)",
+    single: rates.length <= 1 ? (rates[0] ?? 0.18) : null,
+    amount: Math.round(rows.reduce((n, r) => n + r.valTotal * rateOf(r), 0)),
+    pct,
+  };
+}
 
 /* Doc 8 · Purchase (Supplier) — against 8-Purchase.xlsx. The packing sheet
    without the volumes and weights, and with what we pay the factory on the end:
@@ -36,6 +52,8 @@ export function supplierPurchaseSheet(ctx, rows) {
   let band = firstBand;
   let first = 0;
   let last = 0;
+  const gst = purchaseGst(ctx, rows);
+  const lineAt = [];                     // [sheet row, rate] per goods line
   rows.forEach((r) => {
     const g = String(r.it.group || "").trim();
     if (g && g !== band) {
@@ -69,6 +87,7 @@ export function supplierPurchaseSheet(ctx, rows) {
     ]);
     if (!first) first = line;
     last = line;
+    lineAt.push([line, gst.rateOf(r)]);
     heights.push(25.5);
   });
 
@@ -82,8 +101,14 @@ export function supplierPurchaseSheet(ctx, rows) {
     ]);
     const valueRow = out.length;
     const blanks = Array(14).fill(null).map(() => ({ v: "", s: S.tailBlank }));
-    out.push([...blanks, { v: "IGST @ 18%", s: S.tailLabel },
-      { f: `ROUND(P${valueRow}*18%,0)`, s: S.totMoney }]);
+    /* One rate: the total at it, as their sheet has it. Several: each rate
+       against the lines it applies to. */
+    const byRate = new Map();
+    lineAt.forEach(([row, rate]) => byRate.set(rate, [...(byRate.get(rate) || []), `P${row}`]));
+    const igst = gst.single != null
+      ? `ROUND(P${valueRow}*${gst.pct(gst.single)},0)`
+      : `ROUND(${[...byRate].map(([rate, cells]) => `SUM(${cells.join(",")})*${gst.pct(rate)}`).join("+")},0)`;
+    out.push([...blanks, { v: gst.label, s: S.tailLabel }, { f: igst, s: S.totMoney }]);
     heights[out.length - 1] = 15;
     out.push([...blanks, { v: "INV VALUE", s: S.tailLabel },
       { f: `SUM(P${valueRow}:P${valueRow + 1})`, s: S.totMoney }]);
@@ -112,7 +137,8 @@ export const B_8 = (ctx) => {
   const groups = [...new Set(rows.map((r) => String(r.it.group || "").trim()).filter(Boolean))];
   let band = groups.length ? groups[0] : "";
   const value = sum(rows, "valTotal");
-  const igst = Math.round(value * 0.18);
+  const gst = purchaseGst(ctx, rows);
+  const igst = gst.amount;
   const body = rows.map((r) => {
     const it = r.it;
     const g = String(it.group || "").trim();
@@ -157,7 +183,7 @@ export const B_8 = (ctx) => {
         <td class="r" data-t="int" data-sum="box">${sum(rows, "boxes")}</td>
         <td></td>
         <td class="r" data-t="inr" data-sum="valtot">${wbRupee(value)}</td></tr>
-      <tr class="tot"><td class="nb" colspan="14"></td><td>IGST @ 18%</td>
+      <tr class="tot"><td class="nb" colspan="14"></td><td>${esc(gst.label)}</td>
         <td class="r" data-t="inr" data-v="${igst}">${wbRupee(igst)}</td></tr>
       <tr class="tot"><td class="nb" colspan="14"></td><td>INV VALUE</td>
         <td class="r" data-t="inr" data-v="${value + igst}">${wbRupee(value + igst)}</td></tr>

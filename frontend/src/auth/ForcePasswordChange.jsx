@@ -3,6 +3,7 @@ import { Anchor, KeyRound, ShieldCheck, LogOut } from "lucide-react";
 import { Btn, Field, Note, PasswordInput, PasswordRules } from "../components/ui/index.jsx";
 import { passwordOk } from "../lib/password.js";
 import { useAuth } from "./AuthProvider.jsx";
+import { versionLabel } from "../lib/releases.js";
 
 /* The one screen an account with `must_change_password` can reach.
 
@@ -109,7 +110,7 @@ export default function ForcePasswordChange() {
             </Btn>
           </div>
         </div>
-        <div className="login-foot">Maintained and developed by <b>Avita Technologies</b> · V-6.3.0</div>
+        <div className="login-foot">Maintained and developed by <b>Avita Technologies</b> · {versionLabel()}</div>
       </div>
     </div>
   );

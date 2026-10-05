@@ -1,3 +1,6 @@
+import { itemRank } from "./sequence.js";
+import { DOC_BLANKABLE } from "./columnPrefs.js";
+
 /* Adapter — API records into the shape the document engine reads.
 
    `lib/docs.js` is the reference build's engine, kept verbatim so all 40
@@ -16,18 +19,45 @@ export const EXPORTER = {
   origin: "INDIA",
 };
 
-export const docItem = (i) => ({
-  id: i.id, code: i.code, gd: i.gd, oswin: i.oswin, gl: i.gl,
-  size: i.size, length: i.length, packing: i.packing, packUnit: i.pack_unit,
-  description: i.description, barcode: i.barcode, hsn: i.hsn,
-  volume: i.volume, netPerBox: i.net_per_box, grossPerBox: i.gross_per_box,
-  bgPerBox: i.bg_per_box, pPerBox: i.p_per_box, typeUp: i.type_up,
-  stickerMult: i.sticker_mult, stickerRound: i.sticker_round, stickerRule: i.sticker_rule,
-  stickersFixed: i.stickers_fixed, labelSpoilage: i.label_spoilage,
-  uom: i.uom, valueMode: i.value_mode, unitValue: i.unit_value,
-  fobMode: i.fob_mode, unitFob100: i.unit_fob100,
-  group: i.group, supplierId: i.supplier_id,
-});
+/* `hidden` is the set of item fields unticked under Setup → Items. The
+   papers blank the ones that are pure identity (OSWIN, GL, bar code); see
+   lib/columnPrefs.js for why the rest always print. */
+export const docItem = (i, hidden) => {
+  const blank = (k, v) => (hidden && DOC_BLANKABLE[k] && hidden.has(k) ? "" : v);
+  return {
+    id: i.id, code: i.code, gd: i.gd, oswin: blank("oswin", i.oswin), gl: blank("gl", i.gl),
+    size: i.size, length: i.length, packing: i.packing, packUnit: i.pack_unit,
+    description: i.description, barcode: blank("barcode", i.barcode), hsn: i.hsn,
+    volume: i.volume, netPerBox: i.net_per_box, grossPerBox: i.gross_per_box,
+    bgPerBox: i.bg_per_box, pPerBox: i.p_per_box, typeUp: i.type_up,
+    stickerMult: i.sticker_mult, stickerRound: i.sticker_round, stickerRule: i.sticker_rule,
+    stickersFixed: i.stickers_fixed, labelSpoilage: i.label_spoilage,
+    uom: i.uom, valueMode: i.value_mode, unitValue: i.unit_value,
+    fobMode: i.fob_mode, unitFob100: i.unit_fob100,
+    group: i.group, supplierId: i.supplier_id,
+    sourceSheet: i.source_sheet, packagingType: i.packaging_type || "Cartons",
+  };
+};
+
+/* The item sequence as a comparator over document items — what L() and
+   orderAgg() list rows in (Oswin by bore, then VP-PP, Hansa-PP, Hansa-GRN,
+   VP-GRN; Setup → Additional settings may reorder it). */
+export function itemComparator(suppliers = [], sequence) {
+  const codeOf = Object.fromEntries((suppliers || []).map((s) => [s.id, s.code]));
+  const keys = new Map();
+  const keyOf = (it) => {
+    if (!keys.has(it)) keys.set(it, itemRank(it, codeOf[it?.supplierId] || "", sequence));
+    return keys.get(it);
+  };
+  return (a, b) => {
+    const x = keyOf(a), y = keyOf(b);
+    for (let i = 0; i < x.length; i++) {
+      if (x[i] === y[i]) continue;
+      return typeof x[i] === "number" && typeof y[i] === "number" ? x[i] - y[i] : String(x[i]).localeCompare(String(y[i]));
+    }
+    return 0;
+  };
+}
 
 export const docBuyer = (b) => (b ? {
   id: b.id, name: b.name, brand: b.brand, country: b.country, curr: b.curr,
@@ -48,6 +78,8 @@ export const docSupplier = (s) => ({
   id: s.id, code: s.code, name: s.name, place: s.place, gstin: s.gstin,
   addr: s.addr, pin: s.pin, state: s.state,
   yourReference: s.your_reference || "",
+  // GST on this supplier's goods, in percent; null = not set (HSN rate).
+  gstPct: s.gst_pct ?? null,
 });
 
 export const docTransport = (t) => ({
@@ -95,16 +127,26 @@ export const docOrderLines = (poLines, itemsById) =>
     };
   }).filter(Boolean);
 
-/* Assemble everything one document needs. */
-export function docCtx({ invoice, items = [], buyers = [], suppliers = [], poLines = [], transports = [], invoices = [] }) {
-  const docItems = items.map(docItem);
+/* Assemble everything one document needs.
+
+   `supplierId` narrows every paper to one supplier's goods (the Documents
+   page's supplier filter); `sequence` is the item order the rows are listed
+   in; `hidden` the item fields Setup → Items has unticked. */
+export function docCtx({
+  invoice, items = [], buyers = [], suppliers = [], poLines = [], transports = [], invoices = [],
+  supplierId = "", sequence, hidden,
+}) {
+  const docItems = items.map((i) => docItem(i, hidden));
   const byId = Object.fromEntries(docItems.map((i) => [i.id, i]));
   const sups = suppliers.map(docSupplier);
   const inv = docInvoice(invoice);
   const buyer = docBuyer(buyers.find((b) => b.id === invoice?.buyer_id) || buyers[0]);
+  const lines = docOrderLines(poLines, byId);
   return {
     inv, buyer, items: docItems,
-    buyerMaster: docOrderLines(poLines, byId),
+    supplierId: supplierId || "",
+    cmpItems: itemComparator(suppliers, sequence),
+    buyerMaster: supplierId ? lines.filter((r) => r.item.supplierId === supplierId) : lines,
     invoices: invoices.map(docInvoice),
     SUPPLIERS: sups,
     BUYERS: buyers.map(docBuyer),
@@ -123,17 +165,24 @@ export function docCtx({ invoice, items = [], buyers = [], suppliers = [], poLin
    and no shipment details — those genuinely do not exist yet and print blank.
    `ctx.po` marks the context as PO-stage; `orderRefOf` in lib/docs.js prints
    that number as the order reference. */
-export function poCtx({ po, items = [], buyers = [], suppliers = [], poLines = [], transports = [] }) {
-  const docItems = items.map(docItem);
+export function poCtx({
+  po, items = [], buyers = [], suppliers = [], poLines = [], transports = [],
+  supplierId = "", sequence, hidden,
+}) {
+  const docItems = items.map((i) => docItem(i, hidden));
   const byId = Object.fromEntries(docItems.map((i) => [i.id, i]));
   const sups = suppliers.map(docSupplier);
-  const mine = (poLines || []).filter((r) => r.po === po);
-  const date = mine.reduce((min, r) => (!min || r.date < min ? r.date : min), null);
-  const buyerId = mine.find((r) => r.buyer_id)?.buyer_id || null;
-  const rbi = mine.find((r) => r.rbi)?.rbi || 0;
+  const all = (poLines || []).filter((r) => r.po === po);
+  // Narrowed to one supplier, the order is that supplier's lines of it.
+  const mine = supplierId ? all.filter((r) => byId[r.item_id]?.supplierId === supplierId) : all;
+  const date = all.reduce((min, r) => (!min || r.date < min ? r.date : min), null);
+  const buyerId = all.find((r) => r.buyer_id)?.buyer_id || null;
+  const rbi = all.find((r) => r.rbi)?.rbi || 0;
 
   return {
     po,
+    supplierId: supplierId || "",
+    cmpItems: itemComparator(suppliers, sequence),
     inv: {
       id: `po-${po}`, invoiceNo: "", date: date || new Date().toISOString().slice(0, 10),
       buyerId, rbi, serialStart: 1,

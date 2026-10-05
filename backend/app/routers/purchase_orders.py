@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..deps import require
-from .. import models, schemas, calc
+from .. import models, schemas, calc, options
 
 router = APIRouter(prefix="/api/purchase-orders", tags=["purchase-orders"])
 
@@ -27,7 +27,7 @@ def _ctx(db: Session):
 def list_purchase_orders(db: Session = Depends(get_db)):
     """Grouped PO roll-up with delivery status and completed suppliers dropped."""
     items, po_lines, invoices = _ctx(db)
-    return calc.build_po_list(po_lines, invoices, items)
+    return calc.build_po_list(po_lines, invoices, items, rank=options.item_rank(db))
 
 
 @router.get("/lines", dependencies=[Depends(_read)])
@@ -147,7 +147,8 @@ def apply_prices(item_id: str | None = None, db: Session = Depends(get_db)):
 @router.get("/{po}", dependencies=[Depends(_read)])
 def get_purchase_order(po: str, db: Session = Depends(get_db)):
     items, po_lines, invoices = _ctx(db)
-    match = next((p for p in calc.build_po_list(po_lines, invoices, items) if p["po"] == po), None)
+    match = next((p for p in calc.build_po_list(po_lines, invoices, items, rank=options.item_rank(db))
+                  if p["po"] == po), None)
     if not match:
         raise HTTPException(404, "Purchase order not found")
     return match

@@ -7,6 +7,7 @@ import {
 import { useSupplyDetails, useSuppliers } from "../../api/hooks.js";
 import { dmyNum, num, boxesExact, todayISO } from "../../lib/format.js";
 import { downloadGridExcel, downloadGridPDF } from "../../lib/download.js";
+import { useHiddenFields, pruneColumns } from "../../lib/columnPrefs.js";
 
 /* ============================================================================
    38 · Supply details, item wise / supplier wise.
@@ -35,6 +36,7 @@ export default function SupplyDetailsPanel() {
 
   const suppliers = useSuppliers().data || [];
   const supCode = (id) => suppliers.find((s) => s.id === id)?.code || "—";
+  const hidden = useHiddenFields();
 
   const q = useSupplyDetails({ mode, supplier_id: sup, date_from: from, date_to: to });
   const data = q.data || { cols: [], rows: [], totals: { per_col: {} }, ranged: false };
@@ -78,13 +80,13 @@ export default function SupplyDetailsPanel() {
   ];
 
   /* ---- as it downloads: the reference sheet's own formulas ---- */
-  const exportCols = useMemo(() => [
+  const exportCols = useMemo(() => pruneColumns([
     { h: "Sr No", key: "sr", f: (_r, i) => i + 1, w: 7 },
-    { h: "Code", key: "code", f: (r) => r.code || r.gd, w: 14 },
-    { h: "Description", key: "description", f: (r) => r.description, w: 34 },
-    { h: "Supplier", key: "supplier", f: (r) => supCode(r.supplier_id), w: 10 },
-    { h: "Packing — Unit", key: "unit", t: "int", v: (r) => r.unit },
-    { h: "Packing — Box", key: "boxpack", t: "int", v: (r) => r.box },
+    { h: "Code", key: "code", field: "code", f: (r) => r.code || r.gd, w: 14 },
+    { h: "Description", key: "description", field: "description", f: (r) => r.description, w: 34 },
+    { h: "Supplier", key: "supplier", field: "supplier", f: (r) => supCode(r.supplier_id), w: 10 },
+    { h: "Packing — Unit", key: "unit", field: "packUnit", t: "int", v: (r) => r.unit },
+    { h: "Packing — Box", key: "boxpack", field: "packing", t: "int", v: (r) => r.box },
     ...cols.map((c, i) => ({
       h: `${c.key}\n(${dmyNum(c.date)})`,
       key: `d${i}`, t: "int", v: (r) => r.per_col[c.key] || 0, sum: true,
@@ -95,10 +97,10 @@ export default function SupplyDetailsPanel() {
       fml: () => (cols.length ? `SUM(${cols.map((_, i) => `{d${i}}`).join(",")})` : "0"),
     },
     // BOXES = TOTAL / BOX — the sheet's =H6/E6, left undivided on purpose
-    { h: "Boxes", key: "boxes", t: "num", sum: true, fml: "IF({boxpack}=0,0,{total}/{boxpack})" },
-    { h: "Vol / box m³", key: "volbox", t: "num3", v: (r) => r.vol_per_box },
-    { h: "Volume m³", key: "vol", t: "num3", sum: true, fml: "{boxes}*{volbox}" },
-  ], [cols, suppliers]); // eslint-disable-line react-hooks/exhaustive-deps
+    { h: "Boxes", key: "boxes", t: "num", sum: true, v: (r) => r.boxes, fml: "IF({boxpack}=0,0,{total}/{boxpack})" },
+    { h: "Vol / box m³", key: "volbox", field: "volume", t: "num3", v: (r) => r.vol_per_box },
+    { h: "Volume m³", key: "vol", t: "num3", sum: true, v: (r) => r.volume, fml: "{boxes}*{volbox}" },
+  ], hidden), [cols, suppliers, hidden]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const title = `38 · Supply details — ${label} wise`;
   const subtitle = `${supLabel} · ${ranged ? `${from || "start"} to ${to || todayISO()}` : (mode === "po" ? "currently pending orders" : "all invoices")} · as on ${todayISO()}`;

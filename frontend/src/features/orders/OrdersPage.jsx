@@ -1,11 +1,12 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   Plus, ClipboardList, Truck, Check, ChevronRight, Boxes,
   Pencil, Trash2, Monitor, X,
 } from "lucide-react";
 import {
   Card, CardHead, Btn, Seg, Field, Input, Select, Pill, Mono, DataTable, Modal,
-  Empty, Note, Spinner, ErrorState, FormulaPanel, DownloadPair,
+  Empty, Note, Spinner, ErrorState, FormulaPanel, DownloadPair, XScroll,
 } from "../../components/ui/index.jsx";
 import ItemPicker from "../../components/ItemPicker.jsx";
 import {
@@ -17,6 +18,7 @@ import { dmy, dmyNum, num, boxesExact, todayISO } from "../../lib/format.js";
 import { downloadGridExcel, downloadGridPDF } from "../../lib/download.js";
 import { hidePriceCols } from "../../lib/priceCols.js";
 import { useIsMobile } from "../../lib/useIsMobile.js";
+import { useHiddenFields, pruneColumns } from "../../lib/columnPrefs.js";
 import NewOrderDrawer from "./NewOrderDrawer.jsx";
 
 /* Purchase Orders — everything the buyer has asked for.
@@ -72,39 +74,51 @@ const SupPick = ({ code, on, onPick }) => (
 
 /* ---------- PO detail ---------- */
 /* The 2A order master, as it downloads — prices included. */
-const PO_MASTER_COLS = (supCode) => [
-  { h: "Carton range", key: "serial", f: (r) => r.serial },
-  { h: "PO", key: "po", f: (r) => r.po },
+/* `field` names the item field a column prints (lib/columnPrefs.js): a column
+   unticked in Setup → Items is left out of this download. Every formula
+   column also carries its plain value, which is what it falls back to when a
+   column its formula reads has been left out. */
+const PO_MASTER_COLS = (supCode, cleared, poNo) => [
+  // The order's lines do not repeat its number, so the column is filled from
+  // the order itself — it used to come out blank.
+  { h: "PO", key: "po", f: (r) => r.po || poNo },
   { h: "Date", key: "date", f: (r) => dmyNum(r.date) },
-  { h: "GD code", key: "gd", f: (r) => r.gd },
-  { h: "Code", key: "code", f: (r) => r.code },
-  { h: "OSWIN", key: "oswin", f: (r) => r.oswin },
-  { h: "GL", key: "gl", f: (r) => r.gl },
-  { h: "Size", key: "size", f: (r) => r.size },
-  { h: "Length", key: "length", f: (r) => r.length },
-  { h: "Description", key: "description", f: (r) => r.description, w: 32 },
-  { h: "Bar code", key: "barcode", f: (r) => r.barcode },
-  { h: "HSN", key: "hsn", f: (r) => r.hsn },
-  { h: "Supplier", key: "supplier", f: (r) => supCode(r.supplier_id) },
-  { h: "Pcs / box", key: "pack", t: "int", v: (r) => r.packing, sum: false },
+  { h: "GD code", key: "gd", field: "gd", f: (r) => r.gd },
+  { h: "Code", key: "code", field: "code", f: (r) => r.code },
+  { h: "OSWIN", key: "oswin", field: "oswin", f: (r) => r.oswin },
+  { h: "GL", key: "gl", field: "gl", f: (r) => r.gl },
+  { h: "Size", key: "size", field: "size", f: (r) => r.size },
+  { h: "Length", key: "length", field: "length", f: (r) => r.length },
+  { h: "Description", key: "description", field: "description", f: (r) => r.description, w: 32 },
+  { h: "Bar code", key: "barcode", field: "barcode", f: (r) => r.barcode },
+  { h: "HSN", key: "hsn", field: "hsn", f: (r) => r.hsn },
+  { h: "Supplier", key: "supplier", field: "supplier", f: (r) => supCode(r.supplier_id) },
+  { h: "Pcs / box", key: "pack", field: "packing", t: "int", v: (r) => r.packing, sum: false },
   { h: "Pieces", key: "qty", t: "int", v: (r) => r.qty, sum: true },
-  { h: "Boxes", key: "box", t: "int", fml: "ROUNDUP({qty}/{pack},0)", sum: true },
-  { h: "Vol / box", key: "volbox", t: "num3", v: (r) => r.vol_per_box },
-  { h: "Total vol m³", key: "vol", t: "num", fml: "{box}*{volbox}", sum: true },
-  { h: "Nett / box", key: "netbox", t: "num", v: (r) => r.net_per_box },
-  { h: "Total nett kg", key: "net", t: "num", fml: "{box}*{netbox}", sum: true },
-  { h: "Gross / box", key: "grossbox", t: "num", v: (r) => r.gross_per_box },
-  { h: "Total gross kg", key: "gross", t: "num", fml: "{box}*{grossbox}", sum: true },
-  { h: "Stickers / box", key: "stk", t: "num1", v: (r) => r.stickers_per_box },
-  { h: "Labels", key: "labels", t: "int", fml: "ROUNDUP({box}*{stk},0)", sum: true },
+  { h: "Boxes", key: "box", t: "int", fml: "ROUNDUP({qty}/{pack},0)", v: (r) => r.boxes, sum: true },
+  { h: "Received boxes", key: "recd", t: "int", v: (r) => cleared(r).completed, sum: true },
+  { h: "Pending boxes", key: "pend", t: "int", fml: "{box}-{recd}", v: (r) => cleared(r).pending, sum: true },
+  { h: "Cleared by invoice", key: "clr", f: (r) => clearedText(cleared(r).cleared) },
+  { h: "Vol / box", key: "volbox", field: "volume", t: "num3", v: (r) => r.vol_per_box },
+  { h: "Total vol m³", key: "vol", t: "num3", fml: "{box}*{volbox}", v: (r) => r.vol_total, sum: true },
+  { h: "Nett / box", key: "netbox", field: "netPerBox", t: "num3", v: (r) => r.net_per_box },
+  { h: "Total nett kg", key: "net", t: "num3", fml: "{box}*{netbox}", v: (r) => r.net_total, sum: true },
+  { h: "Gross / box", key: "grossbox", field: "grossPerBox", t: "num3", v: (r) => r.gross_per_box },
+  { h: "Total gross kg", key: "gross", t: "num3", fml: "{box}*{grossbox}", v: (r) => r.gross_total, sum: true },
+  { h: "Stickers / box", key: "stk", field: "stk", t: "num1", v: (r) => r.stickers_per_box },
+  { h: "Labels", key: "labels", t: "int", fml: "ROUNDUP({box}*{stk},0)", v: (r) => Math.ceil(r.labels || 0), sum: true },
   { h: "Sheets", key: "sheets", t: "int", v: (r) => r.sheets, sum: true },
-  { h: "Unit ₹", key: "unit", t: "inr", v: (r) => r.unit_value },
-  { h: "Total ₹", key: "tinr", t: "inr", fml: "{qty}*{unit}", sum: true },
-  { h: "FOB unit $", key: "fobu", t: "usd4", v: (r) => r.unit_fob },
-  { h: "Total FOB $", key: "tusd", t: "usd", fml: (r) => (r.fob_mode === "100" ? "{qty}*{fobu}/100" : "{qty}*{fobu}"), sum: true },
+  { h: "Unit ₹", key: "unit", field: "unitValue", t: "inr", v: (r) => r.unit_value },
+  { h: "Total ₹", key: "tinr", t: "inr", fml: "{qty}*{unit}", v: (r) => r.total_value_inr, sum: true },
+  { h: "FOB unit $", key: "fobu", field: "unitFob", t: "usd4", v: (r) => r.unit_fob },
+  { h: "Total FOB $", key: "tusd", t: "usd", fml: (r) => (r.fob_mode === "100" ? "{qty}*{fobu}/100" : "{qty}*{fobu}"), v: (r) => r.total_fob_usd, sum: true },
   { h: "RBI", key: "rbirate", t: "num", v: (r) => r.rbi },
-  { h: "RBI ref ₹", key: "rbiref", t: "inr", fml: "{tusd}*{rbirate}", sum: true },
+  { h: "RBI ref ₹", key: "rbiref", t: "inr", fml: "{tusd}*{rbirate}", v: (r) => r.rbi_ref_inr, sum: true },
 ];
+
+/* "JG/26-27/6007 (5)" — which invoices delivered against a line, and how many
+   boxes each. The FIFO trail behind the received figure. */
+const clearedText = (list) => (list?.length ? list.map((c) => `${c.invoice_no} (${c.boxes})`).join(", ") : "—");
 
 const sum = (rows, k) => rows.reduce((s, r) => s + (Number(r[k]) || 0), 0);
 
@@ -112,6 +126,11 @@ function PoModal({ po, supplierId = "", onClose, onEdit }) {
   const suppliers = useSuppliers().data || [];
   const buyers = useBuyers().data || [];
   const master = useOrderMaster(po.po);
+  const hidden = useHiddenFields();
+  /* What has been received on each line, and from which invoice — read off the
+     PO roll-up, which carries the FIFO trail line by line. */
+  const trail = useMemo(() => Object.fromEntries((po.detail || []).map((d) => [d.line_id, d])), [po]);
+  const cleared = (r) => trail[r.line_id] || { completed: 0, pending: r.boxes || 0, cleared: [] };
   const [sup, setSup] = useState(supplierId);
   const supCode = (id) => suppliers.find((s) => s.id === id)?.code || "—";
   const supName = (id) => suppliers.find((s) => s.id === id)?.name || "—";
@@ -141,8 +160,10 @@ function PoModal({ po, supplierId = "", onClose, onEdit }) {
       sheets: sum(rows, "sheets"),
     }
     : (master.data?.totals || {});
+  const recdTot = rows.reduce((n, r) => n + (cleared(r).completed || 0), 0);
+  const pendTot = rows.reduce((n, r) => n + (cleared(r).pending || 0), 0);
 
-  const exportCols = PO_MASTER_COLS(supCode);
+  const exportCols = pruneColumns(PO_MASTER_COLS(supCode, cleared, po.po), hidden);
   const exportOpts = {
     title: `Purchase order ${po.po}${live ? ` · ${supCode(live)}` : ""}`,
     subtitle: `${buyer?.name || "—"} · ordered ${dmyNum(po.date)} · ${po.completed}/${po.ordered} boxes received${live ? ` · ${supName(live)} only` : ""}`,
@@ -181,26 +202,34 @@ function PoModal({ po, supplierId = "", onClose, onEdit }) {
       )}
       {master.isLoading ? <Spinner label="Working out the order…" /> : (
         <DataTable serial
-          freeze={5}
+          freeze={4}
           columns={hidePriceCols([
-            { key: "sr", w: 104, label: "Carton range", render: (r) => <Mono>{r.serial}</Mono> },
             { key: "gd", w: 96, label: "GD code", render: (r) => <Mono>{r.gd}</Mono> },
             { key: "code", w: 92, label: "Code", render: (r) => <Mono>{r.code}</Mono> },
             { key: "desc", w: 210, label: "Description", strong: true, render: (r) => <span style={{ whiteSpace: "pre-line" }}>{r.description}</span> },
             { key: "sp", w: 92, label: "Supplier", render: (r) => <Pill tone={live ? "teal" : ""}>{supCode(r.supplier_id)}</Pill> },
             { key: "qty", label: "Pieces", align: "r", render: (r) => num(r.qty, 0) },
             { key: "boxes", label: "Boxes", align: "r", strong: true, render: (r) => boxesExact(r.boxes_exact) },
+            { key: "recd", label: "Received", align: "r", render: (r) => <span style={{ color: "var(--green-ink)", fontWeight: 650 }}>{cleared(r).completed || "—"}</span> },
+            { key: "pend", label: "Pending", align: "r", render: (r) => <span style={{ color: cleared(r).pending ? "var(--amber-ink)" : "var(--green-ink)", fontWeight: 700 }}>{cleared(r).pending || "—"}</span> },
+            {
+              key: "clr", label: "Cleared by invoice",
+              render: (r) => (cleared(r).cleared?.length
+                ? <span className="row wrap" style={{ gap: 4 }}>{cleared(r).cleared.map((c) => <Pill key={c.invoice_no} tone="green">{c.invoice_no} · {c.boxes}</Pill>)}</span>
+                : <span style={{ color: "var(--faint)" }}>—</span>),
+            },
             { key: "vol", label: "Volume m³", align: "r", render: (r) => num(r.vol_total, 3) },
-            { key: "net", label: "Nett kg", align: "r", render: (r) => num(r.net_total, 2) },
+            { key: "net", label: "Nett kg", align: "r", render: (r) => num(r.net_total, 3) },
             { key: "sheets", label: "Label sheets", align: "r", render: (r) => r.sheets },
             { key: "val", label: "Cost ₹", align: "r" },
             { key: "fob", label: "FOB $", align: "r" },
           ])}
           rows={rows} rowKey={(r) => r.item_id + r.line_id}
           footer={[
-            { v: live ? `${supCode(live)} · total` : "Total", span: 5 },
+            { v: live ? `${supCode(live)} · total` : "Total", span: 4 },
             { v: num(t.qty || 0, 0), align: "r" }, { v: boxesExact(t.boxes_exact || 0), align: "r" },
-            { v: num(t.vol_total, 3), align: "r" }, { v: num(t.net_total, 2), align: "r" },
+            { v: recdTot, align: "r" }, { v: pendTot, align: "r" }, { v: "" },
+            { v: num(t.vol_total, 3), align: "r" }, { v: num(t.net_total, 3), align: "r" },
             { v: Math.round(t.sheets || 0), align: "r" },
           ]}
         />
@@ -308,7 +337,7 @@ function PoEditModal({ po, onClose }) {
       {lines.length ? (
         // The table scrolls sideways on its own, so a narrow screen does not
         // drag the PO number field off with it.
-        <div className="tbl-wrap edit-tbl">
+        <XScroll className="tbl-wrap edit-tbl" deps={[lines.length]}>
         <table className="tbl">
           <thead>
             <tr>
@@ -340,7 +369,7 @@ function PoEditModal({ po, onClose }) {
             ))}
           </tbody>
         </table>
-        </div>
+        </XScroll>
       ) : (
         <Empty icon={ClipboardList} title="Every line has been removed">
           An order needs at least one item. Add one above, or delete the order outright.
@@ -431,7 +460,10 @@ const PO_SUMMARY_EXPORT = (supCode, brand) => [
 /* ============================================================ */
 export default function OrdersPage() {
   const mobile = useIsMobile();
+  const [params, setParams] = useSearchParams();
+  const hidden = useHiddenFields();
   const [tab, setTab] = useState("po");
+  const [bsSup, setBsSup] = useState("");      // Buyers Summary — one supplier, or all
   const [drawer, setDrawer] = useState(false);
   const [sel, setSel] = useState(null);         // { po, sup } — the order to open
   const [editPo, setEditPo] = useState(null);
@@ -449,6 +481,28 @@ export default function OrdersPage() {
   const pos = poq.data || [];
   const detail = detailq.data || { pos: [], po_date: {}, rows: [] };
   const selLive = sel && pos.find((p) => p.po === sel.po);
+
+  /* /orders?po=… — the dashboard's PO headers link here, and the order they
+     name opens straight away rather than leaving the reader to find it in
+     the summary. The link is spent once used, so closing the order does not
+     reopen it. */
+  useEffect(() => {
+    const want = params.get("po");
+    if (!want || poq.isLoading) return;
+    if (pos.some((p) => p.po === want)) { setTab("po"); setSel({ po: want, sup: "" }); }
+    setParams({}, { replace: true });
+  }, [params, poq.isLoading, pos]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /* Buyers Summary narrowed to one supplier: their items only, and only the
+     orders that carry them. "All" keeps the item sequence the API sorted in. */
+  const bsRows = useMemo(
+    () => (bsSup ? detail.rows.filter((r) => r.supplier_id === bsSup) : detail.rows),
+    [detail.rows, bsSup],
+  );
+  const bsPos = useMemo(
+    () => (bsSup ? detail.pos.filter((po) => bsRows.some((r) => r.per_po[po])) : detail.pos),
+    [detail.pos, bsRows, bsSup],
+  );
 
   /* The supplier filter is the old supplier summary, folded into this one
      table: the same columns, recounted from just that factory's lines — so
@@ -488,7 +542,7 @@ export default function OrdersPage() {
     { key: "size", w: 80, label: "Size", render: (r) => r.size },
     { key: "len", w: 80, label: "Length", render: (r) => r.length },
     { key: "pack", w: 88, label: "Packing", align: "r", render: (r) => r.packing },
-    ...detail.pos.map((po) => ({
+    ...bsPos.map((po) => ({
       key: "po_" + po,
       label: <span style={{ display: "block", lineHeight: 1.2 }}>{po}<span style={{ display: "block", fontSize: 10, fontWeight: 400, opacity: 0.75 }}>({dmyNum(detail.po_date?.[po])})</span></span>,
       align: "r",
@@ -499,31 +553,34 @@ export default function OrdersPage() {
     { key: "pending", label: "Pending boxes", align: "r", strong: true, render: (r) => <span style={{ color: r.pending ? "var(--amber-ink)" : "var(--green-ink)", fontWeight: 700 }}>{r.pending || "—"}</span> },
     { key: "vb", label: "Vol/box", align: "r", render: (r) => num(r.vol_per_box, 3) },
     { key: "tv", label: "Total vol m³", align: "r", render: (r) => num(r.total_vol, 2) },
-    { key: "net", label: "Net wt kg", align: "r", render: (r) => num(r.net_total) },
+    { key: "net", label: "Net wt kg", align: "r", render: (r) => num(r.net_total, 3) },
   ];
 
-  const buyersExport = [
-    { h: "GD code", key: "gd", f: (r) => r.gd },
-    { h: "Code", key: "code", f: (r) => r.code },
-    { h: "Size", key: "size", f: (r) => r.size },
-    { h: "Length", key: "length", f: (r) => r.length },
-    { h: "Packing", key: "pack", t: "int", v: (r) => r.packing },
-    ...detail.pos.map((po, i) => ({
+  const buyersExport = pruneColumns([
+    { h: "GD code", key: "gd", field: "gd", f: (r) => r.gd },
+    { h: "Code", key: "code", field: "code", f: (r) => r.code },
+    { h: "Size", key: "size", field: "size", f: (r) => r.size },
+    { h: "Length", key: "length", field: "length", f: (r) => r.length },
+    { h: "Supplier", key: "supplier", field: "supplier", f: (r) => supCode(r.supplier_id) },
+    { h: "Packing", key: "pack", field: "packing", t: "int", v: (r) => r.packing },
+    ...bsPos.map((po, i) => ({
       h: `${po} (${dmyNum(detail.po_date?.[po])})`,
       key: `p${i}`, t: "int", v: (r) => r.per_po[po] || 0, sum: true,
     })),
     // Total pieces = the PO columns added up, so editing one PO's quantity in
     // the download re-totals the row, the boxes and the volume with it.
-    { h: "Total pcs", key: "qty", t: "int", sum: true,
-      fml: () => (detail.pos.length ? `SUM(${detail.pos.map((_, i) => `{p${i}}`).join(",")})` : "0") },
-    { h: "Total boxes", key: "box", t: "int", fml: "ROUNDUP({qty}/{pack},0)", sum: true },
+    { h: "Total pcs", key: "qty", t: "int", sum: true, v: (r) => r.qty,
+      fml: () => (bsPos.length ? `SUM(${bsPos.map((_, i) => `{p${i}}`).join(",")})` : "0") },
+    { h: "Total boxes", key: "box", t: "int", fml: "ROUNDUP({qty}/{pack},0)", v: (r) => r.boxes, sum: true },
     { h: "Received boxes", key: "recd", t: "int", v: (r) => r.recd, sum: true },
-    { h: "Pending boxes", key: "pending", t: "int", fml: "{box}-{recd}", sum: true },
-    { h: "Vol / box", key: "volbox", t: "num3", v: (r) => r.vol_per_box },
-    { h: "Total vol m³", key: "vol", t: "num", fml: "{box}*{volbox}", sum: true },
-    { h: "Net / box kg", key: "netbox", t: "num", v: (r) => r.net_per_box },
-    { h: "Net wt kg", key: "net", t: "num", fml: "{box}*{netbox}", sum: true },
-  ];
+    { h: "Pending boxes", key: "pending", t: "int", fml: "{box}-{recd}", v: (r) => r.pending, sum: true },
+    { h: "Vol / box", key: "volbox", field: "volume", t: "num3", v: (r) => r.vol_per_box },
+    { h: "Total vol m³", key: "vol", t: "num3", fml: "{box}*{volbox}", v: (r) => r.total_vol, sum: true },
+    { h: "Net / box kg", key: "netbox", field: "netPerBox", t: "num3", v: (r) => r.net_per_box },
+    { h: "Net wt kg", key: "net", t: "num3", fml: "{box}*{netbox}", v: (r) => r.net_total, sum: true },
+  ], hidden);
+  const bsTitle = `Buyers Summary${bsSup ? ` · ${supCode(bsSup)}` : ""}`;
+  const bsSub = `${bsSup ? supCode(bsSup) : "All suppliers"} · item wise · as on ${todayISO()}`;
 
   if (poq.isLoading) return <Spinner label="Loading purchase orders…" />;
   if (poq.error) return <ErrorState error={poq.error} onRetry={poq.refetch} />;
@@ -549,13 +606,20 @@ export default function OrdersPage() {
             {suppliers.map((s) => <option key={s.id} value={s.id}>{s.code} — {s.name}</option>)}
           </Select>
         )}
+        {tab === "itemdetail" && detail.rows.length > 0 && (
+          <Select className="tab-filter" value={bsSup} onChange={(e) => setBsSup(e.target.value)}
+            aria-label="Narrow the buyers summary to one supplier">
+            <option value="">All suppliers</option>
+            {suppliers.map((s) => <option key={s.id} value={s.id}>{s.code} — {s.name}</option>)}
+          </Select>
+        )}
 
         <span className="grow" />
 
         {tab === "itemdetail" && !mobile && (
-          <DownloadPair disabled={!detail.rows.length}
-            onExcel={() => downloadGridExcel(`Buyers_Summary_${todayISO()}`, "Buyers Summary", buyersExport, detail.rows, { title: "Buyers Summary", subtitle: `Item wise · as on ${todayISO()}` })}
-            onPDF={() => downloadGridPDF("Buyers Summary", buyersExport, detail.rows, { subtitle: `Item wise · as on ${todayISO()}` })} />
+          <DownloadPair disabled={!bsRows.length}
+            onExcel={() => downloadGridExcel(`Buyers_Summary${bsSup ? `_${supCode(bsSup).replace(/[^A-Za-z0-9]+/g, "")}` : ""}_${todayISO()}`, "Buyers Summary", buyersExport, bsRows, { title: bsTitle, subtitle: bsSub })}
+            onPDF={() => downloadGridPDF(bsTitle, buyersExport, bsRows, { subtitle: bsSub })} />
         )}
 
         <Btn size="lg" icon={Plus} onClick={() => setDrawer(true)}>New buyer order</Btn>
@@ -601,9 +665,9 @@ export default function OrdersPage() {
         </Card>
       ) : (
         <Card>
-          <CardHead icon={Boxes} title={`${detail.rows.length} item${detail.rows.length === 1 ? "" : "s"} · ${detail.pos.length} PO column(s)`} />
-          {detail.rows.length ? (
-            <DataTable serial freeze={5} maxHeight={520} columns={buyersCols} rows={detail.rows} rowKey={(r) => r.item_id} />
+          <CardHead icon={Boxes} title={`${bsRows.length} item${bsRows.length === 1 ? "" : "s"} · ${bsPos.length} PO column(s)${bsSup ? ` · ${supCode(bsSup)}` : ""}`} />
+          {bsRows.length ? (
+            <DataTable serial freeze={5} maxHeight={520} columns={buyersCols} rows={bsRows} rowKey={(r) => r.item_id} />
           ) : <Empty icon={Boxes} title="No orders yet">Add a buyer order to see the item-wise summary.</Empty>}
         </Card>
       ))}

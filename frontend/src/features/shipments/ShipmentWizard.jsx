@@ -2,7 +2,8 @@ import { useState } from "react";
 import { Truck, Container, Ship, Check, ChevronRight, ChevronLeft, SkipForward, Lock } from "lucide-react";
 import { Modal, Btn, Field, Input, Select, Pill, Note, Step } from "../../components/ui/index.jsx";
 import { useIsMobile } from "../../lib/useIsMobile.js";
-import { useSuppliers, useTransports, useInvoiceMutations } from "../../api/hooks.js";
+import { useSuppliers, useTransports, useInvoiceMutations, useBuyers } from "../../api/hooks.js";
+import ShipTermsFields from "./ShipTermsFields.jsx";
 import { useToast } from "../../providers/ToastProvider.jsx";
 import { INV_STATUS_TONE } from "../../lib/constants.js";
 import { transportsFor } from "../../lib/transports.js";
@@ -22,6 +23,7 @@ const rowDone = (v) => !!(v && v.vehicleNo && v.source && v.dest);
 export default function ShipmentWizard({ inv, onClose }) {
   const suppliers = useSuppliers().data || [];
   const transports = useTransports().data || [];
+  const buyer = (useBuyers().data || []).find((b) => b.id === inv.buyer_id);
   const { update } = useInvoiceMutations();
   const toast = useToast();
 
@@ -62,6 +64,7 @@ export default function ShipmentWizard({ inv, onClose }) {
 
   const setVeh = (sid, k, val) => setVehicles((p) => ({ ...p, [sid]: { ...p[sid], [k]: val } }));
   const setSh = (k, val) => setShip((p) => ({ ...p, [k]: val }));
+  const setShMany = (patch) => setShip((p) => ({ ...p, ...patch }));
   const setSkp = (k, val) => setSkip((p) => ({ ...p, [k]: val }));
   const pickTransport = (sid, tid) => {
     const t = transports.find((x) => x.id === tid);
@@ -163,8 +166,8 @@ export default function ShipmentWizard({ inv, onClose }) {
             <Field label="Seal No."><Input value={ship.seal || ""} onChange={(e) => setSh("seal", e.target.value)} placeholder="e.g. IND-0054079" /></Field>
             <Field label="Marks & Nos"><Input value={ship.marks || ""} onChange={(e) => setSh("marks", e.target.value)} placeholder="GDW 2001-2421" /></Field>
             <Field label="No & kinds of pkgs"><Input value={ship.pkgs || ""} onChange={(e) => setSh("pkgs", e.target.value)} placeholder="421 PACKAGES" /></Field>
-            <Field label="Nett wt (kg)"><Input type="number" value={ship.netWt || ""} onChange={(e) => setSh("netWt", e.target.value)} /></Field>
-            <Field label="Gross wt (kg)"><Input type="number" value={ship.grossWt || ""} onChange={(e) => setSh("grossWt", e.target.value)} /></Field>
+            <Field label="Nett wt (kg)"><Input type="number" step="0.001" value={ship.netWt || ""} onChange={(e) => setSh("netWt", e.target.value)} placeholder="0.000" /></Field>
+            <Field label="Gross wt (kg)"><Input type="number" step="0.001" value={ship.grossWt || ""} onChange={(e) => setSh("grossWt", e.target.value)} placeholder="0.000" /></Field>
           </div>
           <label className="row" style={{ gap: 8, fontSize: 12.5, color: "var(--muted)" }}>
             <input type="checkbox" checked={!!skip.container} onChange={(e) => setSkp("container", e.target.checked)} />
@@ -189,12 +192,9 @@ export default function ShipmentWizard({ inv, onClose }) {
             <Field label="S/B No."><Input value={ship.sbNo || ""} onChange={(e) => setSh("sbNo", e.target.value)} /></Field>
             <Field label="S/B Date"><Input type="date" value={ship.sbDate || ""} onChange={(e) => setSh("sbDate", e.target.value)} /></Field>
             <Field label="Ship name (vessel / voyage)"><Input value={ship.vessel || ""} onChange={(e) => setSh("vessel", e.target.value)} placeholder="CAPE SYROS 092E" /></Field>
-            <Field label="Port of loading"><Input value={ship.pol || ""} onChange={(e) => setSh("pol", e.target.value)} placeholder="NHAVA SHEVA-MUMBAI (INDIA)" /></Field>
-            <Field label="Port of discharge"><Input value={ship.pod || ""} onChange={(e) => setSh("pod", e.target.value)} placeholder="FREMANTLE" /></Field>
-            <Field label="Terms (FOB etc.)"><Input value={ship.terms || ""} onChange={(e) => setSh("terms", e.target.value)} placeholder="FOB MUMBAI" /></Field>
-            <Field label="Through (bank)"><Input value={ship.bank || ""} onChange={(e) => setSh("bank", e.target.value)} placeholder="HDFC BANK LTD, GHATKOPAR (E) BRANCH" /></Field>
-            <Field label="Bank address"><Input value={ship.bankAddr || ""} onChange={(e) => setSh("bankAddr", e.target.value)} placeholder="GHATKOPAR (E), MUMBAI 400 077 (INDIA)" /></Field>
-            <Field label="Terms of payment"><Input value={ship.payment || ""} onChange={(e) => setSh("payment", e.target.value)} placeholder="D.P.SIGHT DRAFT" /></Field>
+            {/* Terms, ports and bank come off the lists in Setup → Additional
+                settings; carting date, booking and proforma are typed here. */}
+            <ShipTermsFields ship={ship} onSet={setShMany} buyer={buyer} show={{ bankAddr: true, proforma: true }} />
             <Field label="Exchange rate ₹/$" hint="The rate the customs invoice and the bank documents are converted at.">
               <Input className="rate" type="number" step="0.01" value={ship.exRate || ""} onChange={(e) => setSh("exRate", e.target.value)} />
             </Field>

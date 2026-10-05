@@ -135,6 +135,19 @@ export function useInvoiceMutations() {
   };
 }
 
+/* What record packing shows under each box it is typed into: the orders those
+   boxes clear, worked out by the API's own FIFO ledger at the invoice's date
+   (a back-dated invoice clears ahead of later ones — only the ledger knows
+   what that leaves). Disabled until something has been typed. */
+export const useAllocationPreview = (body) =>
+  useQuery({
+    queryKey: ["alloc-preview", body],
+    queryFn: () => api.invoices.allocationPreview(body),
+    enabled: !!body && Array.isArray(body.lines) && body.lines.length > 0,
+    placeholderData: (prev) => prev,
+    staleTime: 10_000,
+  });
+
 // Derived / reports
 export const useDashboardMatrix = () => useQuery({ queryKey: ["dashboard"], queryFn: api.dashboard.matrix });
 
@@ -186,6 +199,42 @@ export function useApplyPrices() {
     onSuccess: () => ["price-drift", "pending-for-item", "po-list", "po-lines", "order-lines",
       "master-2a", "master-7a", "item-detail", "balance", "supply-details", "dashboard"]
       .forEach((k) => qc.invalidateQueries({ queryKey: [k] })),
+  });
+}
+
+/* Setup → Additional settings. One query carries every list, because the
+   forms that use them (shipment details, record packing, the item form) want
+   several at once. Saving any of them refreshes it — and the reports, which
+   are sorted in the item sequence it carries. */
+export const useOptions = () =>
+  useQuery({ queryKey: ["options"], queryFn: api.options.all, staleTime: 60_000 });
+
+export function useOptionMutations() {
+  const qc = useQueryClient();
+  const invalidate = () => ["options"].forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
+  /* The sequence reorders every list the API returns, so those are refetched
+     with it. */
+  const resequence = () => ["options", "items", "po-list", "item-detail", "balance", "supply-details",
+    "master-2a", "master-7a", "order-lines"].forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
+  return {
+    saveList: useMutation({ mutationFn: ({ key, values }) => api.options.saveList(key, values), onSuccess: invalidate }),
+    addBank: useMutation({ mutationFn: api.options.addBank, onSuccess: invalidate }),
+    updateBank: useMutation({ mutationFn: ({ id, body }) => api.options.updateBank(id, body), onSuccess: invalidate }),
+    removeBank: useMutation({ mutationFn: (id) => api.options.removeBank(id), onSuccess: invalidate }),
+    saveSequence: useMutation({ mutationFn: (values) => api.options.saveSequence(values), onSuccess: resequence }),
+  };
+}
+
+/* The item master's saved column layout (Setup → Items → Customise columns).
+   Every report and download leaves out the item fields it has unticked. */
+export const useItemColumns = () =>
+  useQuery({ queryKey: ["item-columns"], queryFn: api.options.itemColumns, staleTime: 60_000 });
+
+export function useSaveItemColumns() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (cols) => api.options.saveItemColumns(cols),
+    onSuccess: (data) => qc.setQueryData(["item-columns"], data),
   });
 }
 

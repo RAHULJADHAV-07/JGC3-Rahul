@@ -17,6 +17,12 @@ _write = _read
 # and holds nothing but PO numbers: no order, line or document is touched.
 HIDDEN_KEY = "dashboard_hidden_pos"
 
+# The CNTRS column on the balance board is the pending volume over 30 m³ — the
+# figure the client plans a container's load with — stated to three places
+# (12.06 m³ reads 0.402). Container planning elsewhere (boxes per FCL on the
+# costing sheet) still works off calc.CONTAINER_M3.
+DASHBOARD_CNTR_M3 = 30.0
+
 
 def _hidden(db: Session) -> list[str]:
     row = db.get(models.Setting, HIDDEN_KEY)
@@ -61,7 +67,8 @@ def balance_matrix(db: Session = Depends(get_db)):
     po_lines = db.query(models.PurchaseOrderLine).all()
     invoices = db.query(models.Invoice).all()
     suppliers = db.query(models.Supplier).order_by(models.Supplier.code).all()
-    return calc.build_balance_matrix(po_lines, invoices, items, suppliers, _hidden(db))
+    return calc.build_balance_matrix(po_lines, invoices, items, suppliers, _hidden(db),
+                                     cntr_vol=DASHBOARD_CNTR_M3)
 
 
 @router.get("/hidden-pos", dependencies=[Depends(_read)])
