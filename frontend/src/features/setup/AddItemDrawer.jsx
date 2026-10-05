@@ -5,6 +5,7 @@ import { useSuppliers, useCreateItem } from "../../api/hooks.js";
 import { useToast } from "../../providers/ToastProvider.jsx";
 import { EMPTY_ITEM } from "../../lib/constants.js";
 import { itemSections, ITEM_NUM } from "./itemFields.js";
+import PackagingSelect from "./PackagingSelect.jsx";
 import { num } from "../../lib/format.js";
 
 /* Add an item, as a guided sheet — enter it once and every document
@@ -43,6 +44,9 @@ export default function AddItemDrawer({ onClose }) {
   };
 
   const control = (s) => {
+    if (s.type === "packaging") {
+      return <PackagingSelect value={f[s.key]} onChange={(v) => set(s.key, v)} />;
+    }
     if (s.type === "select") {
       return (
         <Select value={f[s.key] ?? ""} onChange={(e) => set(s.key, e.target.value)}>

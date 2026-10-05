@@ -5,6 +5,12 @@ import {
 } from "lucide-react";
 import { passwordRules } from "../../lib/password.js";
 import { useIsMobile } from "../../lib/useIsMobile.js";
+import { Select as AppSelect, DateInput as AppDateInput, XScroll as AppXScroll } from "./pickers.jsx";
+
+/* The app's own dropdown, calendar and top scrollbar — see pickers.jsx. */
+export const Select = AppSelect;
+export const DateInput = AppDateInput;
+export const XScroll = AppXScroll;
 
 /* ============================================================
    Shared UI atoms. Styling lives in src/index.css (the design
@@ -86,10 +92,21 @@ export const SearchInput = ({ value, onChange, placeholder = "Search…", style 
 );
 
 /* Forwards its ref so a caller can focus the box — the passcode step puts the
-   cursor there on arrival and again after a wrong code. */
-export const Input = forwardRef((props, ref) => (
-  <input {...props} ref={ref} className={`input ${props.className || ""}`} />
-));
+   cursor there on arrival and again after a wrong code.
+
+   A `type="date"` box is the app's own calendar rather than the browser's: it
+   takes and gives the same yyyy-mm-dd value, so every date field in the app
+   uses it without a change at the call site. */
+export const Input = forwardRef((props, ref) => {
+  if (props.type === "date") {
+    const { type, className, value, onChange, style, placeholder, disabled, min, max } = props;
+    return (
+      <AppDateInput value={value} onChange={onChange} className={className || ""} style={style}
+        placeholder={placeholder} disabled={disabled} min={min} max={max} aria-label={props["aria-label"]} />
+    );
+  }
+  return <input {...props} ref={ref} className={`input ${props.className || ""}`} />;
+});
 Input.displayName = "Input";
 
 /* A quantity box with no stepper.
@@ -164,7 +181,6 @@ export function PasswordRules({ value, identity, show = true }) {
     </ul>
   );
 }
-export const Select = ({ children, ...p }) => <select {...p} className={`select ${p.className || ""}`}>{children}</select>;
 
 export const Seg = ({ options, value, onChange }) => (
   <div className="seg">
@@ -215,7 +231,7 @@ export const ErrorState = ({ error, onRetry }) => (
 /* Modal — a centred panel at ~75% width with enlarged type (see .modal in CSS).
    `size="sm"` narrows it to a column: right for a question with a short answer,
    where the full width would leave a confirmation stranded in white space. */
-export function Modal({ title, icon: Icon, onClose, children, footer, size }) {
+export function Modal({ title, icon: Icon, onClose, children, footer, size, className = "" }) {
   useEffect(() => {
     const h = (e) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", h);
@@ -223,7 +239,7 @@ export function Modal({ title, icon: Icon, onClose, children, footer, size }) {
   }, [onClose]);
   return (
     <div className="backdrop" onClick={onClose}>
-      <div className={`modal${size === "sm" ? " modal-sm" : ""}`} onClick={(e) => e.stopPropagation()}>
+      <div className={`modal${size === "sm" ? " modal-sm" : ""}${className ? ` ${className}` : ""}`} onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
           <h3>{Icon && <Icon size={17} style={{ color: "var(--teal)" }} />}{title}</h3>
           <IconBtn bare icon={X} size={18} onClick={onClose} title="Close" />
@@ -452,7 +468,7 @@ export function DataTable({
 
   return (
     <>
-    <div className="tbl-wrap" style={maxHeight ? { maxHeight } : undefined}>
+    <AppXScroll className="tbl-wrap" style={maxHeight ? { maxHeight } : undefined} deps={[shown.length, cols.length]}>
       <table className="tbl">
         <thead><tr>{cols.map((c, i) => <th key={c.key} className={cls(i)} style={frz(i)}>{c.label}</th>)}</tr></thead>
         <tbody>
@@ -465,7 +481,7 @@ export function DataTable({
         </tbody>
         {foot && rows.length > 0 && <tfoot><tr>{foot.map((f, i) => <td key={i} colSpan={f.span} className={f.align === "r" ? "r" : ""}>{f.v}</td>)}</tr></tfoot>}
       </table>
-    </div>
+    </AppXScroll>
     {pager}
     </>
   );

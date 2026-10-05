@@ -24,7 +24,8 @@ import { useUsers, useUserMutations } from "../../api/hooks.js";
    an account is a way into the company's order book, and removing one cannot
    be undone. */
 
-const BLANK = { name: "", email: "", password: "", confirm: "", preset: "operations" };
+const BLANK = { first: "", last: "", email: "", password: "", confirm: "", preset: "operations" };
+const fullOf = (d) => `${(d.first || "").trim()} ${(d.last || "").trim()}`.trim();
 
 /* Has this person proved their address yet? They do it once, with a code
    mailed on their first sign-in — until then the tick is missing, which is
@@ -91,11 +92,11 @@ export default function UsersPanel() {
   // Step one: check the form, then ask. Nothing is sent until the admin has
   // read back what they typed.
   const review = () => {
-    if (!draft.name.trim() || !draft.email.trim()) {
-      setErr("Fill in the name and the email address.");
+    if (!draft.first.trim() || !draft.email.trim()) {
+      setErr("Fill in the first name and the email address.");
       return;
     }
-    if (!passwordOk(draft.password, { name: draft.name, email: draft.email })) {
+    if (!passwordOk(draft.password, { name: fullOf(draft), email: draft.email })) {
       setErr("The password does not meet every rule listed under the box yet.");
       return;
     }
@@ -108,12 +109,13 @@ export default function UsersPanel() {
     setErr("");
     // The confirmation replaces the add dialog rather than stacking on it.
     setAdding(false);
-    setConfirmAdd({ ...draft, name: draft.name.trim(), email: draft.email.trim() });
+    setConfirmAdd({ ...draft, first: draft.first.trim(), last: draft.last.trim(), name: fullOf(draft), email: draft.email.trim() });
   };
 
   const reallyAdd = () => {
     const body = {
-      name: confirmAdd.name,
+      first_name: confirmAdd.first,
+      last_name: confirmAdd.last,
       email: confirmAdd.email,
       password: confirmAdd.password,
       confirm_password: confirmAdd.confirm,
@@ -140,11 +142,14 @@ export default function UsersPanel() {
      inside a dialog — a second copy would drift out of step with the first. */
   const addForm = (
     <div className="stack-sm">
-              <Field label="Name"><Input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder="e.g. Priya Mehta" /></Field>
+              <div className="grid-2">
+                <Field label="First name"><Input value={draft.first} onChange={(e) => setDraft({ ...draft, first: e.target.value })} placeholder="e.g. Priya" /></Field>
+                <Field label="Last name"><Input value={draft.last} onChange={(e) => setDraft({ ...draft, last: e.target.value })} placeholder="e.g. Mehta" /></Field>
+              </div>
               <Field label="Email"><Input value={draft.email} onChange={(e) => setDraft({ ...draft, email: e.target.value })} placeholder="priya@jaikvinglobal.com" /></Field>
               <Field label="Password">
                 <PasswordInput value={draft.password} onChange={(e) => setDraft({ ...draft, password: e.target.value })} autoComplete="new-password" />
-                <PasswordRules value={draft.password} identity={{ name: draft.name, email: draft.email }} />
+                <PasswordRules value={draft.password} identity={{ name: fullOf(draft), email: draft.email }} />
               </Field>
               <Field label="Confirm password">
                 <PasswordInput value={draft.confirm} onChange={(e) => setDraft({ ...draft, confirm: e.target.value })}
@@ -163,7 +168,7 @@ export default function UsersPanel() {
                 they sign in — after that nobody, admin included, can read it back.
               </Note>
               <div>
-                <Btn icon={UserPlus} disabled={create.isPending || !draft.name || !draft.email} onClick={review}>
+                <Btn icon={UserPlus} disabled={create.isPending || !draft.first.trim() || !draft.email} onClick={review}>
                   {create.isPending ? "Adding…" : "Add user"}
                 </Btn>
               </div>

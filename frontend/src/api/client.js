@@ -64,10 +64,21 @@ async function request(method, path, body, extraHeaders) {
 
   if (!res.ok) {
     let detail = res.statusText;
+    let answered = false;
     try {
       const j = await res.json();
       detail = j.detail || detail;
+      answered = Boolean(j.detail);
     } catch (e) { /* non-JSON error */ }
+    /* A gateway error with no answer of the API's own in it means the proxy
+       found nothing listening behind it: the API is starting — after a
+       deploy it upgrades the database first, which can take a minute or two —
+       or restarting. Say that, rather than the proxy's bare "Bad Gateway".
+       The API's own 502 (a mail that could not be sent) carries its own
+       message and is left as it is. */
+    if (!answered && [502, 503, 504].includes(res.status)) {
+      detail = "The server is starting up — wait a minute, then try again.";
+    }
 
     if (res.status === 401) {
       listeners.forEach((fn) => fn());

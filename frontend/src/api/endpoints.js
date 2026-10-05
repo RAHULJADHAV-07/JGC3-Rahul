@@ -138,6 +138,8 @@ export const invoices = {
   list: () => apiGet("/api/invoices"),
   get: (id) => apiGet(`/api/invoices/${id}`),
   serials: (id) => apiGet(`/api/invoices/${id}/serials`),
+  // Which orders typed boxes would clear — the real ledger, dated as given.
+  allocationPreview: (b) => apiPost("/api/invoices/allocation-preview", b),
   create: (b) => apiPost("/api/invoices", b),
   update: (id, b) => apiPut(`/api/invoices/${id}`, b),
   remove: (id) => apiDelete(`/api/invoices/${id}`),
@@ -151,6 +153,20 @@ export const dashboard = {
   hiddenPos: () => apiGet("/api/dashboard/hidden-pos"),
   hidePos: (pos) => apiPost("/api/dashboard/hidden-pos", { pos }),
   restorePos: (pos) => apiDelete(`/api/dashboard/hidden-pos${pos ? "?" + pos.map((p) => `pos=${encodeURIComponent(p)}`).join("&") : ""}`),
+};
+
+/* Setup → Additional settings: the lists the shipment forms pick from (terms,
+   packaging types, ports), the bank accounts, the item master's saved column
+   layout and the item sequence every list is read in. */
+export const options = {
+  all: () => apiGet("/api/options"),
+  saveList: (key, values) => apiPut(`/api/options/list/${encodeURIComponent(key)}`, { values }),
+  addBank: (b) => apiPost("/api/options/banks", b),
+  updateBank: (id, b) => apiPut(`/api/options/banks/${encodeURIComponent(id)}`, b),
+  removeBank: (id) => apiDelete(`/api/options/banks/${encodeURIComponent(id)}`),
+  itemColumns: () => apiGet("/api/options/item-columns"),
+  saveItemColumns: (cols) => apiPut("/api/options/item-columns", { cols }),
+  saveSequence: (values) => apiPut("/api/options/item-sequence", { values }),
 };
 
 export const reports = {

@@ -6,6 +6,7 @@ import {
 import { Btn, Field, Input, Note, PasswordInput, PasswordRules } from "../components/ui/index.jsx";
 import { passwordOk } from "../lib/password.js";
 import { useAuth } from "./AuthProvider.jsx";
+import { versionLabel } from "../lib/releases.js";
 
 /* Sign-in screen. It wears four faces depending on the system's state:
    - a brand-new database has no owner, so the form creates the first admin;
@@ -41,6 +42,7 @@ export default function LoginPage() {
   // "login" | "unlock" — the two things this screen can be doing.
   const [mode, setMode] = useState("login");
   const [name, setName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [pw, setPw] = useState("");
   const [pw2, setPw2] = useState("");
@@ -99,10 +101,10 @@ export default function LoginPage() {
     }
     if (creating) {
       if (!name.trim() || !email.trim()) {
-        setErr("Fill in the name and the email address.");
+        setErr("Fill in your first name and the email address.");
         return;
       }
-      if (!passwordOk(pw, { name, email })) {
+      if (!passwordOk(pw, { name: `${name} ${lastName}`, email })) {
         setErr("The password does not meet every rule listed under the box yet.");
         return;
       }
@@ -117,7 +119,8 @@ export default function LoginPage() {
     setBusy(true);
     const r = first
       ? await bootstrap({
-          name: name.trim(), email: email.trim(), password: pw, confirm_password: pw2,
+          first_name: name.trim(), last_name: lastName.trim(),
+          email: email.trim(), password: pw, confirm_password: pw2,
         })
       : await login(email.trim(), pw);
     setBusy(false);
@@ -252,12 +255,17 @@ export default function LoginPage() {
               )}
               {done && <Note tone="teal" icon={Unlock}>{done}</Note>}
               {creating && (
-                <Field label="Your name">
-                  <span className="login-in">
-                    <UserIcon size={15} />
-                    <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Priya Mehta" />
-                  </span>
-                </Field>
+                <div className="grid-2">
+                  <Field label="First name">
+                    <span className="login-in">
+                      <UserIcon size={15} />
+                      <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Priya" />
+                    </span>
+                  </Field>
+                  <Field label="Last name">
+                    <Input value={lastName} onChange={(e) => setLastName(e.target.value)} placeholder="e.g. Mehta" />
+                  </Field>
+                </div>
               )}
               <Field label="Email">
                 <span className="login-in">
@@ -275,7 +283,7 @@ export default function LoginPage() {
                   </span>
                   {/* Only while a password is being set — spelling the rules out
                       on a sign-in box would just tell a stranger what to try. */}
-                  <PasswordRules value={pw} identity={{ name, email }} show={creating} />
+                  <PasswordRules value={pw} identity={{ name: `${name} ${lastName}`.trim(), email }} show={creating} />
                 </Field>
               )}
               {creating && (
@@ -320,7 +328,7 @@ export default function LoginPage() {
             )
           )}
         </div>
-        <div className="login-foot">Maintained and developed by <b>Avita Technologies</b> · V-6.3.0</div>
+        <div className="login-foot">Maintained and developed by <b>Avita Technologies</b> · {versionLabel()}</div>
       </div>
     </div>
   );

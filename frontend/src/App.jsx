@@ -39,6 +39,9 @@ function Guard({ perm, children }) {
 
 const guard = (path, el) => <Guard perm={ROUTE_PERMS[path]}>{el}</Guard>;
 
+/* Each documents menu head is its own page: keyed, so moving from
+   Pre-Shipment to PO Reports starts on that head's first paper instead of
+   carrying over the document that was open on the last one. */
 function Routed() {
   const { user, ready, mustChangePassword } = useAuth();
   if (!ready) return <div className="page"><Spinner label="Starting up…" /></div>;
@@ -53,14 +56,14 @@ function Routed() {
       <Route element={<AppShell />}>
         <Route index element={guard("/", <DashboardPage />)} />
         <Route path="orders" element={guard("/orders", <OrdersPage />)} />
-        <Route path="po-reports" element={guard("/po-reports", <DocumentsPage group="PO" />)} />
+        <Route path="po-reports" element={guard("/po-reports", <DocumentsPage key="PO" group="PO" />)} />
         <Route path="packing" element={guard("/packing", <PackingPage />)} />
         <Route path="shipments" element={guard("/shipments", <ShipmentsPage />)} />
-        <Route path="supplier-reports" element={guard("/supplier-reports", <DocumentsPage group="SUP" />)} />
-        <Route path="pre-shipment" element={guard("/pre-shipment", <DocumentsPage group="PRE" />)} />
-        <Route path="post-shipment" element={guard("/post-shipment", <DocumentsPage group="POST" />)} />
+        <Route path="supplier-reports" element={guard("/supplier-reports", <DocumentsPage key="SUP" group="SUP" />)} />
+        <Route path="pre-shipment" element={guard("/pre-shipment", <DocumentsPage key="PRE" group="PRE" />)} />
+        <Route path="post-shipment" element={guard("/post-shipment", <DocumentsPage key="POST" group="POST" />)} />
         <Route path="reports" element={guard("/reports", <ReportsPage />)} />
-        <Route path="documents" element={guard("/documents", <DocumentsPage />)} />
+        <Route path="documents" element={guard("/documents", <DocumentsPage key="ALL" />)} />
         <Route path="setup" element={guard("/setup", <SetupPage />)} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>

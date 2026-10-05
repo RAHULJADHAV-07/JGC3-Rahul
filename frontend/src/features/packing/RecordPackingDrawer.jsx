@@ -6,11 +6,14 @@ import {
 } from "../../components/ui/index.jsx";
 import {
   useGroupedItems, useBuyers, useSuppliers, useTransports, useInvoiceMutations, useBalance,
+  useItems, useOptions, useAllocationPreview,
 } from "../../api/hooks.js";
 import { useToast } from "../../providers/ToastProvider.jsx";
 import { todayISO, num } from "../../lib/format.js";
 import { useDebounced } from "../../lib/useDebounced.js";
 import { transportsFor } from "../../lib/transports.js";
+import { sortBySequence } from "../../lib/sequence.js";
+import ShipTermsFields from "../shipments/ShipTermsFields.jsx";
 
 /* Record packing — boxes clear the oldest open order first.
 
@@ -31,6 +34,13 @@ export default function RecordPackingDrawer({ onClose }) {
   const [rbi, setRbi] = useState("");
   const [serialStart, setSerialStart] = useState("2001");
   const [packingTransports, setPackingTransports] = useState({});
+  /* The shipment's terms, known when the goods are packed — they are written
+     to the invoice's shipment details, where they can still be changed. */
+  const [ship, setShip] = useState({});
+  const items = useItems().data || [];
+  const sequence = useOptions().data?.item_sequence;
+  const itemById = useMemo(() => Object.fromEntries(items.map((i) => [i.id, i])), [items]);
+  const buyer = buyers.find((b) => b.id === buyerId);
   const [boxesBy, setBoxesBy] = useState({});
   const [q, setQ] = useState("");
   const [supFilter, setSupFilter] = useState("");
@@ -68,13 +78,22 @@ export default function RecordPackingDrawer({ onClose }) {
     return m;
   }, [balance]);
 
-  /* Walk the boxes just typed down the open orders, oldest first, exactly the
-     way the save will allocate them. What comes back is which PO each box
-     goes to — shown under the input as it is typed, so nobody has to trust
-     the word "FIFO" without seeing it. */
+  /* Which PO each box goes to — shown under the input as it is typed, so
+     nobody has to trust the word "FIFO" without seeing it. The API works it
+     out with the ledger itself, at this invoice's date; until its answer for
+     the figure on screen arrives, the same walk down the open orders is done
+     here as a stand-in (exact unless the invoice is dated before others). */
+  const typedLines = useDebounced(useMemo(
+    () => Object.entries(boxesBy).map(([item_id, v]) => ({ item_id, boxes: Math.max(0, Math.floor(Number(v) || 0)) }))
+      .filter((l) => l.boxes > 0).sort((a, b) => a.item_id.localeCompare(b.item_id)),
+    [boxesBy],
+  ), 350);
+  const preview = useAllocationPreview(typedLines.length ? { date, lines: typedLines } : null).data || {};
   const fifoFor = (itemId, typed) => {
     let left = Math.max(0, Math.floor(Number(typed) || 0));
     if (!left) return { legs: [], spare: 0 };
+    const srv = preview[itemId];
+    if (srv && srv.legs.reduce((n, l) => n + l.boxes, 0) + srv.spare === left) return srv;
     const legs = [];
     (owed[itemId]?.detail || []).forEach((d) => {
       if (left <= 0) return;
@@ -130,7 +149,12 @@ export default function RecordPackingDrawer({ onClose }) {
 
   /* The summary is built from the unfiltered master, not from the list above:
      narrowing the search or the supplier filter must never make a line you
-     have already typed disappear from what you are about to invoice. */
+     have already typed disappear from what you are about to invoice.
+
+     It is in the item sequence (Oswin by bore, then VP-PP, Hansa-PP,
+     Hansa-GRN, VP-GRN — Setup → Additional settings), which is the order the
+     invoice numbers its cartons in: the serial ranges below are the ones the
+     invoice will carry. */
   const rows = useMemo(() => {
     const out = [];
     allGroups.forEach((g) => g.variants.forEach((v) => {
@@ -143,8 +167,16 @@ export default function RecordPackingDrawer({ onClose }) {
         });
       }
     }));
-    return out;
-  }, [allGroups, boxesBy]);
+    const sorted = sortBySequence(out, {
+      suppliers, sequence, getItem: (r) => itemById[r.item_id] || { gd: r.gd, supplier_id: r.supplier_id },
+      supplierOf: (r) => r.supplier_id,
+    });
+    let sr = Number(serialStart) || 0;
+    return sorted.map((r) => {
+      const from = sr; sr += r.boxes;
+      return { ...r, range: `${from}–${sr - 1}` };
+    });
+  }, [allGroups, boxesBy, suppliers, sequence, itemById, serialStart]);
 
   const totalBoxes = rows.reduce((s, r) => s + r.boxes, 0);
   const totalVol = rows.reduce((s, r) => s + r.volume, 0);
@@ -166,6 +198,7 @@ export default function RecordPackingDrawer({ onClose }) {
         invoice_no: invoiceNo, date, buyer_id: buyerId || null,
         rbi: Number(rbi) || 0, serial_start: Number(serialStart) || 0,
         packing_transports: packingTransports,
+        ship: Object.fromEntries(Object.entries(ship).filter(([, v]) => v !== "" && v != null)),
         lines: rows.map((r) => ({ item_id: r.item_id, supplier_id: r.supplier_id, boxes: r.boxes })),
       },
       {
@@ -208,9 +241,12 @@ export default function RecordPackingDrawer({ onClose }) {
             <Field label="RBI rate ₹/$" hint="The Reserve Bank reference rate on the packing date — captured here, not at order entry.">
               <NumberInput className="rate" decimal value={rbi} onChange={setRbi} placeholder="e.g. 87.25" />
             </Field>
-            <Field label="Serial (carton) start" hint="The first carton number. Each line takes the next block of numbers, so ranges never overlap.">
+            <Field label="Serial (carton) start" hint="The first carton number. Each line takes the next block of numbers in the item sequence — Oswin by bore, then VP-PP, Hansa-PP, Hansa-GRN, VP-GRN — so ranges never overlap.">
               <NumberInput value={serialStart} onChange={setSerialStart} placeholder="e.g. 2001" />
             </Field>
+          </div>
+          <div className="grid-3" style={{ marginTop: 12 }}>
+            <ShipTermsFields ship={ship} onSet={(patch) => setShip((p) => ({ ...p, ...patch }))} buyer={buyer} />
           </div>
         </section>
 
@@ -222,7 +258,7 @@ export default function RecordPackingDrawer({ onClose }) {
                 <option value="">All suppliers</option>
                 {suppliers.map((s) => <option key={s.id} value={s.id}>{s.code} — {s.name}</option>)}
               </Select>
-              <div style={{ width: 220 }}><SearchInput value={q} onChange={setQ} placeholder="Find an item…" /></div>
+              <div style={{ width: 220, maxWidth: "100%" }}><SearchInput value={q} onChange={setQ} placeholder="Find an item…" /></div>
             </div>
           </div>
           <Card>
@@ -300,10 +336,11 @@ export default function RecordPackingDrawer({ onClose }) {
             <div className="stack-sm">
               <Card>
                 <DataTable serial
-                  freeze={5}
+                  freeze={3}
                   columns={[
                     { key: "gd", w: 96, label: "GD code", render: (r) => <Mono>{r.gd}</Mono> },
                     { key: "desc", w: 220, label: "Description", render: (r) => <span style={{ whiteSpace: "pre-line" }}>{r.description}</span> },
+                    { key: "range", w: 118, label: "Carton serials", render: (r) => <Mono>{r.range}</Mono> },
                     {
                       key: "sp", w: 190, label: "Supplier",
                       render: (r) => {
@@ -340,7 +377,7 @@ export default function RecordPackingDrawer({ onClose }) {
                     },
                   ]}
                   rows={rows} rowKey={(r) => r.key}
-                  footer={[{ v: "Total", span: 3 }, { v: totalBoxes, align: "r" }, { v: num(totalVol, 3), align: "r" }, { v: "" }]}
+                  footer={[{ v: "Total", span: 4 }, { v: totalBoxes, align: "r" }, { v: num(totalVol, 3), align: "r" }, { v: "" }]}
                 />
               </Card>
               <Card>

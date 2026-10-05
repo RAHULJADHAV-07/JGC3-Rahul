@@ -140,13 +140,22 @@ body,
   min-height: 100%;
   width: 100%;
 }
+/* The scrollbar's room is kept whether the page scrolls or not, so a short
+   page and a long one lay out at the same width — nothing shifts sideways
+   when moving between them. (Phones overlay their scrollbars; no effect.) */
+html {
+  scrollbar-gutter: stable;
+}
 
 /* Scale the entire UI up uniformly — text, spacing and controls together.
    `zoom` behaves like browser zoom: percentage widths reflow to fit the
    viewport, so nothing overflows horizontally, and unlike a transform it
    does not break `position: sticky` / `fixed`. */
 #root {
-  zoom: 1.12;
+  zoom: var(--app-zoom);
+}
+:root {
+  --app-zoom: 1.12;
 }
 
 body {
@@ -174,7 +183,14 @@ textarea {
   color: #0b2c4d;
 }
 
-/* Scrollbars — thin, unobtrusive */
+/* Scrollbars — thin, unobtrusive. Firefox has no ::-webkit-scrollbar, and
+   without this drew a full-width light scrollbar beside every dark table. */
+@supports not selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-2) transparent;
+  }
+}
 *::-webkit-scrollbar {
   width: 10px;
   height: 10px;
@@ -199,7 +215,9 @@ textarea {
 .app {
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  /* Inside the app's zoom a vh is zoomed too — 100vh would be 112 % of the
+     screen — so viewport lengths are divided back by it. */
+  min-height: calc(100vh / var(--app-zoom));
 }
 
 /* ---- Row 1: brand + horizontal navigation ---- */
@@ -853,6 +871,7 @@ textarea {
   position: relative;
   display: flex;
   align-items: center;
+  max-width: 100%;
 }
 .searchwrap svg {
   position: absolute;
@@ -1634,60 +1653,10 @@ textarea {
 }
 
 /* ============================================================
-   Signed-in user chip in the top bar
-   ============================================================ */
-.user-chip {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 6px 4px 4px;
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-}
-.uc-ava {
-  width: 27px;
-  height: 27px;
-  border-radius: 8px;
-  background: var(--amber);
-  color: #0b2c4d;
-  font-size: 11.5px;
-  font-weight: 750;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-.uc-txt {
-  line-height: 1.1;
-  min-width: 0;
-}
-.uc-n {
-  display: block;
-  color: #fff;
-  font-size: 12px;
-  font-weight: 600;
-  white-space: nowrap;
-  max-width: 120px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.uc-r {
-  display: block;
-  color: #9fc0d8;
-  font-size: 9.5px;
-  letter-spacing: 0.8px;
-  text-transform: uppercase;
-}
-.user-chip .icon-btn.bare {
-  color: #b7c9d9;
-}
-
-/* ============================================================
    Login screen
    ============================================================ */
 .login {
-  min-height: 100vh;
+  min-height: calc(100vh / var(--app-zoom));
   display: grid;
   grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
   background: var(--bg, var(--surface-2));
@@ -2058,7 +2027,8 @@ textarea {
   left: 0;
   right: 0;
   z-index: 45;
-  max-height: calc(100vh - 64px);
+  max-height: calc(100vh / var(--app-zoom) - 64px);
+  max-height: calc(100dvh / var(--app-zoom) - 64px);
   overflow: auto;
   -webkit-overflow-scrolling: touch;
   padding: 8px;
@@ -2157,7 +2127,8 @@ textarea {
     inset: 56px 0 0;
   }
   .nav-sheet {
-    max-height: calc(100vh - 56px);
+    max-height: calc(100vh / var(--app-zoom) - 56px);
+    max-height: calc(100dvh / var(--app-zoom) - 56px);
   }
   .subbar {
     top: 56px;
@@ -2167,13 +2138,6 @@ textarea {
   }
   .brand-sub {
     display: none;
-  }
-  .uc-txt {
-    display: none; /* the initials still say who is signed in */
-  }
-  .user-chip {
-    padding: 3px;
-    gap: 4px;
   }
   .subbar h1 {
     font-size: 22px;
@@ -2414,78 +2378,159 @@ textarea {
 @keyframes spin { to { transform: rotate(360deg); } }
 
 /* ============================================================
-   Account menu in the top bar — who is signed in, and the way out.
+   Profile menu in the top bar — the first name in the bar; the
+   full name, the role, the theme and the way out behind it.
    ============================================================ */
 .acct { position: relative; }
 .acct-btn {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 5px 9px 5px 5px;
+  max-width: 190px;
+  padding: 4px 10px 4px 4px;
   border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: transparent;
   color: #fff;
   font: inherit;
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 600;
   cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
 }
-.acct-btn:hover { background: rgba(255, 255, 255, 0.18); }
+.acct-btn:hover,
+.acct-btn.open { background: rgba(255, 255, 255, 0.1); border-color: rgba(255, 255, 255, 0.26); }
+.acct-btn:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
 .acct-ava {
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
   border-radius: 999px;
   display: grid;
   place-items: center;
   background: var(--amber);
   color: #0b2c4d;
-  font-size: 11px;
+  font-size: 11.5px;
   font-weight: 750;
   flex-shrink: 0;
 }
-.acct-name { max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-@media (max-width: 900px) { .acct-name { display: none; } }
+.acct-ava.lg { width: 40px; height: 40px; font-size: 14px; }
+.acct-name { min-width: 0; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acct-chev { flex-shrink: 0; opacity: 0.75; transition: transform 0.15s ease; }
+.acct-btn.open .acct-chev { transform: rotate(180deg); }
 
 .acct-menu {
   position: absolute;
-  top: calc(100% + 8px);
+  top: calc(100% + 10px);
   right: 0;
   z-index: 60;
-  min-width: 232px;
+  width: 288px;
+  max-width: calc(100vw - 24px);
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 12px;
-  box-shadow: 0 14px 40px rgba(11, 44, 77, 0.18);
+  border-radius: 14px;
+  box-shadow: 0 18px 44px rgba(11, 44, 77, 0.22);
   overflow: hidden;
+  animation: selin 0.12s ease;
 }
-.acct-head { padding: 12px 14px; border-bottom: 1px solid var(--border); }
-.acct-head-n { font-size: 13.5px; font-weight: 700; color: var(--ink); }
-.acct-head-e { font-size: 11.5px; color: var(--faint); margin-top: 2px; }
-.acct-head-r {
+.acct-head {
   display: flex;
   align-items: center;
-  gap: 5px;
-  margin-top: 7px;
-  font-size: 11.5px;
-  font-weight: 600;
-  color: var(--muted);
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
 }
+.acct-who { display: flex; flex-direction: column; min-width: 0; }
+.acct-head-n { font-size: 14.5px; font-weight: 700; color: var(--ink); line-height: 1.25; overflow-wrap: anywhere; }
+.acct-head-e { font-size: 12px; color: var(--muted); margin-top: 3px; overflow-wrap: anywhere; line-height: 1.3; }
+.acct-head-r {
+  display: inline-flex;
+  align-self: flex-start;
+  align-items: center;
+  gap: 5px;
+  margin-top: 8px;
+  padding: 2px 9px;
+  border-radius: 99px;
+  background: var(--teal-bg);
+  color: var(--teal-ink);
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+}
+.acct-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.acct-row-l { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--ink); }
+.acct-row-l svg { color: var(--muted); }
+.seg.acct-seg { padding: 2px; }
+.seg.acct-seg button { padding: 5px 9px; font-size: 12.5px; gap: 5px; }
 .acct-item {
   display: flex;
   align-items: center;
   gap: 9px;
   width: 100%;
-  padding: 11px 14px;
+  padding: 12px 16px;
   border: 0;
   background: none;
   font: inherit;
-  font-size: 13px;
+  font-size: 13.5px;
   font-weight: 600;
   color: var(--ink);
   cursor: pointer;
 }
 .acct-item:hover { background: var(--surface-2); }
+.acct-item.danger { color: var(--red); }
+.acct-item.danger:hover { background: var(--red-bg); }
+@media (max-width: 360px) {
+  .acct-name { display: none; }
+  .acct-btn { padding-right: 6px; }
+}
+
+/* The version in the footer, while on Setup — it opens the release notes. */
+.ver-link {
+  border: 0;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+.ver-link:hover { color: var(--teal); }
+
+/* Release notes — one line per change. */
+.rn-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.rn-list li {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  font-size: 12.5px;
+  line-height: 1.35;
+  color: var(--ink-2);
+}
+.modal.modal-sm.rn-modal {
+  width: 470px;
+  transform: none;
+  max-height: calc(82vh / var(--app-zoom));
+}
+.rn-modal .modal-head h3 {
+  font-size: 15.5px;
+}
+.rn-list li svg { color: var(--green); flex-shrink: 0; margin-top: 3px; }
+.rn-rel + .rn-rel { border-top: 1px dashed var(--border); padding-top: 12px; }
+.rn-prev { margin-top: 14px; border-top: 1px dashed var(--border); padding-top: 12px; }
+.rn-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 14px; color: var(--ink); }
+.rn-date { font-size: 12px; color: var(--faint); }
 
 /* ============================================================
    Password box with a reveal toggle. The eye sits inside the
@@ -3121,7 +3166,8 @@ textarea {
 /* A bare filter next to the tabs — no label, no card, no border of its own
    beyond the control itself. */
 .tab-filter {
-  width: min(230px, 100%);
+  width: 230px;
+  max-width: 100%;
   flex: 0 1 auto;
 }
 
@@ -3156,7 +3202,8 @@ textarea {
   padding: 12px;
 }
 .picker-sup {
-  width: min(230px, 100%);
+  width: 230px;
+  max-width: 100%;
   flex: 0 1 auto;
 }
 .picker-foot {
@@ -3191,3 +3238,655 @@ textarea {
     justify-content: center;
   }
 }
+
+
+/* ============================================================
+   Dropdowns, the calendar and the top scrollbar
+   (components/ui/pickers.jsx). The panels open into a layer
+   portalled to <body>, outside #root — so the layer carries
+   the app's zoom itself, or its type would be a size smaller
+   than the field it opened from.
+   ============================================================ */
+.jg-layer {
+  zoom: var(--app-zoom);
+  position: relative;
+  z-index: 120;
+}
+
+/* The field: the same box as a text input, with the choice and a chevron. */
+/* The chevron glyph sits 3.5px inside its 14px box, so a 4px gap and an 8px
+   right padding put it where a native select draws its arrow — and give the
+   label every pixel a native select would. */
+.select.sel {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  text-align: left;
+  background-image: none;
+  padding-right: 8px;
+  min-width: 0;
+  max-width: 100%;
+  font-size: inherit;
+  line-height: 1.2;
+}
+.field .select.sel,
+.rec-grid .select.sel {
+  width: 100%;
+}
+.select.sel:hover:not(:disabled) {
+  border-color: var(--teal);
+}
+/* A ring only for keyboard focus; a click leaves the field as it was. */
+.select.sel:focus:not(:focus-visible):not(.open) {
+  border-color: var(--border-2);
+  box-shadow: none;
+}
+.select.sel.open {
+  border-color: var(--teal);
+  box-shadow: var(--ring);
+}
+/* The label and, stacked under it in the same grid cell, every choice laid
+   out invisibly: the cell is as wide as the widest of them, so the field's
+   natural width is its widest option — exactly a native <select>'s. Given a
+   width of its own, the cell shrinks and the label ellipsises. */
+.sel-box {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: center;
+}
+.sel-box > * {
+  grid-area: 1 / 1;
+}
+.sel-sizer {
+  display: flex;
+  flex-direction: column;
+  height: 0;
+  overflow: hidden;
+  visibility: hidden;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.sel-val {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+}
+.sel-val.ph {
+  color: var(--faint);
+}
+.sel-chev {
+  flex-shrink: 0;
+  color: var(--muted);
+  transition: transform 0.15s ease;
+}
+.select.sel.open .sel-chev {
+  transform: rotate(180deg);
+  color: var(--teal);
+}
+
+/* The floating panel. */
+.sel-pop {
+  position: fixed;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--surface);
+  border: 1px solid var(--border-2);
+  border-radius: var(--r-sm);
+  box-shadow: 0 16px 40px rgba(9, 20, 32, 0.22), 0 2px 6px rgba(9, 20, 32, 0.08);
+  overflow: hidden;
+  animation: selin 0.12s ease;
+  font-size: 14px;
+  color: var(--ink);
+}
+@keyframes selin {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+.sel-search {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  color: var(--faint);
+  flex-shrink: 0;
+}
+.sel-search input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--ink);
+  font-size: 13.5px;
+  height: 26px;
+}
+.sel-clear {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  color: var(--muted);
+}
+.sel-clear:hover {
+  background: var(--surface-2);
+}
+.sel-list {
+  overflow: auto;
+  padding: 5px;
+  overscroll-behavior: contain;
+}
+.sel-opt {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 7px;
+  cursor: pointer;
+  color: var(--ink);
+  font-size: 13.5px;
+  line-height: 1.3;
+}
+.sel-opt-t {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.sel-opt svg {
+  color: var(--teal);
+  flex-shrink: 0;
+}
+.sel-opt.act {
+  background: var(--surface-2);
+}
+.sel-opt.on {
+  font-weight: 650;
+  color: var(--teal-ink);
+}
+.sel-opt.on.act,
+.sel-opt.on {
+  background: var(--teal-bg);
+}
+.sel-opt.off {
+  color: var(--faint);
+  cursor: default;
+}
+.sel-none {
+  padding: 14px 10px;
+  text-align: center;
+  font-size: 12.5px;
+  color: var(--faint);
+}
+
+/* On a phone: a sheet from the bottom of the screen. */
+.sel-veil {
+  position: fixed;
+  inset: 0;
+  background: rgba(8, 22, 36, 0.45);
+  animation: fade 0.12s ease;
+}
+.sel-sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  max-height: 72vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border-radius: 16px 16px 0 0;
+  box-shadow: 0 -12px 40px rgba(9, 20, 32, 0.28);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  animation: sheetup 0.16s ease;
+  color: var(--ink);
+}
+@keyframes sheetup {
+  from {
+    transform: translateY(24px);
+    opacity: 0.4;
+  }
+}
+.sel-sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px 10px;
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ink);
+  flex-shrink: 0;
+}
+.sel-sheet .sel-list {
+  padding: 6px 8px 12px;
+}
+.sel-sheet .sel-opt {
+  padding: 12px 12px;
+  font-size: 15px;
+}
+
+/* ---- the date field ---- */
+.date-in {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+}
+.date-in .input {
+  padding-right: 38px;
+  font-variant-numeric: tabular-nums;
+}
+.date-in.bad .input {
+  border-color: var(--red);
+  box-shadow: 0 0 0 3px var(--red-bg);
+}
+.date-btn {
+  position: absolute;
+  right: 5px;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 7px;
+  color: var(--muted);
+}
+.date-btn:hover:not(:disabled) {
+  background: var(--surface-2);
+  color: var(--teal);
+}
+.date-in.sm .date-btn {
+  width: 26px;
+  height: 26px;
+  right: 4px;
+}
+
+/* ---- the calendar ---- */
+.cal {
+  padding: 10px 10px 8px;
+  user-select: none;
+}
+.cal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.cal-nav {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  color: var(--ink-2);
+}
+.cal-nav:hover {
+  background: var(--surface-2);
+  color: var(--teal);
+}
+.cal-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ink);
+}
+.cal-title:hover {
+  background: var(--surface-2);
+}
+.cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 2px;
+}
+.cal-dow {
+  text-align: center;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  color: var(--faint);
+  padding: 4px 0 6px;
+}
+.cal-day {
+  height: 34px;
+  border-radius: 8px;
+  font-size: 13.5px;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.cal-day:hover:not(:disabled) {
+  background: var(--surface-2);
+}
+.cal-day.now {
+  box-shadow: inset 0 0 0 1.5px var(--amber);
+  font-weight: 700;
+}
+.cal-day.on {
+  background: var(--teal);
+  color: #fff;
+  font-weight: 700;
+  box-shadow: none;
+}
+[data-theme="dark"] .cal-day.on {
+  color: #06222a;
+}
+.cal-day.foc:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 1px;
+}
+.cal-day:disabled {
+  color: var(--border-2);
+  cursor: not-allowed;
+}
+.cal-months {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  padding: 4px 0;
+}
+.cal-month {
+  height: 42px;
+  border-radius: 9px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink);
+  background: var(--surface-2);
+}
+.cal-month:hover {
+  background: var(--surface-3);
+}
+.cal-month.on {
+  background: var(--teal);
+  color: #fff;
+}
+.cal-foot {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 4px 2px;
+  margin-top: 6px;
+  border-top: 1px solid var(--border);
+  font-size: 13px;
+}
+.cal-sheet .cal {
+  padding: 12px 14px 14px;
+}
+.cal-sheet .cal-day {
+  height: 42px;
+  font-size: 15px;
+}
+
+/* ---- the second scrollbar, along the top of a wide table ---- */
+.xscroll-top {
+  overflow-x: auto;
+  overflow-y: hidden;
+  height: 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+  scrollbar-width: thin;
+}
+.xscroll-top > div {
+  height: 1px;
+}
+.xscroll-top::-webkit-scrollbar {
+  height: 10px;
+}
+
+/* ============================================================
+   Setup → Additional settings — a card per list.
+   ============================================================ */
+.opt-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(360px, 100%), 1fr));
+  gap: 16px;
+  align-items: start;
+}
+.opt-card.opt-wide {
+  grid-column: 1 / -1;
+}
+.opt-body {
+  padding: 14px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.opt-add {
+  display: flex;
+  gap: 8px;
+}
+.opt-add .input {
+  flex: 1;
+  min-width: 0;
+}
+.opt-hint {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+.opt-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  overflow: hidden;
+}
+.opt-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 42px;
+  padding: 5px 8px 5px 12px;
+  font-size: 13.5px;
+  color: var(--ink);
+}
+.opt-item + .opt-item {
+  border-top: 1px solid var(--border);
+}
+.opt-item:nth-child(even) {
+  background: var(--surface-2);
+}
+.opt-item .input {
+  flex: 1;
+  min-width: 0;
+}
+.opt-text {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-weight: 550;
+}
+.opt-empty {
+  padding: 14px;
+  text-align: center;
+  font-size: 12.5px;
+  color: var(--faint);
+  border: 1px dashed var(--border-2);
+  border-radius: var(--r-sm);
+}
+.seq-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  overflow: hidden;
+}
+.seq-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px 6px 10px;
+  font-size: 13.5px;
+}
+.seq-item + .seq-item {
+  border-top: 1px solid var(--border);
+}
+.seq-item .icon-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+.seq-n {
+  width: 22px;
+  height: 22px;
+  border-radius: 99px;
+  display: grid;
+  place-items: center;
+  background: var(--amber-bg);
+  color: var(--amber-ink);
+  font-size: 11.5px;
+  font-weight: 750;
+  flex-shrink: 0;
+}
+.bank-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr));
+  gap: 12px;
+}
+.bank-card {
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 12px 14px;
+  background: var(--surface-2);
+  min-width: 0;
+}
+.bank-name {
+  font-size: 14px;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.bank-dl {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 4px 12px;
+  margin: 8px 0 0;
+  font-size: 12.5px;
+}
+.bank-dl dt {
+  color: var(--faint);
+}
+.bank-dl dd {
+  margin: 0;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+@media (max-width: 640px) {
+  .opt-add {
+    flex-wrap: wrap;
+  }
+  .opt-add .btn {
+    flex: 1 1 100%;
+  }
+}
+
+/* A dropdown with a "+" beside it — the item form's packaging type. */
+.sel-plus {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  min-width: 0;
+}
+.sel-plus > .select {
+  flex: 1;
+  min-width: 0;
+}
+
+
+/* ============================================================
+   Narrow phones (Motorola Edge-class at 360–412px, smaller ones
+   down to 320px): filters take the full row, stat tiles go two
+   across, and a pill may wrap rather than push the card wider
+   than the screen.
+   ============================================================ */
+@media (max-width: 760px) {
+  .grid-4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .doc-filters > .field,
+  .doc-filters > div {
+    flex: 1 1 100%;
+    min-width: 0 !important;
+  }
+  .stat {
+    padding: 12px 13px;
+  }
+  .stat-v {
+    font-size: 24px;
+    margin-top: 8px;
+  }
+}
+@media (max-width: 440px) {
+  .pill {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+}
+@media (max-width: 340px) {
+  .grid-4 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+
+/* ============================================================
+   Phones: no zoom.
+
+   The app is drawn at --app-zoom (1.12) to read comfortably on a
+   monitor. On a phone that zoom did harm: every vw and vh inside
+   it is zoomed as well, so a dialog declared 94vw wide came out at
+   105 % of the screen and the menu sheet ran off the bottom — and
+   a 412px screen was left with 368px to lay out in. Phones get the
+   page at its natural size instead; the boxes people type into
+   are set at 16px, the size below which iOS zooms the page on
+   focus.
+   ============================================================ */
+@media (max-width: 760px) {
+  :root {
+    --app-zoom: 1;
+  }
+  .input,
+  .input-sm,
+  .select,
+  .sel-search input,
+  textarea.input {
+    font-size: 16px;
+  }
+}
+
+
+/* The tab bar folded into the burger because it does not fit (AppShell
+   measures it). It stays laid out — off to the side and invisible — so it can
+   be measured again and unfold the moment there is room. */
+.topnav.tight .nav-burger {
+  display: grid;
+}
+.topnav.tight .nav {
+  position: absolute;
+  left: -10000px;
+  top: 0;
+  visibility: hidden;
+  pointer-events: none;
+  flex: none;
+}
+.topnav.tight .topnav-inner {
+  justify-content: flex-start;
+}
+.topnav.tight .topnav-right {
+  margin-left: auto;
+}
+/* The brand keeps the same width folded and unfolded (the wordmark only
+   comes back below 900px, where the bar is always folded) — otherwise the
+   measurement that decides between the two would chase its own tail. */

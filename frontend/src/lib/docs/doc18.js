@@ -1,4 +1,4 @@
-import { CI_HSN_ROWS, CI_P1_BODY, CI_P1_TOP, CI_P2_TOP, CI_PCT, CI_PLAIN, CI_USD, CI_USDT, L, P7, RUPEE, USD, addrLines, amountWords, ciMarks, ciP2Body, ddmm, esc, exRate, fitSheet, formGrid, formLogo, goodsWrapped, gstRate, hsnRuns, hsnText, inr, invoiceBands, invoiceLayout, num, numOrText, poHeaderList, rangeRefs, sum, usd, wbFixed, wbRupee } from "./common.js";
+import { CI_HSN_ROWS, CI_P1_BODY, CI_P1_TOP, CI_P2_TOP, CI_PCT, CI_PLAIN, CI_USD, CI_USDT, L, P7, RUPEE, USD, addrLines, amountWords, ciMarks, ciP2Body, ddmm, esc, exRate, fitSheet, formGrid, formLogo, goodsWrapped, gstFor, hsnRuns, hsnText, inr, invoiceBands, invoiceLayout, num, numOrText, poHeaderList, rangeRefs, sum, usd, wbFixed, wbRupee } from "./common.js";
 import { LOGO_SRC, imgTag } from "../logo.js";
 import { colLetter } from "../xlsx.js";
 
@@ -187,7 +187,7 @@ export function customsInvoiceSheets(ctx) {
     }
     const { band, r } = line;
     const rate = band.per100 ? r.fobPc * 100 : r.fobPc;
-    const gst = gstRate(r.it.hsn);
+    const gst = gstFor(ctx, r.it, r.supId);
     const cells = [[1, { v: "", s: G.colA }], [1, numOrText(r.it.code, G.code)],
       [band.wide ? 2 : 1, { v: r.it.size || "", s: G.ctr }]];
     if (band.len) cells.push([1, { v: r.it.length || "", s: G.ctr }]);
@@ -554,7 +554,7 @@ export function customsInvoiceHtml(ctx) {
     }
     const { band, r } = l;
     const rate = band.per100 ? r.fobPc * 100 : r.fobPc;
-    const g = gstRate(r.it.hsn), tax = r.fobTotal * ex;
+    const g = gstFor(ctx, r.it, r.supId), tax = r.fobTotal * ex;
     const cells = [td(esc(r.it.code), "c"), td(esc(r.it.size), "c", band.wide ? 2 : 1)];
     if (band.len) cells.push(td(esc(r.it.length), "c"));
     else if (!band.wide) cells.push(td(""));
@@ -567,7 +567,7 @@ export function customsInvoiceHtml(ctx) {
       `<td class="r" data-t="usd" data-v="${r.fobTotal}">${ciUsd(r.fobTotal)}</td>`,
       `<td class="c" data-t="inr" data-v="${r.pieces ? tax / r.pieces : 0}">${ciInr(r.pieces ? tax / r.pieces : 0)}</td>`,
       `<td class="r" data-t="inr" data-v="${tax}">${ciInr(tax)}</td>`,
-      `<td class="c">${(g * 100).toFixed(0)}%</td>`,
+      `<td class="c">${Number((g * 100).toFixed(2))}%</td>`,
       `<td class="r" data-t="inr" data-v="${Math.round(tax * g)}">${ciInr(Math.round(tax * g))}</td>`,
     );
     return `<tr class="ln"><td>&nbsp;</td>${cells.join("")}</tr>`;
@@ -583,8 +583,8 @@ export function customsInvoiceHtml(ctx) {
 
   const cfUsd = p1.reduce((n, l) => n + (l.kind === "item" ? l.r.fobTotal : 0), 0);
   const cfTax = cfUsd * ex;
-  const cfGst = p1.reduce((n, l) => n + (l.kind === "item" ? Math.round(l.r.fobTotal * ex * gstRate(l.r.it.hsn)) : 0), 0);
-  const gstAll = rows.reduce((n, r) => n + Math.round(r.fobTotal * ex * gstRate(r.it.hsn)), 0);
+  const cfGst = p1.reduce((n, l) => n + (l.kind === "item" ? Math.round(l.r.fobTotal * ex * gstFor(ctx, l.r.it, l.r.supId)) : 0), 0);
+  const gstAll = rows.reduce((n, r) => n + Math.round(r.fobTotal * ex * gstFor(ctx, r.it, r.supId)), 0);
 
   const colg = `<colgroup>${[12.6, 12.9, 10.8, 10.8, 10.8, 12.1, 12.1, 12.1, 15.5, 12.1, 12.1]
     .map((w) => `<col style="width:${(w / 133.9) * 100}%">`).join("")}</colgroup>`;
@@ -625,7 +625,7 @@ export function customsInvoiceHtml(ctx) {
       ${td("", "bx")}${td("", "bx")}${td("", "bx")}${td("", "bx")}</tr>`;
     const mine = rows.filter((r) => hsnText(r.it) === hsn);
     const pcs = sum(mine, "pieces"), val = sum(mine, "fobTotal");
-    const tax = val * ex, g = mine.reduce((n, r) => n + Math.round(r.fobTotal * ex * gstRate(r.it.hsn)), 0);
+    const tax = val * ex, g = mine.reduce((n, r) => n + Math.round(r.fobTotal * ex * gstFor(ctx, r.it, r.supId)), 0);
     return `<tr>${td("", "lf")}${td(esc(`HSN CODE : ${hsn}`), "k bx", 2)}
       ${td(ciInt(pcs), "bx c")}${td(ciUsd(val), "bx r")}${td(ciInr(tax), "bx r", 2)}
       ${td(ciInr(0), "bx r")}${td(ciInr(0), "bx r")}${td(ciInr(g), "bx r")}${td(ciInr(g), "bx r")}</tr>`;

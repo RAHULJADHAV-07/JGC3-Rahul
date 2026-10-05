@@ -6,12 +6,13 @@ import {
 } from "lucide-react";
 import {
   Card, CardHead, Btn, Field, Input, Select, Pill, Mono, Empty, Note, SearchInput, Info,
-  Spinner, DownloadPair,
+  Spinner, DownloadPair, XScroll,
 } from "../../components/ui/index.jsx";
 import {
   useInvoices, useItems, useBuyers, useSuppliers, useTransports, usePoLines,
-  useInvoiceMutations, usePoList,
+  useInvoiceMutations, usePoList, useOptions,
 } from "../../api/hooks.js";
+import { useHiddenFields } from "../../lib/columnPrefs.js";
 import { useToast } from "../../providers/ToastProvider.jsx";
 import { useIsMobile } from "../../lib/useIsMobile.js";
 import { docCtx, poCtx } from "../../lib/docCtx.js";
@@ -46,13 +47,21 @@ function PreShipPanel({ inv, onWizard }) {
   const mobile = useIsMobile();
   const { update } = useInvoiceMutations();
   const toast = useToast();
+  const opts = useOptions().data || {};
+  const buyer = (useBuyers().data || []).find((b) => b.id === inv.buyer_id);
+  /* Terms and the discharge port come off the lists in Setup → Additional
+     settings, as they do on the shipment details. */
+  const LISTED = {
+    terms: opts.terms_delivery || [],
+    pod: (buyer?.ports?.length ? buyer.ports : null) || opts.ports_ship_to || [],
+  };
   const [f, setF] = useState({ ...(inv.ship || {}) });
   useEffect(() => { setF({ ...(inv.ship || {}) }); }, [inv.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const F = [
     ["blNo", "BL No.", "text"], ["blDate", "BL Date", "date"], ["vessel", "Vessel / voyage", "text"],
-    ["container", "Container No.", "text"], ["seal", "Seal No.", "text"], ["pod", "Port of discharge", "text"],
-    ["marks", "Marks & Nos", "text"], ["pkgs", "No & kinds of pkgs", "text"], ["terms", "Terms", "text"],
+    ["container", "Container No.", "text"], ["seal", "Seal No.", "text"], ["pod", "Ship to port (discharge)", "text"],
+    ["marks", "Marks & Nos", "text"], ["pkgs", "No & kinds of pkgs", "text"], ["terms", "Terms of delivery", "text"],
     ["netWt", "Nett wt (kg)", "number"], ["grossWt", "Gross wt (kg)", "number"], ["exRate", "Exchange rate ₹/$", "number"],
   ];
 
@@ -77,7 +86,16 @@ function PreShipPanel({ inv, onWizard }) {
       <div className="ship-fields">
         {F.map(([k, label, type]) => (
           <Field key={k} label={label}>
-            <Input className="input-sm" type={type} value={f[k] ?? ""} onChange={(e) => setF((p) => ({ ...p, [k]: e.target.value }))} />
+            {LISTED[k] ? (
+              <Select className="input-sm" value={f[k] ?? ""} aria-label={label} placeholder="— select —"
+                onChange={(e) => setF((p) => ({ ...p, [k]: e.target.value }))}>
+                <option value="">— select —</option>
+                {LISTED[k].map((o) => <option key={o} value={o}>{o}</option>)}
+                {f[k] && !LISTED[k].includes(f[k]) && <option value={f[k]}>{f[k]} (not on the list)</option>}
+              </Select>
+            ) : (
+              <Input className="input-sm" type={type} value={f[k] ?? ""} onChange={(e) => setF((p) => ({ ...p, [k]: e.target.value }))} />
+            )}
           </Field>
         ))}
       </div>
@@ -108,6 +126,11 @@ export default function DocumentsPage({ group }) {
   const poLines = usePoLines().data || [];
   const invoices = invq.data || [];
   const pos = poq.data || [];
+  const sequence = useOptions().data?.item_sequence;
+  const hidden = useHiddenFields();
+  /* One supplier's goods, or all of them in the item sequence. Every paper
+     on the page — the preview, each download, the stage bundles — follows it. */
+  const [supId, setSupId] = useState("");
 
   const groupMeta = group ? DOC_GROUPS.find((g) => g.k === group) : null;
   const catalogue = groupMeta ? [groupMeta] : DOC_GROUPS;
@@ -149,13 +172,31 @@ export default function DocumentsPage({ group }) {
     return catalogue.map((g) => ({ ...g, docs: g.docs.filter(match) })).filter((g) => g.docs.length);
   }, [q, catalogue]);
 
+  /* The suppliers on whatever the page is reading — the invoice's lines, or
+     the order's — so the filter never offers a supplier with nothing to show. */
+  const itemSup = useMemo(() => Object.fromEntries(items.map((i) => [i.id, i.supplier_id])), [items]);
+  const supsHere = useMemo(() => {
+    const ids = new Set(poMode
+      ? poLines.filter((r) => r.po === po?.po).map((r) => itemSup[r.item_id])
+      : (inv?.lines || []).map((l) => l.supplier_id));
+    return suppliers.filter((s) => ids.has(s.id));
+  }, [poMode, poLines, po, inv, itemSup, suppliers]);
+  const sup = supsHere.some((s) => s.id === supId) ? supId : "";
+  const supCodeOf = (id) => suppliers.find((s) => s.id === id)?.code || "";
+
   const invCtx = useMemo(
-    () => (inv ? docCtx({ invoice: inv, items, buyers, suppliers, poLines, transports, invoices }) : null),
-    [inv, items, buyers, suppliers, poLines, transports, invoices],
+    () => (inv ? docCtx({
+      invoice: inv, items, buyers, suppliers, poLines, transports, invoices,
+      supplierId: sup, sequence, hidden,
+    }) : null),
+    [inv, items, buyers, suppliers, poLines, transports, invoices, sup, sequence, hidden],
   );
   const orderCtx = useMemo(
-    () => (po ? poCtx({ po: po.po, items, buyers, suppliers, poLines, transports }) : null),
-    [po, items, buyers, suppliers, poLines, transports],
+    () => (po ? poCtx({
+      po: po.po, items, buyers, suppliers, poLines, transports,
+      supplierId: sup, sequence, hidden,
+    }) : null),
+    [po, items, buyers, suppliers, poLines, transports, sup, sequence, hidden],
   );
   const ctx = poMode ? orderCtx : invCtx;
 
@@ -182,7 +223,8 @@ export default function DocumentsPage({ group }) {
   const isPre = groupMeta?.k === "PRE";
   const split = supplierSplitDocs(open, ctx);
   const previewHtml = renderDocument(open, ctx);
-  const stamp = poMode ? `PO_${po.po}` : (inv?.invoice_no || "").replace(/\//g, "-");
+  const supTag = sup ? `_${supCodeOf(sup).replace(/[^A-Za-z0-9]+/g, "")}` : "";
+  const stamp = (poMode ? `PO_${po.po}` : (inv?.invoice_no || "").replace(/\//g, "-")) + supTag;
 
   /* The same button on every document: a workbook for the papers that are
      worksheets, and the Word document itself for the ones that are typed. */
@@ -209,7 +251,7 @@ export default function DocumentsPage({ group }) {
   return (
     <div className="stack">
       <Card pad>
-        <div className="row wrap" style={{ gap: 14, alignItems: "flex-end" }}>
+        <div className="row wrap doc-filters" style={{ gap: 14, alignItems: "flex-end" }}>
           {poMode ? (
             <Field label="Build documents from purchase order" style={{ minWidth: "min(340px, 100%)" }}>
               <Select value={po.po} onChange={(e) => setPoNo(e.target.value)}>
@@ -231,6 +273,12 @@ export default function DocumentsPage({ group }) {
               </Select>
             </Field>
           )}
+          <Field label="Supplier" style={{ width: 280, maxWidth: "100%" }}>
+            <Select value={sup} onChange={(e) => setSupId(e.target.value)} aria-label="Supplier">
+              <option value="">All suppliers · item sequence</option>
+              {supsHere.map((s) => <option key={s.id} value={s.id}>{s.code} — {s.name}</option>)}
+            </Select>
+          </Field>
           {poMode
             ? <Pill tone="teal"><ClipboardList size={11} /> raised from the order — no invoice needed</Pill>
             : done
@@ -324,10 +372,11 @@ export default function DocumentsPage({ group }) {
           <CardHead icon={FileText} title={<span>Document <Mono>{open}</Mono> · {DOC_META[open]}</span>}>
             <span style={{ fontSize: 11.5, color: "var(--faint)" }}>
               {poMode ? <>PO {po.po} · {dmyNum(po.date)}</> : <>{inv.invoice_no} · {dmy(inv.date)}</>}
+              {sup ? <> · {supCodeOf(sup)} only</> : null}
             </span>
             <DownloadPair word={isWordDoc(open)} onExcel={() => grabExcel(open)} onPDF={() => grabPDF(open)} />
           </CardHead>
-          <div className="docprev-shell">
+          <XScroll className="docprev-shell" deps={[open, previewHtml.length]}>
             {split.length > 0 && (
               <div style={{ marginBottom: 12 }}>
                 <Note tone="teal" icon={Truck}>
@@ -363,9 +412,10 @@ export default function DocumentsPage({ group }) {
             />
             <div className="row" style={{ marginTop: 12, gap: 7, fontSize: 11.5, color: "var(--teal-ink)" }}>
               <Check size={14} /> Live preview of the download — every figure pulled from{" "}
-              {poMode ? `purchase order ${po.po}` : `invoice ${inv.invoice_no}`}. The Excel keeps its formulas.
+              {poMode ? `purchase order ${po.po}` : `invoice ${inv.invoice_no}`}
+              {sup ? `, ${supCodeOf(sup)}'s items only` : ", every supplier in the item sequence"}. The Excel keeps its formulas.
             </div>
-          </div>
+          </XScroll>
         </Card>
         )}
       </div>

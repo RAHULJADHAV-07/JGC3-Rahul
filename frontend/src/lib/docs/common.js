@@ -36,6 +36,18 @@ export const dmy = (s) => (s ? new Date(s).toLocaleDateString("en-GB", { day: "2
 
 export const gstRate = (hsn) => (String(hsn).startsWith("4819") ? 0.05 : 0.18);
 
+/* A supplier's own GST (Setup → Suppliers → GST %), as a fraction — or null
+   when none is set. */
+export function supplierGst(ctx, supId) {
+  const p = (ctx.SUPPLIERS || []).find((s) => s.id === supId)?.gstPct;
+  return p === null || p === undefined || p === "" || !Number.isFinite(Number(p)) ? null : Number(p) / 100;
+}
+
+/* The GST an item is taxed at: its supplier's rate when one is set — that is
+   what Setup → Suppliers → GST % is for — and otherwise the rate its HSN code
+   implies, exactly as before the setting existed. */
+export const gstFor = (ctx, it, supId) => supplierGst(ctx, supId ?? it?.supplierId) ?? gstRate(it?.hsn);
+
 /* Barcode stickers per box — the item's own rule, mirroring calc.stickers_per_box:
    a typed-in total wins, otherwise (bag + piece) x multiplier, rounded on the
    GRN range. Labels then carry the item's allowance (1.05 on Oswin). */
@@ -83,8 +95,24 @@ export function supFor(ctx, id) { return ctx.SUPPLIERS.find((s) => s.id === id) 
    standing order number, as before. */
 export function orderRefOf(ctx) { return ctx.po || ctx.buyer.orderNo || "—"; }
 
-// Shipment lines (from the selected invoice) with every derived figure a document may need
+/* Shipment lines (from the selected invoice) with every derived figure a document may need.
+
+   The carton serials are worked out down the invoice's own lines, in the
+   order the invoice numbered them — before anything is narrowed or re-sorted,
+   so a line keeps its real carton numbers whichever way it is listed. Then:
+   with a supplier chosen (ctx.supplierId) only that supplier's lines are
+   kept, and the list is put in the item sequence (ctx.cmpItems — Oswin by
+   bore, then VP-PP, Hansa-PP, Hansa-GRN, VP-GRN). An invoice raised in that
+   sequence comes out unchanged; an older one is listed in it with each line's
+   cartons as they were printed. */
 export function L(ctx) {
+  const rows = invoiceLines(ctx);
+  const kept = ctx.supplierId ? rows.filter((r) => r.supId === ctx.supplierId) : rows;
+  if (!ctx.cmpItems) return kept;
+  return kept.map((r, i) => [r, i]).sort((a, b) => ctx.cmpItems(a[0].it, b[0].it) || a[1] - b[1]).map(([r]) => r);
+}
+
+function invoiceLines(ctx) {
   const ex = exRate(ctx);
   let sr = Number(ctx.inv.serialStart) || marksStart(ctx);
   return ctx.inv.lines.map((l) => {
@@ -142,7 +170,8 @@ export function orderAgg(ctx) {
     const typeUp = Number(it.typeUp) || 0;
     const stkPerBox = ttl * (Number(it.labelSpoilage) || 1);
     return { it, pos: [...x.pos].sort(), qty, packing, boxes, volTotal, netTotal, grossTotal, fobPc, fobTotal, valUnit, valTotal, rbiTotal, bg, pc, ttl, stkPerBox, stickers, sheets, typeUp };
-  }).sort((a, b) => String(a.it.gd || "").localeCompare(String(b.it.gd || "")));
+  }).sort((a, b) => (ctx.cmpItems ? ctx.cmpItems(a.it, b.it) : 0)
+    || String(a.it.gd || "").localeCompare(String(b.it.gd || "")));
 }
 
 /* The order book seen the way the supplier PO needs it — one row per item,
@@ -1346,8 +1375,12 @@ export const letterRef = (ctx) => {
 export function despatchMarks(ctx, arr) {
   const s = ctx.inv.ship || {};
   const mark = (s.marks || "G.D.W").replace(/[\d\s.–-]+$/, "").trim() || "G.D.W";
-  const from = String(arr[0]?.range || "").split("-")[0] || "";
-  const to = String(arr[arr.length - 1]?.range || "").split("-").pop() || "";
+  /* The lowest and highest carton of this supplier's lines — read off every
+     line rather than the first and last, which need not be the ends once the
+     lines are listed in the item sequence. */
+  const ends = arr.map((r) => String(r.range || "").split("-").map(Number)).filter((p) => p.length === 2 && p.every(Number.isFinite));
+  const from = ends.length ? String(Math.min(...ends.map((p) => p[0]))) : "";
+  const to = ends.length ? String(Math.max(...ends.map((p) => p[1]))) : "";
   const pkgs = sum(arr, "boxes");
   const kinds = s.pkgs ? ` (${s.pkgs})` : "";
   return `All Packages to be marked as ${mark}${from ? ` ${from} – ${to}` : ""} / ${pkgs} Packages${kinds}`;
@@ -2096,7 +2129,12 @@ export const numOrText = (v, s) => (/^\d+$/.test(String(v || "").trim())
 export const ciMarks = (ctx, rows) => {
   const s = ctx.inv.ship || {};
   const start = Number(ctx.inv.serialStart) || marksStart(ctx);
-  const boxes = sum(rows, "boxes");
+  /* The marks are the whole consignment's — the container is marked once —
+     so they run over every carton on the invoice, even when the paper has
+     been narrowed to one supplier's goods. */
+  const boxes = ctx.supplierId
+    ? (ctx.inv.lines || []).reduce((n, l) => n + (Number(l.boxes) || 0), 0)
+    : sum(rows, "boxes");
   const prefix = String(s.marks || "").replace(/[\d\-–\s]+/g, " ").trim() || "GDW";
   return { prefix, start, end: start + Math.max(0, boxes - 1) };
 };
@@ -2879,14 +2917,14 @@ export const CHA_AGENT = ["M/s. Velji Dosabhai & Sons P Ltd,",
   "Off Eastern Express Highway, Sion (E) Mumbai 400 022"];
 
 /* The standing instructions at the foot of it — theirs verbatim, and the same
-   on every letter but for the carting date. Nothing in the system records that
-   date: their own copy carts a day or so after the invoice, and the nearest
-   thing here is the invoice's own date, so that is what it is dated with. */
+   on every letter but for the carting date. That is the carting date entered
+   on record packing or the shipment details; an invoice without one is dated
+   with its own date, which is what this letter carried before the field existed. */
 export const CHA_NOTES = (ctx) => [
   "1. This is a nominated 1 x 20' FCL shipment",
   "2. Freight Payable at Destination",
   "3. Goods manufactured in Daman, Vapi & Maharashtra",
-  `4. Goods will be carted on ${ddmm(ctx.inv.date)}`,
+  `4. Goods will be carted on ${ddmm(ctx.inv.ship?.cartingDate || ctx.inv.date)}`,
   "5. Suppliers Details to be shown in S/Bill.",
   "6. FUMIGATION NOT REQUIRED.",
   "7. We don't claim under FTP",
@@ -3396,9 +3434,9 @@ export function si26Rows(ctx) {
 
   return [
     R([2, "SHIPPER (MAX 5 LINES)", "lrt b g"], [2, "BOOKING NO :", "lrt b g"]),
-    /* The line's own booking number is the one box on the form with nothing
-       behind it in this system, so it is left for whoever books the space. */
-    H(50.25, [2, shipper, "lrb w g"], [2, "", "lrb w g"]),
+    /* The line's own booking number, as entered on record packing or the
+       shipment details — blank until it is, for whoever books the space. */
+    H(50.25, [2, shipper, "lrb w g"], [2, s.bookingNo || "", "lrb w g"]),
     R([2, "CONSIGNEE (MAX 5 LINES)", "lrt b g"], [2, "B/L TYPE :", "lrt b g"]),
     H(52.5, [2, party, "lrb w g"], [2, "SEAWAY BL", "lrb w g"]),
     R([2, "NOTIFY PARTY 1 (MAX 5 LINES)", "lrt b g"], [2, "NOTIFY PARTY 2 (MAX 5 LINES)", "lrt b g"]),
@@ -3475,7 +3513,7 @@ export function vgm27Rows(ctx) {
   const rows = L(ctx);
   const gross = Number(s.grossWt) || sum(rows, "grossTotal");
   return [
-    ["1*", "Booking No.", ""],
+    ["1*", "Booking No.", s.bookingNo || ""],
     ["2*", "Name of the shipper", E.name || ""],
     ["3*", "Shipper Registration /License no.( IEC No/CIN No)**", E.iec || ""],
     ["4*", "Name and designation of official of the shipper authorized to sign document",
@@ -3547,15 +3585,19 @@ export function ewxGoods(ctx, rows) {
   const ex = exRate(ctx);
   const by = new Map();
   rows.forEach((r) => {
-    const k = String(r.it.hsn || "").trim() || "—";
-    if (!by.has(k)) by.set(k, { hsn: k, names: [], pieces: 0, taxable: 0 });
+    /* A line per HSN and rate: two suppliers of one HSN can be taxed at
+       different rates (Setup → Suppliers → GST %). */
+    const hsn = String(r.it.hsn || "").trim() || "—";
+    const rate = gstFor(ctx, r.it, r.supId);
+    const k = `${hsn}|${rate}`;
+    if (!by.has(k)) by.set(k, { hsn, rate, names: [], pieces: 0, taxable: 0 });
     const g = by.get(k);
     const name = bandOf(r.it);
     if (!g.names.includes(name)) g.names.push(name);
     g.pieces += r.pieces;
     g.taxable += r.fobTotal * ex;
   });
-  return [...by.values()].map((g) => ({ ...g, rate: gstRate(g.hsn) * 100 }));
+  return [...by.values()].map((g) => ({ ...g, rate: Math.round(g.rate * 10000) / 100 }));
 }
 
 export function ewx29Rows(ctx) {
@@ -4202,12 +4244,12 @@ export function balanceBoxes(ctx, data) {
     { h: "Pending Boxes", r: 1, key: "pending", t: "int", v: (r) => r.pending, f: (r) => r.pending },
     { h: "Vol/Box", r: 1, key: "volbox", t: "num3", v: (r) => r.it.volume, f: (r) => num(r.it.volume, 3) },
     { h: "Pending Vol m³", r: 1, key: "pendvol", t: "num", fml: "{pending}*{volbox}", f: (r) => num(r.pending * (r.it.volume || 0), 2) },
-    { h: "Net/Box kg", r: 1, key: "netbox", t: "num", v: (r) => r.it.netPerBox, f: (r) => num(r.it.netPerBox) },
-    { h: "Pending Net kg", r: 1, key: "pendnet", t: "num", fml: "{pending}*{netbox}", f: (r) => num(r.pending * (r.it.netPerBox || 0)) },
+    { h: "Net/Box kg", r: 1, key: "netbox", t: "num3", v: (r) => r.it.netPerBox, f: (r) => num(r.it.netPerBox, 3) },
+    { h: "Pending Net kg", r: 1, key: "pendnet", t: "num3", fml: "{pending}*{netbox}", f: (r) => num(r.pending * (r.it.netPerBox || 0), 3) },
   ];
   const pendVol = rows.reduce((a, r) => a + r.pending * (r.it.volume || 0), 0), pendNet = rows.reduce((a, r) => a + r.pending * (r.it.netPerBox || 0), 0);
   const foot = [{ v: "TOTAL", span: 2 }, { v: sum(rows, "pending"), r: 1, sum: "pending", t: "int" }, { v: "" },
-    { v: num(pendVol, 2), r: 1, sum: "pendvol", t: "num" }, { v: "" }, { v: num(pendNet), r: 1, sum: "pendnet", t: "num" }];
+    { v: num(pendVol, 2), r: 1, sum: "pendvol", t: "num" }, { v: "" }, { v: num(pendNet, 3), r: 1, sum: "pendnet", t: "num3" }];
   return { name: "Balance_Boxes_Volume_39", html: `<div class="title">39 · BALANCE ORDERS — BOXES &amp; VOLUME</div><div class="sub">As on ${dmy(ctx.inv.date)}</div>${tableOf(cols, rows, foot)}` };
 }
 

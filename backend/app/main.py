@@ -33,7 +33,7 @@ from . import models  # noqa: F401  (ensure models are registered before create_
 from .migrate import run_migrations
 from .routers import (
     auth, users, suppliers, buyers, items, transports, purchase_orders, invoices,
-    dashboard, reports, costing, masters, audit_log,
+    dashboard, reports, costing, masters, audit_log, options,
 )
 
 log = logging.getLogger(__name__)
@@ -70,7 +70,7 @@ async def lifespan(app: FastAPI):
                 pass
 
 
-app = FastAPI(title=settings.app_name, version="2.0.0", lifespan=lifespan, **_docs)
+app = FastAPI(title=settings.app_name, version="7.1.0", lifespan=lifespan, **_docs)
 
 
 # ---------- Security headers ----------
@@ -161,7 +161,7 @@ app.add_middleware(
 )
 
 for r in (auth, users, suppliers, buyers, items, transports, purchase_orders, invoices,
-          dashboard, reports, costing, masters, audit_log):
+          dashboard, reports, costing, masters, audit_log, options):
     app.include_router(r.router)
 
 

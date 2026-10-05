@@ -49,7 +49,9 @@ import { downloadDocsExcel, downloadDocsWord, downloadPDF } from "../download.js
    one with its invoice. */
 function fnameFor(no, name, ctx) {
   const stamp = String(ctx.po || ctx.inv.invoiceNo || "").replace(/[^A-Za-z0-9]+/g, "-").replace(/^-|-$/g, "");
-  return `Doc_${no}_${String(name).replace(/[^A-Za-z0-9]+/g, "_")}${stamp ? `_${stamp}` : ""}`;
+  // A paper narrowed to one supplier says so in its name.
+  const sup = ctx.supplierId && ctx.supCode ? String(ctx.supCode(ctx.supplierId)).replace(/[^A-Za-z0-9]+/g, "") : "";
+  return `Doc_${no}_${String(name).replace(/[^A-Za-z0-9]+/g, "_")}${stamp ? `_${stamp}` : ""}${sup ? `_${sup}` : ""}`;
 }
 
 /* ============================================================================

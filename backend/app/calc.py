@@ -7,11 +7,109 @@ item-wise order detail (doc 37), invoice serial ranges and the dispatch → ship
 status lifecycle. All functions operate on ORM objects and return plain dicts.
 """
 import math
+import re
+from datetime import datetime
 
 
 def boxes_for(qty, packing) -> int:
     packing = packing or 1
     return math.ceil((qty or 0) / packing) if packing else 0
+
+
+# ============================================================================
+# Item sequence — the order items are listed in, everywhere
+# ============================================================================
+# The client reads every list in one fixed order of ranges: Oswin's pipes
+# first, smallest bore up (15 MM, 20 MM, 25 MM …), then VP's PP fittings,
+# Hansa's PP, Hansa's nylon (GRN) and VP's nylon. VP and Hansa each make both
+# kinds, so it is the range, not the supplier, that decides the place. A range
+# the list does not name (Kiran, anything added later) follows them, in the
+# order of this list. Setup → Additional settings may reorder it; this is the
+# default and the fallback.
+#
+# The same rule is mirrored in frontend/src/lib/sequence.js for the documents
+# the browser lays out; keep the two in step.
+DEFAULT_SEQUENCE = ["Oswin", "VP-PP", "Hansa-PP", "Hansa-GRN", "VP-GRN", "Kiran"]
+
+_KNOWN_RANGES = {k.lower(): k for k in DEFAULT_SEQUENCE}
+
+# Nominal pipe sizes: the master writes a bore either in millimetres ("15") or
+# in inches ('1/2"', '1-1/4"'), and both have to sort as the same 15, 32 …
+_INCH_TO_MM = {0.5: 15, 0.75: 20, 1.0: 25, 1.25: 32, 1.5: 40, 2.0: 50,
+               2.5: 65, 3.0: 80, 4.0: 100}
+
+
+def range_key(item, supplier_code: str = "") -> str:
+    """Which range of the sequence an item belongs to.
+
+    The sheet the row was imported from says it outright; an item added by
+    hand since has no sheet, so its supplier and its sticker rule (GRN = the
+    nylon range) decide instead."""
+    sheet = str(getattr(item, "source_sheet", "") or "").strip().lower()
+    if sheet in _KNOWN_RANGES:
+        return _KNOWN_RANGES[sheet]
+    code = str(supplier_code or "").strip().lower()
+    grn = str(getattr(item, "sticker_rule", "") or "").lower() == "grn"
+    if code.startswith("oswin"):
+        return "Oswin"
+    if code.startswith("vp"):
+        return "VP-GRN" if grn else "VP-PP"
+    if code.startswith("hansa"):
+        return "Hansa-GRN" if grn else "Hansa-PP"
+    if code.startswith("kiran"):
+        return "Kiran"
+    return ""
+
+
+def _num(text) -> float | None:
+    try:
+        return float(str(text).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def bore_mm(item) -> float:
+    """The pipe's bore in millimetres, from its size — or, failing that, from
+    the "15 MM (1/2")" its group is named. Unknown sorts last."""
+    raw = str(getattr(item, "size", "") or "").strip()
+    n = _num(raw)
+    if n is not None:
+        return n
+    m = re.match(r'^\s*(\d+)(?:\s*[-\s.]\s*(\d+)\s*/\s*(\d+)|\s*/\s*(\d+))?\s*(?:"|in|inch)', raw, re.I)
+    if m:
+        whole = float(m.group(1))
+        if m.group(2):                       # 1-1/4"
+            inches = whole + float(m.group(2)) / float(m.group(3))
+        elif m.group(4):                     # 1/2"
+            inches = whole / float(m.group(4))
+        else:                                # 2"
+            inches = whole
+        return float(_INCH_TO_MM.get(round(inches, 2), round(inches * 25.4)))
+    g = re.search(r"(\d+(?:\.\d+)?)\s*MM", str(getattr(item, "group", "") or ""), re.I)
+    return float(g.group(1)) if g else 1e9
+
+
+def item_rank(item, supplier_code: str = "", sequence=None) -> tuple:
+    """Sort key putting an item where the sequence says it goes."""
+    seq = [str(x) for x in (sequence or DEFAULT_SEQUENCE)]
+    key = range_key(item, supplier_code)
+    try:
+        at = [x.lower() for x in seq].index(key.lower()) if key else len(seq)
+    except ValueError:
+        at = len(seq)
+    gd = str(getattr(item, "gd", "") or getattr(item, "code", "") or "")
+    code = str(getattr(item, "code", "") or "")
+    if key == "Oswin":
+        length = _num(getattr(item, "length", "")) or 0.0
+        group = str(getattr(item, "group", "") or "")
+        return (at, bore_mm(item), group, length, gd, code)
+    return (at, 0.0, "", 0.0, gd, code)
+
+
+def rank_by(suppliers, sequence=None):
+    """A sort key over items, given the suppliers they point at."""
+    codes = {s.id: s.code for s in suppliers}
+    return lambda it: item_rank(it, codes.get(getattr(it, "supplier_id", None), ""), sequence)
 
 
 # ============================================================================
@@ -189,7 +287,7 @@ def _serial(n: int) -> str:
     return str(max(0, int(n))).zfill(3)
 
 
-def build_order_master(po, po_lines, items_by_id) -> dict:
+def build_order_master(po, po_lines, items_by_id, rank=None) -> dict:
     """Master 2A — one buyer purchase order, item by item.
 
     The columns are the workbook's own: quantity, boxes, volume, nett and
@@ -197,8 +295,10 @@ def build_order_master(po, po_lines, items_by_id) -> dict:
     the RBI reference. Cartons are numbered straight through the order, so a
     line's serial range never overlaps the one before it.
     """
-    rows_in = [r for r in po_lines if r.po == po]
-    rows_in.sort(key=lambda r: str(items_by_id.get(r.item_id).gd if items_by_id.get(r.item_id) else ""))
+    rows_in = [r for r in po_lines if r.po == po and items_by_id.get(r.item_id)]
+    # In the item sequence when one is given (see `item_rank`), else by GD code.
+    rows_in.sort(key=(lambda r: rank(items_by_id[r.item_id])) if rank
+                 else (lambda r: str(items_by_id[r.item_id].gd or "")))
 
     out, serial = [], 1
     for r in rows_in:
@@ -222,7 +322,7 @@ def build_order_master(po, po_lines, items_by_id) -> dict:
 
 
 def build_supplier_master(supplier_id, po_lines, items_by_id,
-                          date_from=None, date_to=None) -> dict:
+                          date_from=None, date_to=None, rank=None) -> dict:
     """Master 7A — what one supplier has to make, across every open order.
 
     Quantities for the same item on different purchase orders are added up
@@ -257,7 +357,8 @@ def build_supplier_master(supplier_id, po_lines, items_by_id,
         g["fob_usd"] += fob_usd(it, r.qty, p)
 
     out, serial = [], 1
-    for g in sorted(groups.values(), key=lambda x: str(x["it"].gd or x["it"].code)):
+    for g in sorted(groups.values(), key=(lambda x: rank(x["it"])) if rank
+                    else (lambda x: str(x["it"].gd or x["it"].code))):
         it = g["it"]
         d = derive_line(it, g["qty"], g["rbi"], snapshot=g["last"])
         # Line-by-line money wins over the single-price derivation above.
@@ -384,17 +485,28 @@ def compute_ledger(po_lines, invoices, items_by_id) -> dict:
             "line_id": r.id, "line": r,
             "po": r.po, "date": r.date, "buyer_id": r.buyer_id, "qty": r.qty,
             "rbi": r.rbi, "ordered": ordered, "remaining": ordered, "allocated": 0,
-            "invoices": set(), "supplier_id": it.supplier_id,
+            "invoices": set(), "cleared": {}, "supplier_id": it.supplier_id,
         })
     for b in by_item.values():
         # Oldest order first — and a stable tie-break, so two lines dated the
         # same day always allocate in the same sequence run after run.
         b["demands"].sort(key=lambda d: (d["date"], d["po"], d["line_id"]))
+        b["excess"] = []
+
+    # Invoices clear orders in the order they were packed. Two invoices dated
+    # the same day are taken in the order they were entered, then by number —
+    # a bare sort on the date left that to whatever order the database
+    # returned them in, so which invoice "cleared" which order could change
+    # between two reads of the same data.
+    def _packed(inv):
+        return (str(inv.date or ""), inv.created_at or datetime.min,
+                str(inv.invoice_no or ""), str(inv.id or ""))
 
     receipts = []
-    for inv in sorted(invoices, key=lambda x: x.date):
+    for inv in sorted(invoices, key=_packed):
         for l in inv.lines:
-            receipts.append({"invoice_no": inv.invoice_no, "item_id": l.item_id, "boxes": int(l.boxes or 0)})
+            receipts.append({"invoice_no": inv.invoice_no, "date": inv.date,
+                             "item_id": l.item_id, "boxes": int(l.boxes or 0)})
     for rc in receipts:
         b = by_item.get(rc["item_id"])
         if not b:
@@ -409,7 +521,21 @@ def compute_ledger(po_lines, invoices, items_by_id) -> dict:
                 avail -= take
                 d["allocated"] += take
                 d["invoices"].add(rc["invoice_no"])
+                # The trail behind `allocated`: which invoice put how many boxes
+                # on this order line. It is what lets a register kept by hand
+                # be reconciled line by line against this one.
+                d["cleared"][rc["invoice_no"]] = d["cleared"].get(rc["invoice_no"], 0) + take
+        if avail > 0:
+            # Packed beyond everything on order for the item. Nothing is
+            # invented to absorb it; it is reported, so it can be seen.
+            b["excess"].append({"invoice_no": rc["invoice_no"], "date": rc["date"], "boxes": avail})
     return by_item
+
+
+def cleared_list(demand) -> list:
+    """A demand's allocation trail as [{invoice_no, boxes}], oldest invoice
+    first the way the boxes arrived."""
+    return [{"invoice_no": k, "boxes": v} for k, v in (demand.get("cleared") or {}).items()]
 
 
 def invoiced_prices(item, boxes, demands) -> dict:
@@ -485,7 +611,8 @@ def _po_dates(po_lines) -> dict:
 
 
 # ---------------- Dashboard matrix (doc 39) ----------------
-def build_balance_matrix(po_lines, invoices, items_by_id, suppliers, hidden_pos=None) -> dict:
+def build_balance_matrix(po_lines, invoices, items_by_id, suppliers, hidden_pos=None,
+                         cntr_vol: float = 68.0) -> dict:
     """Balance orders, boxes and volume — suppliers down, purchase orders across.
 
     `hidden_pos` are orders somebody has cleared off the dashboard once they
@@ -540,11 +667,14 @@ def build_balance_matrix(po_lines, invoices, items_by_id, suppliers, hidden_pos=
         totals["totBox"] += r["totBox"]
         totals["totVol"] += r["totVol"]
 
-    cntr_vol = 68.0
+    cntr_vol = float(cntr_vol or 68.0)
     containers = math.ceil(totals["totVol"] / cntr_vol) if totals["totVol"] else 0
     return {
         "pos": pos, "po_date": po_date, "rows": rows, "totals": totals,
         "cntr_vol": cntr_vol, "containers": containers,
+        # The same figure undivided — 12.06 m³ over 30 reads 0.402, which is
+        # how the CNTRS column on the dashboard states it.
+        "containers_exact": (totals["totVol"] / cntr_vol) if totals["totVol"] else 0.0,
         # The orders with nothing left pending — the only ones that may be
         # cleared off the board — and those already cleared, so they can be
         # put back.
@@ -554,7 +684,7 @@ def build_balance_matrix(po_lines, invoices, items_by_id, suppliers, hidden_pos=
 
 
 # ---------------- PO roll-up ----------------
-def build_po_list(po_lines, invoices, items_by_id) -> list:
+def build_po_list(po_lines, invoices, items_by_id, rank=None) -> list:
     ledger = compute_ledger(po_lines, invoices, items_by_id)
     po_map: dict = {}
     for r in po_lines:
@@ -591,7 +721,12 @@ def build_po_list(po_lines, invoices, items_by_id) -> list:
                 "description": it.description, "supplier_id": it.supplier_id,
                 "qty": r.qty, "ordered": ordv, "completed": alloc, "pending": rem,
                 "volume": ordv * (it.volume or 0),
+                # Which invoices delivered against this line, and how many boxes
+                # each — the FIFO trail, shown beside the line in the PO.
+                "cleared": cleared_list(dem) if dem else [],
             })
+        if rank:
+            detail.sort(key=lambda d: rank(items_by_id[d["item_id"]]))
         open_suppliers = [s for s in sup_set if pend_by_sup.get(s, 0) > 0]
         out.append({
             "po": po, "date": date, "buyer_id": buyer_id, "ordered": ordered,
@@ -603,7 +738,7 @@ def build_po_list(po_lines, invoices, items_by_id) -> list:
 
 
 # ---------------- Item-wise order detail (doc 37) ----------------
-def build_item_order_detail(po_lines, items_by_id, invoices=None) -> dict:
+def build_item_order_detail(po_lines, items_by_id, invoices=None, rank=None) -> dict:
     """The buyers' summary — one row per item, a column per purchase order.
 
     `recd` / `pending` come from the same FIFO ledger the packing screen and
@@ -636,13 +771,13 @@ def build_item_order_detail(po_lines, items_by_id, invoices=None) -> dict:
             "vol_per_box": it.volume or 0, "total_vol": boxes * (it.volume or 0),
             "net_per_box": it.net_per_box or 0, "net_total": boxes * (it.net_per_box or 0),
         })
-    rows.sort(key=lambda x: str(x["gd"]))
+    rows.sort(key=(lambda x: rank(items_by_id[x["item_id"]])) if rank else (lambda x: str(x["gd"])))
     return {"pos": pos, "po_date": po_date, "rows": rows}
 
 
 # ---------------- Supply details, item wise / supplier wise (doc 38) --------
 def build_supply_details(po_lines, invoices, items_by_id, mode="po",
-                         supplier_id=None, date_from=None, date_to=None) -> dict:
+                         supplier_id=None, date_from=None, date_to=None, rank=None) -> dict:
     """Doc 38 — one row per item, one column per purchase order or invoice.
 
     The workbook's own shape: code, description, packing (unit / box), a
@@ -728,7 +863,8 @@ def build_supply_details(po_lines, invoices, items_by_id, mode="po",
             "vol_per_box": float(it.volume or 0),
             "volume": ((total / box) if box else 0.0) * float(it.volume or 0),
         })
-    rows.sort(key=lambda r: (str(r["gd"] or ""), str(r["code"] or "")))
+    rows.sort(key=(lambda r: rank(items_by_id[r["item_id"]])) if rank
+              else (lambda r: (str(r["gd"] or ""), str(r["code"] or ""))))
 
     return {
         "mode": mode, "ranged": ranged, "cols": col_list, "rows": rows,

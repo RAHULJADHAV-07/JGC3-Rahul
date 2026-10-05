@@ -1,13 +1,15 @@
-import { useEffect, useMemo, useState } from "react";
-import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import {
   Anchor, Sun, Moon, LogOut, Search, ChevronDown, CornerDownLeft, FileText, Menu, X,
+  ShieldCheck, User as UserIcon,
 } from "lucide-react";
-import { IconBtn } from "../ui/index.jsx";
 import { useAuth } from "../../auth/AuthProvider.jsx";
 import { useBadges } from "../../api/hooks.js";
 import { VIEWS, MENU, SETUP, ROUTE_TITLES } from "../../lib/nav.js";
 import { DOC_GROUPS, DOC_META } from "../../lib/docs.js";
+import { APP_VERSION, versionLabel } from "../../lib/releases.js";
+import { WhatsNewModal, ReleaseNotesModal } from "./ReleaseNotes.jsx";
 
 /* Top navigation + page chrome. Feature pages render into <Outlet />.
 
@@ -17,6 +19,73 @@ import { DOC_GROUPS, DOC_META } from "../../lib/docs.js";
 
 const initials = (name = "") =>
   name.trim().split(/\s+/).slice(0, 2).map((w) => w[0]).join("").toUpperCase() || "?";
+
+/* The top bar greets people by their first name. Accounts made before first
+   and last names were asked for still carry one `name`; its first word is it. */
+export const firstNameOf = (u) => (u?.first_name || String(u?.name || "").trim().split(/\s+/)[0] || "");
+
+/* Remembered per person, so the popup shows once each — and in a try, because
+   a private window refuses storage and the app must still work there. */
+const SEEN_KEY = (uid) => `jg-seen-release:${uid}`;
+const seenVersion = (uid) => { try { return localStorage.getItem(SEEN_KEY(uid)); } catch (e) { return null; } };
+const markSeen = (uid) => { try { localStorage.setItem(SEEN_KEY(uid), APP_VERSION); } catch (e) { /* ignore */ } };
+
+/* The profile: first name in the bar; the rest — full name, address, role,
+   the theme and the way out — one click away. */
+function ProfileMenu({ user, isAdmin, theme, setTheme, logout }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    const away = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    const esc = (e) => e.key === "Escape" && setOpen(false);
+    document.addEventListener("pointerdown", away, true);
+    window.addEventListener("keydown", esc);
+    return () => { document.removeEventListener("pointerdown", away, true); window.removeEventListener("keydown", esc); };
+  }, [open]);
+
+  const first = firstNameOf(user);
+  const full = user?.name || first;
+  return (
+    <div className="acct" ref={ref}>
+      <button type="button" className={`acct-btn${open ? " open" : ""}`} onClick={() => setOpen((o) => !o)}
+        aria-haspopup="menu" aria-expanded={open} title="Your profile">
+        <span className="acct-ava">{initials(full)}</span>
+        <span className="acct-name">{first}</span>
+        <ChevronDown size={14} className="acct-chev" />
+      </button>
+      {open && (
+        <div className="acct-menu" role="menu">
+          <div className="acct-head">
+            <span className="acct-ava lg">{initials(full)}</span>
+            <span className="acct-who">
+              <span className="acct-head-n">{full}</span>
+              <span className="acct-head-e">{user?.email}</span>
+              <span className="acct-head-r">
+                {isAdmin ? <ShieldCheck size={12} /> : <UserIcon size={12} />}
+                {isAdmin ? "Admin" : "User"}
+              </span>
+            </span>
+          </div>
+          <div className="acct-row">
+            <span className="acct-row-l">{theme === "dark" ? <Moon size={15} /> : <Sun size={15} />} Theme</span>
+            <span className="seg acct-seg" role="group" aria-label="Theme">
+              <button type="button" className={theme === "light" ? "on" : ""} onClick={() => setTheme("light")}>
+                <Sun size={13} /> Light
+              </button>
+              <button type="button" className={theme === "dark" ? "on" : ""} onClick={() => setTheme("dark")}>
+                <Moon size={13} /> Dark
+              </button>
+            </span>
+          </div>
+          <button type="button" className="acct-item danger" role="menuitem" onClick={() => { setOpen(false); logout(); }}>
+            <LogOut size={15} /> Sign out
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
 
 /* Command palette — ⌘K / Ctrl+K. Jumps to any page or document. */
 function Palette({ onClose, go, has }) {
@@ -95,6 +164,14 @@ export default function AppShell() {
     try { localStorage.setItem("jg-theme", theme); } catch (e) { /* ignore */ }
   }, [theme]);
 
+  /* The one-time "what's new" popup: shown the first time each person signs in
+     after an update, then not again until the next one. */
+  const [whatsNew, setWhatsNew] = useState(false);
+  const [notes, setNotes] = useState(false);
+  useEffect(() => {
+    if (user?.id && seenVersion(user.id) !== APP_VERSION) setWhatsNew(true);
+  }, [user?.id]);
+
   const [palette, setPalette] = useState(false);
   useEffect(() => {
     const h = (e) => {
@@ -132,6 +209,40 @@ export default function AppShell() {
   const menu = MENU.map(menuFor).filter(Boolean);
 
   const isActive = (n) => (n.children ? n.children.some((c) => c.to === pathname) : pathname === n.to);
+
+  /* The tab bar folds into the burger whenever it does not fit beside the
+     brand and the profile — not only below a fixed width. How wide the bar
+     needs to be depends on how many sections this person can open, how long
+     their first name is and how the device scales text, so it is measured: a
+     tablet, a phone held sideways or a small laptop used to get the last tabs
+     drawn underneath the profile button. */
+  const innerRef = useRef(null);
+  const navRef = useRef(null);
+  const brandRef = useRef(null);
+  const rightRef = useRef(null);
+  const [tight, setTight] = useState(false);
+  useLayoutEffect(() => {
+    const inner = innerRef.current;
+    const navEl = navRef.current;
+    if (!inner || !navEl || typeof ResizeObserver === "undefined") return undefined;
+    const check = () => {
+      const cs = getComputedStyle(inner);
+      const gap = parseFloat(cs.columnGap) || 0;
+      const pad = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0);
+      const room = inner.clientWidth - pad - (brandRef.current?.offsetWidth || 0)
+        - (rightRef.current?.offsetWidth || 0) - gap * 2;
+      const need = navEl.scrollWidth;
+      // A little slack before unfolding again, so the bar does not flicker
+      // between the two at the one width where it only just fits.
+      setTight((was) => (was ? need > room - 8 : need > room + 1));
+    };
+    check();
+    const ro = new ResizeObserver(check);
+    ro.observe(inner);
+    ro.observe(navEl);
+    if (rightRef.current) ro.observe(rightRef.current);
+    return () => ro.disconnect();
+  }, [menu.length, user?.first_name, user?.name]);
 
   /* Only Purchase Orders carries a counter. The Shipment badge counted boxes
      still to pack — four figures against a menu label, which reads as an
@@ -175,14 +286,14 @@ export default function AppShell() {
 
   return (
     <div className="app">
-      <header className="topnav">
-        <div className="topnav-inner">
+      <header className={`topnav${tight ? " tight" : ""}`}>
+        <div className="topnav-inner" ref={innerRef}>
           <button className="nav-burger" onClick={() => setDrawer((d) => !d)}
             aria-label={drawer ? "Close menu" : "Open menu"} aria-expanded={drawer}>
             {drawer ? <X size={20} /> : <Menu size={20} />}
           </button>
 
-          <div className="brand">
+          <div className="brand" ref={brandRef}>
             <div className="brand-mark"><Anchor size={19} color="#0b2c4d" strokeWidth={2.6} /></div>
             <div>
               <div className="brand-name">Jaikvin Global</div>
@@ -190,22 +301,13 @@ export default function AppShell() {
             </div>
           </div>
 
-          <nav className="nav">
+          <nav className="nav" ref={navRef} aria-hidden={tight || undefined}>
             {menu.map((n) => <NavBtn key={n.id} n={n} />)}
             {(has(SETUP.perm) || isAdmin) && <><span className="nav-sep" /><NavBtn n={SETUP} /></>}
           </nav>
 
-          <div className="topnav-right">
-            <IconBtn icon={theme === "dark" ? Sun : Moon}
-              onClick={() => setTheme(theme === "dark" ? "light" : "dark")} title="Toggle theme" />
-            <div className="user-chip" title={user?.email}>
-              <span className="uc-ava">{initials(user?.name)}</span>
-              <span className="uc-txt">
-                <span className="uc-n">{user?.name}</span>
-                <span className="uc-r">{isAdmin ? "Admin" : "User"}</span>
-              </span>
-              <IconBtn bare icon={LogOut} size={15} onClick={logout} title="Sign out" />
-            </div>
+          <div className="topnav-right" ref={rightRef}>
+            <ProfileMenu user={user} isAdmin={isAdmin} theme={theme} setTheme={setTheme} logout={logout} />
           </div>
         </div>
 
@@ -257,11 +359,22 @@ export default function AppShell() {
 
         <footer className="footer">
           <span>Maintained and Developed By <b style={{ color: "var(--ink)" }}>Avita Technologies</b></span>
-          <span className="mono">V-6.3.0</span>
+          {/* On Setup the version opens the release notes; everywhere else it
+              is just the version. */}
+          {pathname === "/setup"
+            ? (
+              <button type="button" className="mono ver-link" onClick={() => setNotes(true)}
+                title="What changed in each version">
+                {versionLabel()}
+              </button>
+            )
+            : <span className="mono">{versionLabel()}</span>}
         </footer>
       </div>
 
       {palette && <Palette onClose={() => setPalette(false)} go={nav} has={has} />}
+      {whatsNew && <WhatsNewModal onClose={() => { markSeen(user.id); setWhatsNew(false); }} />}
+      {notes && <ReleaseNotesModal onClose={() => setNotes(false)} />}
     </div>
   );
 }

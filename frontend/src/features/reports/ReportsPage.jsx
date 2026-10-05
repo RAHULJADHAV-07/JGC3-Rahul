@@ -2,13 +2,14 @@ import { useMemo, useState } from "react";
 import { BarChart3, ClipboardList, Layers, Truck, Boxes, Check, Calculator } from "lucide-react";
 import {
   Card, CardHead, Btn, Seg, Pill, Mono, DataTable, Input, Note, Info, Empty, Stat,
-  Spinner, ErrorState, DownloadPair,
+  Spinner, ErrorState, DownloadPair, Select,
 } from "../../components/ui/index.jsx";
 import { useAuth } from "../../auth/AuthProvider.jsx";
 import { useBalance, useSuppliers, useBuyers } from "../../api/hooks.js";
 import { dmy, dmyNum, num, todayISO } from "../../lib/format.js";
 import { downloadGridExcel, downloadGridPDF } from "../../lib/download.js";
 import { hidePriceCols } from "../../lib/priceCols.js";
+import { useHiddenFields, pruneColumns } from "../../lib/columnPrefs.js";
 import CostingPanel from "../costing/CostingPanel.jsx";
 import SupplyDetailsPanel from "./SupplyDetailsPanel.jsx";
 
@@ -21,6 +22,8 @@ export default function ReportsPage() {
   const canCosting = has("reports.costing");
   const [tab, setTab] = useState(canBalance ? "po" : "costing");
   const [remarks, setRemarks] = useState({});
+  const [sup, setSup] = useState("");          // one supplier, or all of them in the item sequence
+  const hidden = useHiddenFields();
 
   const balq = useBalance();
   const suppliers = useSuppliers().data || [];
@@ -28,11 +31,17 @@ export default function ReportsPage() {
   const supCode = (id) => suppliers.find((s) => s.id === id)?.code || "—";
   const brand = (id) => buyers.find((b) => b.id === id)?.brand || "—";
   const joinInv = (l) => (l?.length ? l.join(", ") : "—");
+  /* Which invoices cleared a line, with the boxes each one put on it. */
+  const trail = (p) => (p.cleared?.length
+    ? p.cleared.map((c) => `${c.invoice_no} (${c.boxes})`).join(", ")
+    : joinInv(p.invoices));
 
   const data = balq.data || { po: [], item: [], supplier: [] };
-  const poRows = data.po.map((r) => ({ ...r, key: `${r.po}|${r.item_id}|${r.date}` }));
-  const itemRows = data.item;
-  const supRows = data.supplier;
+  const poRows = data.po
+    .filter((r) => !sup || r.supplier_id === sup)
+    .map((r) => ({ ...r, key: `${r.po}|${r.item_id}|${r.date}` }));
+  const itemRows = sup ? data.item.filter((r) => r.supplier_id === sup) : data.item;
+  const supRows = sup ? data.supplier.filter((r) => r.supplier_id === sup) : data.supplier;
 
   const totals = useMemo(() => ({
     ordered: itemRows.reduce((s, r) => s + r.ordered, 0),
@@ -49,7 +58,11 @@ export default function ReportsPage() {
     { key: "po", w: 92, label: "PO", render: (p) => <span style={{ fontFamily: "var(--mono)", fontWeight: 700, color: "var(--ink)" }}>{p.po}</span> },
     { key: "buyer", w: 140, label: "Buyer", render: (p) => brand(p.buyer_id) },
     { key: "desc", w: 220, label: "Description", render: (p) => <span style={{ color: "var(--ink)", whiteSpace: "pre-line" }}>{p.description}</span> },
-    { key: "inv", label: "Cleared by invoice", render: (p) => <Mono>{joinInv(p.invoices)}</Mono> },
+    /* One invoice to a line, so a PO cleared over several shipments grows the
+       row rather than widening the whole table. */
+    { key: "inv", label: "Cleared by invoice (boxes)", render: (p) => (p.cleared?.length
+      ? <span style={{ display: "flex", flexDirection: "column", gap: 2 }}>{p.cleared.map((c) => <Mono key={c.invoice_no}>{`${c.invoice_no} (${c.boxes})`}</Mono>)}</span>
+      : <Mono>{trail(p)}</Mono>) },
     { key: "qty", label: "Qty", align: "r", render: (p) => p.qty.toLocaleString("en-IN") },
     { key: "boxes", label: "Boxes", align: "r", strong: true, render: (p) => p.ordered },
     { key: "recd", label: "Received", align: "r", render: (p) => p.recd },
@@ -63,23 +76,24 @@ export default function ReportsPage() {
 
   /* The download carries every column, prices included, with the arithmetic
      still live — what is held back is only what shows on the monitor. */
-  const poExport = [
+  const poExport = pruneColumns([
     { h: "Date", key: "date", f: (p) => dmyNum(p.date) },
-    { h: "GD code", key: "gd", f: (p) => p.gd },
+    { h: "GD code", key: "gd", field: "gd", f: (p) => p.gd },
     { h: "PO", key: "po", f: (p) => p.po },
     { h: "Buyer", key: "buyer", f: (p) => brand(p.buyer_id) },
-    { h: "Description", key: "description", f: (p) => p.description, w: 34 },
-    { h: "Cleared by invoice", key: "inv", f: (p) => joinInv(p.invoices) },
+    { h: "Supplier", key: "supplier", field: "supplier", f: (p) => supCode(p.supplier_id) },
+    { h: "Description", key: "description", field: "description", f: (p) => p.description, w: 34 },
+    { h: "Cleared by invoice (boxes)", key: "inv", f: (p) => trail(p) },
     { h: "Qty pcs", key: "qty", t: "int", v: (p) => p.qty, sum: true },
     { h: "Boxes ordered", key: "ordered", t: "int", v: (p) => p.ordered, sum: true },
     { h: "Received", key: "recd", t: "int", v: (p) => p.recd, sum: true },
-    { h: "Pending", key: "pending", t: "int", fml: "{ordered}-{recd}", sum: true },
+    { h: "Pending", key: "pending", t: "int", fml: "{ordered}-{recd}", v: (p) => p.pending, sum: true },
     { h: "Total vol m³", key: "vol", t: "num3", v: (p) => p.volume, sum: true },
     { h: "Remarks", key: "rem", f: (p) => remarks[p.key] || "" },
-  ];
+  ], hidden);
 
-  const exportTitle = "37 · Balance order — PO wise (buyer)";
-  const exportOpts = { title: exportTitle, subtitle: `As on ${todayISO()}` };
+  const exportTitle = `37 · Balance order — PO wise (buyer)${sup ? ` · ${supCode(sup)}` : ""}`;
+  const exportOpts = { title: exportTitle, subtitle: `${sup ? supCode(sup) : "All suppliers · item sequence"} · as on ${todayISO()}` };
 
   const segOptions = [
     ...(canBalance ? [["po", "By purchase order", ClipboardList], ["item", "By item", Layers]] : []),
@@ -92,10 +106,16 @@ export default function ReportsPage() {
         {segOptions.length > 1 && <Seg options={segOptions} value={tab} onChange={setTab} />}
         {tab === "po" && <Pill tone="teal">Report 37</Pill>}
         {tab === "item" && <Pill tone="teal">Report 38</Pill>}
+        {tab === "po" && (
+          <Select className="tab-filter" value={sup} onChange={(e) => setSup(e.target.value)} aria-label="Supplier">
+            <option value="">All suppliers</option>
+            {suppliers.map((s) => <option key={s.id} value={s.id}>{s.code} — {s.name}</option>)}
+          </Select>
+        )}
         <span className="grow" />
         {tab === "po" && (
           <DownloadPair size="md" disabled={!cfg.rows.length}
-            onExcel={() => downloadGridExcel(`Report_37_PO_wise_Buyer_${todayISO()}`, "PO wise", poExport, poRows, exportOpts)}
+            onExcel={() => downloadGridExcel(`Report_37_PO_wise_Buyer${sup ? `_${supCode(sup).replace(/[^A-Za-z0-9]+/g, "")}` : ""}_${todayISO()}`, "PO wise", poExport, poRows, exportOpts)}
             onPDF={() => downloadGridPDF(exportTitle, poExport, poRows, exportOpts)} />
         )}
       </div>

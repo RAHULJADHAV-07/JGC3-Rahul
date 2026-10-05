@@ -21,9 +21,11 @@ export const itemSections = (supOpts) => [
       { key: "uom", label: "Ordered in", type: "select", options: UOMS, allowEmpty: false },
       { key: "pack_unit", label: "Pieces per unit pack", type: "number" },
       { key: "packing", label: "Pieces per box *", type: "number" },
+      { key: "packaging_type", label: "Type of packaging", type: "packaging",
+        hint: "What it travels in — the list is kept under Setup → Additional settings; + adds a new one." },
       { key: "volume", label: "Volume / box (m³)", type: "number", step: "0.001" },
-      { key: "net_per_box", label: "Nett weight / box (kg)", type: "number", step: "0.01" },
-      { key: "gross_per_box", label: "Gross weight / box (kg)", type: "number", step: "0.01" },
+      { key: "net_per_box", label: "Nett weight / box (kg)", type: "number", step: "0.001" },
+      { key: "gross_per_box", label: "Gross weight / box (kg)", type: "number", step: "0.001" },
     ],
   },
   {

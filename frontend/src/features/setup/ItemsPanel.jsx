@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Layers, Plus, Check, SlidersHorizontal, GripVertical, Trash2, Search, AlertTriangle,
   EyeOff, Pencil,
@@ -9,8 +9,10 @@ import {
 } from "../../components/ui/index.jsx";
 import {
   useItems, useItemGroups, useCreateItem, useUpdateItem, useDeleteItem,
-  useSuppliers, useMasterFormulas,
+  useSuppliers, useMasterFormulas, useItemColumns, useSaveItemColumns,
 } from "../../api/hooks.js";
+import { hiddenFieldsOf, dropDanglingFormulas } from "../../lib/columnPrefs.js";
+import { useToast } from "../../providers/ToastProvider.jsx";
 import { num, inr, usd, usdp, todayISO } from "../../lib/format.js";
 import { useDebounced } from "../../lib/useDebounced.js";
 import { hidePriceCols } from "../../lib/priceCols.js";
@@ -45,8 +47,9 @@ const COLS = (supCode) => ({
   barcode: { label: "Bar code", w: 132, render: (it) => <Mono>{it.barcode || "—"}</Mono> },
   hsn: { label: "HSN", w: 96, render: (it) => <Mono>{it.hsn || "—"}</Mono> },
   volume: { label: "Vol/box", w: 82, align: "r", render: (it) => num(it.volume, 3) },
-  netPerBox: { label: "Net/box", w: 82, align: "r", render: (it) => num(it.net_per_box, 2) },
-  grossPerBox: { label: "Gross/box", w: 90, align: "r", render: (it) => num(it.gross_per_box, 2) },
+  packagingType: { label: "Packaging", w: 100, render: (it) => it.packaging_type || "Cartons" },
+  netPerBox: { label: "Net/box", w: 82, align: "r", render: (it) => num(it.net_per_box, 3) },
+  grossPerBox: { label: "Gross/box", w: 90, align: "r", render: (it) => num(it.gross_per_box, 3) },
   bgPerBox: { label: "BG", w: 64, align: "r", render: (it) => num(it.bg_per_box, 0) },
   pPerBox: { label: "PC", w: 64, align: "r", render: (it) => num(it.p_per_box, 0) },
   stk: { label: "Stk/box", w: 84, align: "r", strong: true, render: (it) => num(it.stickers_per_box, 1) },
@@ -63,7 +66,7 @@ const COLS = (supCode) => ({
 const PRESETS = {
   buyer: { label: "Buyer sheet", hint: "The constant fields on the 2A buyer master — handy for verifying item pricing.", keys: ["gd", "code", "size", "length", "packUnit", "packing", "description", "barcode", "hsn", "volume", "netPerBox", "grossPerBox", "stk", "typeUp", "unitValue", "unitFob", "supplier"] },
   supplier: { label: "Supplier sheet", hint: "The constant fields on the 7A supplier master. BG and PC are the bag and piece stickers a box carries.", keys: ["gd", "code", "oswin", "gl", "size", "length", "packing", "description", "barcode", "hsn", "volume", "bgPerBox", "pPerBox", "stk", "unitValue", "fobpc", "supplier"] },
-  all: { label: "All fields", hint: "Every column stored on an item.", keys: ["gd", "code", "oswin", "gl", "description", "size", "length", "packUnit", "packing", "uom", "barcode", "hsn", "volume", "netPerBox", "grossPerBox", "bgPerBox", "pPerBox", "stk", "typeUp", "range", "unitValue", "unitFob", "sheet", "supplier"] },
+  all: { label: "All fields", hint: "Every column stored on an item.", keys: ["gd", "code", "oswin", "gl", "description", "size", "length", "packUnit", "packing", "packagingType", "uom", "barcode", "hsn", "volume", "netPerBox", "grossPerBox", "bgPerBox", "pPerBox", "stk", "typeUp", "range", "unitValue", "unitFob", "fobpc", "sheet", "supplier"] },
 };
 
 /* Column manager — drag to reorder, tick to show, and add or drop columns.
@@ -72,8 +75,8 @@ const PRESETS = {
    for a column of your own. A custom column has nothing behind it yet, so it
    renders empty — it is a placeholder for a figure you keep in your head or in
    another sheet, and it can be removed again with the bin. */
-function ColumnManager({ cols, catalogue, onSave, onClose }) {
-  const [list, setList] = useState(cols.map((c) => ({ ...c })));
+function ColumnManager({ cols, catalogue, onSave, onClose, saving }) {
+  const [list, setList] = useState(cols.filter((c) => !c.removed).map((c) => ({ ...c })));
   const [dragI, setDragI] = useState(null);
   const [overI, setOverI] = useState(null);
   const [pick, setPick] = useState("");
@@ -103,6 +106,14 @@ function ColumnManager({ cols, catalogue, onSave, onClose }) {
   };
 
   const shown = list.filter((c) => c.visible).length;
+  /* A master field taken off with the bin is saved as unticked, so it is held
+     back from the reports exactly as an unticked one is. */
+  const save = () => {
+    const onIt = new Set(list.map((c) => c.key));
+    const removed = Object.entries(catalogue).filter(([k]) => !onIt.has(k))
+      .map(([k, c]) => ({ key: k, label: c.label, visible: false, removed: true }));
+    onSave([...list, ...removed]);
+  };
 
   return (
     <Modal title="Customise columns" icon={SlidersHorizontal} onClose={onClose}
@@ -110,9 +121,15 @@ function ColumnManager({ cols, catalogue, onSave, onClose }) {
         <span style={{ fontSize: 11.5, color: "var(--muted)" }}>{shown} of {list.length} column(s) shown</span>
         <div className="row" style={{ gap: 8 }}>
           <Btn variant="ghost" size="sm" onClick={onClose}>Cancel</Btn>
-          <Btn size="sm" icon={Check} onClick={() => onSave(list)}>Save view</Btn>
+          <Btn size="sm" icon={Check} disabled={saving} onClick={save}>{saving ? "Saving…" : "Save view"}</Btn>
         </div>
       </>}>
+      <Note tone="teal" icon={EyeOff}>
+        A column left unticked here is also left out of every report and download — the item master,
+        purchase orders, the buyers’ summary, the balance and supply registers. The export papers leave
+        the OSWIN, GL and bar code blank when those are unticked; the figures a customs form is built on
+        (packing, volume, weights, HSN, prices) always print.
+      </Note>
       <div style={{ maxHeight: 340, overflowY: "auto", margin: "12px 0" }}>
         {list.map((c, i) => (
           <div key={c.key} draggable
@@ -152,48 +169,64 @@ function ColumnManager({ cols, catalogue, onSave, onClose }) {
   );
 }
 
-/* The item master as it downloads — every column, prices included. What the
-   client keeps off the screen is still theirs on paper and in the workbook. */
-const EXPORT_COLS = (supCode) => [
-  { h: "GD code", key: "gd", f: (r) => r.gd, w: 12 },
-  { h: "Code", key: "code", f: (r) => r.code, w: 12 },
-  { h: "OSWIN", key: "oswin", f: (r) => r.oswin },
-  { h: "GL", key: "gl", f: (r) => r.gl },
-  { h: "Description", key: "description", f: (r) => r.description, w: 34 },
-  { h: "Group", key: "group", f: (r) => r.group },
-  { h: "Supplier", key: "supplier", f: (r) => supCode(r.supplier_id) },
-  { h: "Size mm", key: "size", f: (r) => r.size },
-  { h: "Len mm", key: "length", f: (r) => r.length },
-  { h: "Ordered in", key: "uom", f: (r) => (r.uom === "MTR" ? "Metres" : "Pieces") },
-  { h: "Unit pack", key: "packUnit", t: "int", v: (r) => r.pack_unit },
-  { h: "Pcs / box", key: "packing", t: "int", v: (r) => r.packing },
-  { h: "Bar code", key: "barcode", f: (r) => r.barcode },
-  { h: "HSN", key: "hsn", f: (r) => r.hsn },
-  { h: "Vol / box m³", key: "volume", t: "num3", v: (r) => r.volume },
-  { h: "Net / box kg", key: "net", t: "num", v: (r) => r.net_per_box },
-  { h: "Gross / box kg", key: "gross", t: "num", v: (r) => r.gross_per_box },
-  { h: "BG / box", key: "bg", t: "int", v: (r) => r.bg_per_box },
-  { h: "PC / box", key: "pc", t: "int", v: (r) => r.p_per_box },
+/* The item master as it downloads, column by column of the view on screen —
+   so the workbook carries exactly the columns the table does, prices
+   included (the client keeps those off the monitor, not off paper). Each view
+   column brings the export columns that belong to it; a formula whose inputs
+   are not in the view falls back to its value (columnPrefs.dropDanglingFormulas). */
+const EXPORT_BY_KEY = (supCode) => ({
+  gd: [{ h: "GD code", key: "gd", f: (r) => r.gd, w: 12 }],
+  code: [{ h: "Code", key: "code", f: (r) => r.code, w: 12 }],
+  oswin: [{ h: "OSWIN", key: "oswin", f: (r) => r.oswin }],
+  gl: [{ h: "GL", key: "gl", f: (r) => r.gl }],
+  description: [
+    { h: "Description", key: "description", f: (r) => r.description, w: 34 },
+    { h: "Group", key: "group", f: (r) => r.group },
+  ],
+  supplier: [{ h: "Supplier", key: "supplier", f: (r) => supCode(r.supplier_id) }],
+  size: [{ h: "Size mm", key: "size", f: (r) => r.size }],
+  length: [{ h: "Len mm", key: "length", f: (r) => r.length }],
+  uom: [{ h: "Ordered in", key: "uom", f: (r) => (r.uom === "MTR" ? "Metres" : "Pieces") }],
+  packUnit: [{ h: "Unit pack", key: "packUnit", t: "int", v: (r) => r.pack_unit }],
+  packing: [{ h: "Pcs / box", key: "packing", t: "int", v: (r) => r.packing }],
+  packagingType: [{ h: "Packaging", key: "packagingType", f: (r) => r.packaging_type || "Cartons" }],
+  barcode: [{ h: "Bar code", key: "barcode", f: (r) => r.barcode }],
+  hsn: [{ h: "HSN", key: "hsn", f: (r) => r.hsn }],
+  volume: [{ h: "Vol / box m³", key: "volume", t: "num3", v: (r) => r.volume }],
+  netPerBox: [{ h: "Net / box kg", key: "net", t: "num3", v: (r) => r.net_per_box }],
+  grossPerBox: [{ h: "Gross / box kg", key: "gross", t: "num3", v: (r) => r.gross_per_box }],
+  bgPerBox: [{ h: "BG / box", key: "bg", t: "int", v: (r) => r.bg_per_box }],
+  pPerBox: [{ h: "PC / box", key: "pc", t: "int", v: (r) => r.p_per_box }],
   /* The ranges do not agree on this: a typed-in total always wins, the GRN
      range rounds, the rest do not. The formula follows the row's own rule
      rather than one blanket expression. */
-  {
-    h: "Stickers / box", key: "stk", t: "num1",
-    fml: (r) => (Number(r.stickers_fixed)
-      ? String(Number(r.stickers_fixed))
-      : (r.sticker_round ? "ROUND(({bg}+{pc})*{mult},0)" : "({bg}+{pc})*{mult}")),
-  },
-  { h: "Sticker ×", key: "mult", t: "num", v: (r) => r.sticker_mult },
-  { h: "Label allowance", key: "spoil", t: "num", v: (r) => r.label_spoilage },
-  { h: "Labels / sheet", key: "typeup", t: "int", v: (r) => r.type_up },
-  { h: "Range", key: "range", f: (r) => String(r.sticker_rule || "").toUpperCase() },
-  { h: "Purchase basis", key: "valmode", f: (r) => (r.value_mode === "100" ? "Per 100" : "Per piece") },
-  { h: "Purchase price ₹", key: "unitValue", t: "inr", v: (r) => r.unit_value },
-  { h: "FOB basis", key: "fobmode", f: (r) => (r.fob_mode === "100" ? "Per 100" : "Per piece") },
-  { h: "FOB price $", key: "unitFob", t: "usd4", v: (r) => r.unit_fob100 },
-  { h: "FOB / pc $", key: "fobpc", t: "usd4", fml: (r) => (r.fob_mode === "100" ? "{unitFob}/100" : "{unitFob}") },
-  { h: "Source sheet", key: "sheet", f: (r) => r.source_sheet },
-];
+  stk: [
+    {
+      h: "Stickers / box", key: "stk", t: "num1", v: (r) => r.stickers_per_box,
+      fml: (r) => (Number(r.stickers_fixed)
+        ? String(Number(r.stickers_fixed))
+        : (r.sticker_round ? "ROUND(({bg}+{pc})*{mult},0)" : "({bg}+{pc})*{mult}")),
+    },
+    { h: "Sticker ×", key: "mult", t: "num", v: (r) => r.sticker_mult },
+    { h: "Label allowance", key: "spoil", t: "num", v: (r) => r.label_spoilage },
+  ],
+  typeUp: [{ h: "Labels / sheet", key: "typeup", t: "int", v: (r) => r.type_up }],
+  range: [{ h: "Range", key: "range", f: (r) => String(r.sticker_rule || "").toUpperCase() }],
+  unitValue: [
+    { h: "Purchase basis", key: "valmode", f: (r) => (r.value_mode === "100" ? "Per 100" : "Per piece") },
+    { h: "Purchase price ₹", key: "unitValue", t: "inr", v: (r) => r.unit_value },
+  ],
+  unitFob: [
+    { h: "FOB basis", key: "fobmode", f: (r) => (r.fob_mode === "100" ? "Per 100" : "Per piece") },
+    { h: "FOB price $", key: "unitFob", t: "usd4", v: (r) => r.unit_fob100 },
+  ],
+  fobpc: [{
+    h: "FOB / pc $", key: "fobpc", t: "usd4",
+    v: (r) => (r.fob_mode === "100" ? (r.unit_fob100 || 0) / 100 : (r.unit_fob100 || 0)),
+    fml: (r) => (r.fob_mode === "100" ? "{unitFob}/100" : "{unitFob}"),
+  }],
+  sheet: [{ h: "Source sheet", key: "sheet", f: (r) => r.source_sheet }],
+});
 
 /* Pick an item to edit.
 
@@ -251,9 +284,20 @@ export default function ItemsPanel() {
   const suppliers = useSuppliers().data || [];
   const groups = useItemGroups().data || [];
   const formulas = useMasterFormulas().data || [];
+  const savedCols = useItemColumns();
+  const saveCols = useSaveItemColumns();
+  const toast = useToast();
 
   const [preset, setPreset] = useState("buyer");
   const [customCols, setCustomCols] = useState(null);
+  /* The saved layout is the client's, kept on the server — so it is the same
+     on every machine, and it is what tells the reports which item fields to
+     leave out. It opens as "My view" once there is one. */
+  useEffect(() => {
+    const cols = savedCols.data?.cols;
+    if (Array.isArray(cols) && !customCols) { setCustomCols(cols); setPreset("custom"); }
+  }, [savedCols.data]); // eslint-disable-line react-hooks/exhaustive-deps
+  const hidden = useMemo(() => hiddenFieldsOf(savedCols.data), [savedCols.data]);
   const [colMgr, setColMgr] = useState(false);
   const [addItem, setAddItem] = useState(false);
   const [picking, setPicking] = useState(false);
@@ -287,9 +331,11 @@ export default function ItemsPanel() {
   const shownItems = onlyGaps ? withGaps : fetched;
   const total = groups.reduce((s, g) => s + g.count, 0);
 
-  const activeKeys = preset === "custom" && customCols
-    ? customCols.filter((c) => c.visible).map((c) => c.key)
-    : PRESETS[preset].keys;
+  /* A field unticked in the saved layout stays out of every view, the presets
+     included — unticking it means "this field is not wanted". */
+  const activeKeys = (preset === "custom" && customCols
+    ? customCols.filter((c) => c.visible && !c.removed).map((c) => c.key)
+    : PRESETS[preset].keys).filter((k) => !hidden.has(k));
 
   /* The purchase and FOB prices come out of every view. They are still in the
      master, still in the edit form, still in every download — just not on a
@@ -319,7 +365,15 @@ export default function ItemsPanel() {
     setColMgr(true);
   };
 
-  const exportCols = useMemo(() => EXPORT_COLS(supCode), [suppliers]); // eslint-disable-line react-hooks/exhaustive-deps
+  /* The download carries the columns on screen, in their order — plus the
+     price columns, which are held off the monitor but never off paper — and
+     a column of your own as an empty, headed column. */
+  const exportCols = useMemo(() => {
+    const byKey = EXPORT_BY_KEY(supCode);
+    const custom = Object.fromEntries((customCols || []).filter((c) => c.custom).map((c) => [c.key, c.label]));
+    return dropDanglingFormulas(activeKeys.flatMap((k) => byKey[k]
+      || (custom[k] ? [{ h: custom[k], key: k, f: () => "" }] : [])));
+  }, [suppliers, activeKeys.join("|"), customCols]); // eslint-disable-line react-hooks/exhaustive-deps
   const exportOpts = {
     title: "Item master",
     subtitle: `${shownItems.length} item(s)${supFilter ? ` · supplier ${supCode(supFilter)}` : ""}${group ? ` · ${group}` : ""} · as on ${todayISO()}`,
@@ -393,7 +447,11 @@ export default function ItemsPanel() {
           onPick={(it) => { setPicking(false); setEditing(it); }} />
       )}
       {colMgr && <ColumnManager cols={customCols} catalogue={DEF} onClose={() => setColMgr(false)}
-        onSave={(l) => { setCustomCols(l); setPreset("custom"); setColMgr(false); }} />}
+        saving={saveCols.isPending}
+        onSave={(l) => saveCols.mutate(l, {
+          onSuccess: () => { setCustomCols(l); setPreset("custom"); setColMgr(false); toast("Column layout saved — reports follow it"); },
+          onError: (e) => setFailed(e.message),
+        })} />}
       {editing && <ItemEditModal item={editing} onClose={() => setEditing(null)} />}
     </>
   );
