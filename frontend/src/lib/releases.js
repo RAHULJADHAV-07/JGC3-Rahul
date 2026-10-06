@@ -7,6 +7,22 @@
 
 export const RELEASES = [
   {
+    version: "7.2.0",
+    date: "2026-10-07",
+    notes: [
+      "Supplier papers (7, 8, 9) list only the POs each line's boxes cleared.",
+      "Maharashtra suppliers: CGST + SGST; others: IGST (docs 6, 8, 10).",
+      "No length printed for PP and PA moulded fittings (18, 19, 20, 31, 32).",
+      "Packing list shows bundled goods as “1800 (BUNDLES)”.",
+      "Weight break-up only when the shipment has corrugated boxes.",
+      "BL annexure sizes fixed — inch sizes no longer read as 12MM, 114MM.",
+      "Declarations 13–16 print as a full A4 page, footer at the foot.",
+      "Document previews fit the screen — no sideways scroll or blank band.",
+      "Long text squeezes to fit its cell instead of being cut off.",
+      "PDFs no longer spill a few lines onto an extra page.",
+    ],
+  },
+  {
     version: "7.1.0",
     date: "2026-10-05",
     notes: [

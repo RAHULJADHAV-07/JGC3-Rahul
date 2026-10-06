@@ -70,7 +70,7 @@ async def lifespan(app: FastAPI):
                 pass
 
 
-app = FastAPI(title=settings.app_name, version="7.1.0", lifespan=lifespan, **_docs)
+app = FastAPI(title=settings.app_name, version="7.2.0", lifespan=lifespan, **_docs)
 
 
 # ---------- Security headers ----------
