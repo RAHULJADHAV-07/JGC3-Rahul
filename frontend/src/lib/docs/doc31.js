@@ -358,7 +358,7 @@ export function commercialInvoiceHtml(ctx) {
     <tr>${vl(String(marks.end))}${td(esc(desc2[1]), "l", 7)}${td("", "", 3)}</tr>`;
 
   const line = (l) => {
-    if (!l) return `<tr class="gd">${td("")}${td("", "", 10)}</tr>`;
+    if (!l) return `<tr class="gd fl">${td("")}${td("", "", 10)}</tr>`;
     if (l.kind === "head") return `<tr class="gd"><td>&nbsp;</td>${td(esc(l.band.head), "bnd l", 7)}${td("", "", 3)}</tr>`;
     if (l.kind === "cols") {
       const B = l.band;
@@ -416,7 +416,7 @@ export function commercialInvoiceHtml(ctx) {
     const cell = margin[i];
     const out = line(p2[i]);
     return cell == null ? out
-      : out.replace("<td>&nbsp;</td>", `<td class="c k">${esc(String(cell))}</td>`);
+      : out.replace('<tr class="gd fl">', '<tr class="gd">').replace("<td>&nbsp;</td>", `<td class="c k">${esc(String(cell))}</td>`);
   }).join("");
 
   const page2 = `<table class="wb ci ci31">${colg}<tbody>${head(true)}${body2}

@@ -575,6 +575,8 @@ class InvoiceOut(ORMModel):
     lines: list[InvoiceLineOut] = []
     # Computed
     status: Optional[str] = None
+    # item id → [{po, date, boxes}]: the orders this invoice's boxes cleared.
+    po_legs: dict[str, Any] = {}
 
 
 # ---------- Costing ----------

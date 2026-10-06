@@ -1,4 +1,9 @@
-import { L, PL_FORMS, PL_P2_TOP, PL_TOP, PL_WEIGHTS, PL_WT, addrLines, ciMarks, ddmm, esc, familyOf, fitSheet, formGrid, formLogo, lineRuns, numOrText, packingBands, packingDescribe, packingLayout, plOrderBox, plP2Body, poHeaderList, rangeRefs, sum, wbFixed } from "./common.js";
+import { L, PL_FORMS, bundled, PL_P2_TOP, PL_TOP, PL_WEIGHTS, PL_WT, addrLines, ciMarks, ddmm, esc, familyOf, fitSheet, formGrid, formLogo, lineRuns, numOrText, packingBands, packingDescribe, packingLayout, plOrderBox, plP2Body, poHeaderList, rangeRefs, sum, wbFixed } from "./common.js";
+
+/* The break-up of weights by material is printed only when the consignment
+   carries corrugated boxes — it exists to separate the cartons' weight from
+   the goods'. Without them the foot carries the signature alone. */
+const withBreakup = (form, bands) => form.breakup && bands.some((b) => b.key === "box");
 import { LOGO_SRC, SIGN_SRC, STAMP_SRC, imgTag, signImage, stampImage } from "../logo.js";
 import { colLetter } from "../xlsx.js";
 
@@ -172,8 +177,10 @@ export function packingListSheets(ctx, form) {
     }
     const { band, r } = line;
     const cells = [[1, { v: r.range, s: G.sr }], [1, numOrText(r.it.code, G.ctr)],
-      [band.len ? 1 : 2, numOrText(r.it.size, G.ctr)]];
-    if (band.len) cells.push([1, numOrText(r.it.length, G.ctr)]);
+      // Goods in bundles say so in brackets — beside the length, or beside the
+      // size where the band has no length column.
+      [band.len ? 1 : 2, numOrText(band.len ? r.it.size : bundled(r.it.size, r.it), G.ctr)]];
+    if (band.len) cells.push([1, numOrText(bundled(r.it.length, r.it), G.ctr)]);
     cells.push(
       [1, { v: r.packing, t: "n", s: G.ctr }],
       /* Their own formula: the packages a line takes are its pieces over what
@@ -303,7 +310,7 @@ export function packingListSheets(ctx, form) {
   totalLine(g2, "TOTAL WEIGHTS……….", totRow - 1);
 
   /* ---- the break-up of weights, totalled by material ---------------------- */
-  if (form.breakup) {
+  if (withBreakup(form, bands)) {
     const box = (v, st = C.txt, extra = {}) => ({ v, s: { ...st, border: "box", ...extra } });
     g2.row([[3, box("BREAK-UP OF WEIGHTS")], [1, box("NET WT", C.txt, { align: "center" })],
       [1, box("GROSS WT", C.txt, { align: "center" })],
@@ -440,8 +447,8 @@ export function packingListHtml(ctx, form) {
       return `<tr class="gd hc">${cells.join("")}</tr>`;
     }
     const { band, r } = l;
-    const cells = [vl(r.range), vl(r.it.code, "c"), vl(r.it.size, "c", band.len ? 1 : 2)];
-    if (band.len) cells.push(vl(r.it.length, "c"));
+    const cells = [vl(r.range), vl(r.it.code, "c"), vl(band.len ? r.it.size : bundled(r.it.size, r.it), "c", band.len ? 1 : 2)];
+    if (band.len) cells.push(vl(bundled(r.it.length, r.it), "c"));
     cells.push(
       `<td class="c" data-t="int" data-v="${r.packing}">${r.packing}</td>`,
       `<td class="c" data-t="int" data-v="${r.boxes}">${r.boxes}</td>`,
@@ -493,7 +500,7 @@ export function packingListHtml(ctx, form) {
   /* The foot of page 2: the break-up of weights beside the signature, or — in
      the item-wise book, whose make-up is on the tabs behind it — the empty box
      its file rules there instead. */
-  const foot = form.breakup
+  const foot = withBreakup(form, bands)
     ? `<tr>${vl("BREAK-UP OF WEIGHTS", "bx", 3)}${vl("NET WT", "bx c")}${vl("GROSS WT", "bx c")}
         ${vl(forLine, "sg lrt r", 4)}</tr>
       ${breakup}

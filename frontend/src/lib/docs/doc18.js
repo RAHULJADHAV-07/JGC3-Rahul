@@ -1,4 +1,4 @@
-import { CI_HSN_ROWS, CI_P1_BODY, CI_P1_TOP, CI_P2_TOP, CI_PCT, CI_PLAIN, CI_USD, CI_USDT, L, P7, RUPEE, USD, addrLines, amountWords, ciMarks, ciP2Body, ddmm, esc, exRate, fitSheet, formGrid, formLogo, goodsWrapped, gstFor, hsnRuns, hsnText, inr, invoiceBands, invoiceLayout, num, numOrText, poHeaderList, rangeRefs, sum, usd, wbFixed, wbRupee } from "./common.js";
+import { CI_HSN_ROWS, CI_P1_BODY, CI_P1_TOP, CI_P2_TOP, CI_PCT, CI_PLAIN, CI_USD, CI_USDT, L, P7, RUPEE, USD, addrLines, amountWords, ciMarks, ciP2Body, ddmm, esc, exRate, fitSheet, formGrid, formLogo, goodsWrapped, gstFor, hsnRuns, hsnText, inr, invoiceBands, invoiceLayout, num, numOrText, orderBox, poHeaderList, rangeRefs, sum, usd, wbFixed, wbRupee } from "./common.js";
 import { LOGO_SRC, imgTag } from "../logo.js";
 import { colLetter } from "../xlsx.js";
 
@@ -58,6 +58,9 @@ export function customsInvoiceSheets(ctx) {
   const invRef = `${ctx.inv.invoiceNo || ""}${ctx.inv.date ? ` DT ${ddmm(ctx.inv.date)}` : ""}`;
   const orderRef = ctx.buyer.orderNo
     ? `${ctx.buyer.orderNo}${ctx.inv.date ? ` DT ${ddmm(ctx.inv.date)}` : ""}` : poHeaderList(ctx);
+  // A run of several orders goes over the lines their form gives it.
+  const ordBox = orderBox(orderRef, s.otherRef, 50);
+  const [ord1, ord2, ord3, ord4] = ordBox.orders;
   const dated = (no, d) => (no ? `${no}${d ? ` DT. ${ddmm(d)}` : ""}` : "");
   const desc3 = goodsWrapped(bands, 42, 3);
   const desc2 = goodsWrapped(bands, 44, 2);
@@ -77,15 +80,15 @@ export function customsInvoiceSheets(ctx) {
        mark anchored in the corner of the form beside it. */
     row([[5, { v: E.sub || "", s: { ...C.rgt, border: "l" } }],
       [2, { v: "Buyers Order No: ", s: { ...C.lbl, border: "l" } }],
-      [4, { v: orderRef, s: { ...C.txt, border: "r" } }]]);
+      [4, { v: ord1, s: { ...C.txt, border: "r" } }]]);
     const addr = addrLines(E);
     row([[5, { v: addr[0] || "", s: { ...C.rgt, border: "l" } }],
-      [2, { v: "", s: { ...C.txt, border: "l" } }], [4, { v: "", s: { ...C.txt, border: "r" } }]]);
+      [2, { v: "", s: { ...C.txt, border: "l" } }], [4, { v: ord2, s: { ...C.txt, border: "r" } }]]);
     row([[5, { v: addr[1] || "", s: { ...C.rgt, border: "l" } }],
-      [2, { v: "Other Reference(s):", s: { ...C.lbl, border: "l" } }],
-      [4, { v: s.otherRef || "", s: { ...C.txt, border: "r" } }]]);
+      [2, { v: ordBox.label2, s: { ...C.lbl, border: "l" } }],
+      [4, { v: ordBox.other || ord3, s: { ...C.txt, border: "r" } }]]);
     row([[5, { v: [E.tel && `Tel: ${E.tel}`, E.email && `E-Mail: ${E.email}`].filter(Boolean).join(" "), s: { ...C.rgt, border: "lb" } }],
-      [2, { v: "", s: { ...C.txt, border: "l" } }], [4, { v: "", s: { ...C.txt, border: "r" } }]]);
+      [2, { v: "", s: { ...C.txt, border: "l" } }], [4, { v: ord4, s: { ...C.txt, border: "r" } }]]);
     row([[2, { v: "On Account & Risks of:", s: { ...C.lbl, border: "lt" } }],
       [3, { v: "", s: { ...C.txt, border: "t" } }],
       [1, { v: "IRN No", s: { ...C.lbl, border: "lt" } }],
@@ -473,6 +476,8 @@ export function customsInvoiceHtml(ctx) {
   const dated = (no, d) => (no ? `${no}${d ? ` DT. ${ddmm(d)}` : ""}` : "");
   const invRef = `${ctx.inv.invoiceNo || ""}${ctx.inv.date ? ` DT ${ddmm(ctx.inv.date)}` : ""}`;
   const orderRef = b.orderNo ? `${b.orderNo}${ctx.inv.date ? ` DT ${ddmm(ctx.inv.date)}` : ""}` : poHeaderList(ctx);
+  const ordBox = orderBox(orderRef, s.otherRef, 50);
+  const [ord1, ord2, ord3, ord4] = ordBox.orders;
   const irn = String(s.irn || "");
   const fobUsd = sum(rows, "fobTotal"), taxTot = fobUsd * ex;
 
@@ -506,10 +511,10 @@ export function customsInvoiceHtml(ctx) {
     <tr>${letterhead}
       ${td(esc("Invoice No. "), "k lt")}${td(esc(invRef), "rt", 4)}${td(esc("Exporter's Ref."), "k rt")}</tr>
     <tr>${td("Date:", "k lf")}${td("", "rt0", 4)}${td(esc(E.iec ? `IEC ${E.iec}` : ""), "k rt0")}</tr>
-    <tr>${td(esc("Buyers Order No: "), "k lf", 2)}${td(esc(orderRef), "rt0", 4)}</tr>
-    <tr>${td("", "lf", 2)}${td("", "rt0", 4)}</tr>
-    <tr>${td("Other Reference(s):", "k lf", 2)}${td(esc(s.otherRef || ""), "rt0", 4)}</tr>
-    <tr>${td("", "lf", 2)}${td("", "rt0", 4)}</tr>
+    <tr>${td(esc("Buyers Order No: "), "k lf", 2)}${td(esc(ord1), "rt0", 4)}</tr>
+    <tr>${td("", "lf", 2)}${td(esc(ord2), "rt0", 4)}</tr>
+    <tr>${td(esc(ordBox.label2), "k lf", 2)}${td(esc(ordBox.other || ord3), "rt0", 4)}</tr>
+    <tr>${td("", "lf", 2)}${td(esc(ord4), "rt0", 4)}</tr>
     <tr>${td("On Account &amp; Risks of:", "k lt", 2)}${td("", "lt0", 3)}${td("IRN No", "k lt")}${td(esc(irn.slice(0, 38)), "rt", 5)}</tr>
     <tr>${td(esc(b.name ? `Messrs ${b.name},` : ""), "lf", 5)}${td("", "lf")}${td(esc(irn.slice(38)), "rt0", 5)}</tr>
     <tr>${td(esc(b.brand ? `T/A ${b.brand}` : ""), "lf", 5)}${td("Ack No", "k lf")}${td(esc(s.ackNo || ""), "rt0", 5)}</tr>
@@ -542,7 +547,7 @@ export function customsInvoiceHtml(ctx) {
     <tr>${vl(String(marks.end))}${td(esc(desc2[1]), "l", 4)}${td("", "", 6)}</tr>`;
 
   const line = (l) => {
-    if (!l) return `<tr class="gd">${td("")}${td("", "", 10)}</tr>`;
+    if (!l) return `<tr class="gd fl">${td("")}${td("", "", 10)}</tr>`;
     if (l.kind === "head") return `<tr class="gd"><td>&nbsp;</td>${td(esc(l.band.head), "bnd l", 6)}${td("", "", 4)}</tr>`;
     if (l.kind === "cols") {
       const B = l.band;
@@ -615,7 +620,7 @@ export function customsInvoiceHtml(ctx) {
   const body2 = Array.from({ length: ciP2Body(p2) }, (_, i) => {
     const html = line(p2[i]);
     const m = margin[i];
-    return m ? html.replace("<td>&nbsp;</td>", td(esc(String(m[0])), m[1])) : html;
+    return m ? html.replace('<tr class="gd fl">', '<tr class="gd">').replace("<td>&nbsp;</td>", td(esc(String(m[0])), m[1])) : html;
   }).join("");
 
   const hsnCodes = [...new Set(bands.map((x) => x.hsn).filter(Boolean))];

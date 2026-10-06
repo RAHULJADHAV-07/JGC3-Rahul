@@ -49,7 +49,7 @@ export const B_15 = (ctx) => {
   const box = sdfParticulars(ctx).map((cells) => `<tr>${cells
     .map((v, i) => `<td${i === 0 || i === 2 ? ' class="lbl"' : ""}>${esc(v)}</td>`).join("")}</tr>`).join("");
 
-  const html = `<div class="dl just">
+  const html = `<div class="dl just a4">
     ${letterheadBlock(E)}
 
     <p class="mid b">D E C L A R A T I O N</p>

@@ -30,6 +30,6 @@ export const B_13 = (ctx) => {
       const cls = EVD_CLASS[k];
       return `<td${cls ? ` class="${cls}"` : ""}${span > 1 ? ` colspan="${span}"` : ""}>${esc(v)}</td>`;
     }).join("")}</tr>`)).join("");
-  const html = `<div class="evd"><table><colgroup>${'<col>'.repeat(24)}</colgroup>${body}</table></div>`;
+  const html = `<div class="evd a4"><table><colgroup>${'<col>'.repeat(24)}</colgroup>${body}</table></div>`;
   return { name: "Export_Value_Declaration_13", html, sheet: evd13Sheet(ctx), page: "portrait" };
 };

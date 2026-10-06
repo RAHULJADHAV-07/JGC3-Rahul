@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import {
   FileText, Download, Check, AlertTriangle, Search, ArrowRight, Layers, Ship, Truck,
@@ -6,7 +6,7 @@ import {
 } from "lucide-react";
 import {
   Card, CardHead, Btn, Field, Input, Select, Pill, Mono, Empty, Note, SearchInput, Info,
-  Spinner, DownloadPair, XScroll,
+  Spinner, DownloadPair,
 } from "../../components/ui/index.jsx";
 import {
   useInvoices, useItems, useBuyers, useSuppliers, useTransports, usePoLines,
@@ -22,6 +22,7 @@ import {
   downloadStageExcel, downloadStagePDF,
 } from "../../lib/docs.js";
 import { safeHtml } from "../../lib/safeHtml.js";
+import { fitCells } from "../../lib/fitCells.js";
 import { dmy, dmyNum } from "../../lib/format.js";
 import { INV_STATUS_TONE } from "../../lib/constants.js";
 import ShipmentWizard from "../shipments/ShipmentWizard.jsx";
@@ -376,7 +377,7 @@ export default function DocumentsPage({ group }) {
             </span>
             <DownloadPair word={isWordDoc(open)} onExcel={() => grabExcel(open)} onPDF={() => grabPDF(open)} />
           </CardHead>
-          <XScroll className="docprev-shell" deps={[open, previewHtml.length]}>
+          <div className="docprev-shell">
             {split.length > 0 && (
               <div style={{ marginBottom: 12 }}>
                 <Note tone="teal" icon={Truck}>
@@ -406,16 +407,13 @@ export default function DocumentsPage({ group }) {
                 on a page every admin opens. Buyer names, addresses and item
                 descriptions all come from the database, which is to say from
                 whatever somebody typed. */}
-            <div
-              className="docprev docprev-paper"
-              dangerouslySetInnerHTML={{ __html: safeHtml(previewHtml) }}
-            />
+            <FitPaper html={safeHtml(previewHtml)} />
             <div className="row" style={{ marginTop: 12, gap: 7, fontSize: 11.5, color: "var(--teal-ink)" }}>
               <Check size={14} /> Live preview of the download — every figure pulled from{" "}
               {poMode ? `purchase order ${po.po}` : `invoice ${inv.invoice_no}`}
               {sup ? `, ${supCodeOf(sup)}'s items only` : ", every supplier in the item sequence"}. The Excel keeps its formulas.
             </div>
-          </XScroll>
+          </div>
         </Card>
         )}
       </div>
@@ -442,6 +440,47 @@ export default function DocumentsPage({ group }) {
       </Card>
 
       {wizOpen && inv && <ShipmentWizard inv={inv} onClose={() => setWizOpen(false)} />}
+    </div>
+  );
+}
+
+/* The paper, shrunk to the width of the card. A wide sheet — the supplier
+   packing list runs to eighteen columns — is laid out at its natural width
+   and scaled down to fit, so every column stays on screen with no sideways
+   scrolling; a narrow one — the portrait forms — is shown at its own size,
+   centred, as a sheet of paper rather than a page-wide band of white. The box around it takes the
+   scaled height, so the page scrolls rather than a box inside it. */
+function FitPaper({ html }) {
+  const outer = useRef(null);
+  const inner = useRef(null);
+  const [fit, setFit] = useState({ scale: 1, height: undefined });
+
+  useLayoutEffect(() => {
+    const o = outer.current, i = inner.current;
+    if (!o || !i) return undefined;
+    const measure = () => {
+      const natural = i.offsetWidth, avail = o.clientWidth;
+      const scale = natural > avail && natural > 0 ? avail / natural : 1;
+      setFit({ scale, height: Math.ceil(i.offsetHeight * scale) });
+    };
+    // Cells too narrow for their text are squeezed to fit, as Excel's
+    // "shrink to fit" does, before the paper is measured.
+    fitCells(i);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(o);
+    ro.observe(i);
+    return () => ro.disconnect();
+  }, [html]);
+
+  return (
+    <div ref={outer} className="docprev-fit" style={{ height: fit.height }}>
+      <div
+        ref={inner}
+        className="docprev docprev-paper"
+        style={fit.scale < 1 ? { transform: `scale(${fit.scale})` } : undefined}
+        dangerouslySetInnerHTML={{ __html: html }}
+      />
     </div>
   );
 }

@@ -26,7 +26,7 @@ export function rodtep16Sheet(ctx) {
 
 export const B_16 = (ctx) => {
   const E = ctx.EXPORTER;
-  const html = `<div class="dl just">
+  const html = `<div class="dl just a4">
     ${letterheadBlock(E)}
 
     <p class="mid">Annexure</p>

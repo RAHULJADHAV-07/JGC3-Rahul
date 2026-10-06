@@ -92,6 +92,10 @@ export const docInvoice = (inv) => (inv ? {
   rbi: inv.rbi, serialStart: inv.serial_start,
   vehicles: inv.vehicles || {}, ship: inv.ship || {}, stepSkip: inv.step_skip || {},
   packingTransports: inv.packing_transports || {},
+  /* item id → [{po, date, boxes}]: the orders this invoice's boxes cleared,
+     oldest first, from the server's FIFO ledger. Absent on an API that
+     predates it; the papers then fall back to the whole order book. */
+  poLegs: inv.po_legs || null,
   /* Each line carries the prices the invoice was actually raised at. A
      delivered invoice is history — its customs paperwork, the supplier's bill
      and the bank documents were all issued at these figures — so every

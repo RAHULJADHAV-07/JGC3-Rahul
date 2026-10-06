@@ -337,7 +337,7 @@ export const B_17 = (ctx) => {
   const filler = (page) => {
     const last = page.blocks[page.blocks.length - 1];
     const shape = last ? shapeOf(last.band) : [8];
-    const row = `<tr class="ln">${shape.map((n) => `<td${span(n)}>&nbsp;</td>`).join("")}</tr>`;
+    const row = `<tr class="ln fl">${shape.map((n) => `<td${span(n)}>&nbsp;</td>`).join("")}</tr>`;
     return Array(Math.max(0, PROFORMA_PAGE_ROWS - page.used)).fill(row).join("");
   };
 

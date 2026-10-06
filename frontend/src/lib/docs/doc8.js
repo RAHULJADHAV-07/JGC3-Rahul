@@ -1,19 +1,27 @@
-import { L, P7, RUPEE, bcDescription, ddmm, esc, fitSheet, hsnText, hsnValue, poBannerList, poStack, sum, supplierGst, wbRupee } from "./common.js";
+import { L, P7, RUPEE, bcDescription, ddmm, esc, fitSheet, hsnText, hsnValue, pctText, poBannerList, poStack, sum, supplierTax, wbRupee } from "./common.js";
 
-/* The IGST the sheet closes on. 18 % unless the supplier carries a GST % of
-   its own (Setup → Suppliers); a sheet holding several suppliers at
-   different rates taxes each one's lines at its own rate. */
+/* The GST the sheet closes on. Each supplier's lines are taxed at its own
+   rate (18 % unless Setup → Suppliers gives it one), and under the heads its
+   state calls for: CGST + SGST at half the rate each for a factory in
+   Maharashtra, IGST for one outside it. A sheet holding both kinds closes on
+   all three lines, each over the goods it applies to. */
 export function purchaseGst(ctx, rows) {
-  const rateOf = (r) => supplierGst(ctx, r.supId) ?? 0.18;
-  const rates = [...new Set(rows.map(rateOf))];
-  const pct = (x) => `${Number((x * 100).toFixed(2))}%`;
-  return {
-    rateOf,
-    label: rates.length <= 1 ? `IGST @ ${pct(rates[0] ?? 0.18)}` : "IGST (supplier GST %)",
-    single: rates.length <= 1 ? (rates[0] ?? 0.18) : null,
-    amount: Math.round(rows.reduce((n, r) => n + r.valTotal * rateOf(r), 0)),
-    pct,
-  };
+  const taxOf = (r) => supplierTax(ctx, r.supId);
+  const heads = ["CGST", "SGST", "IGST"].map((name) => {
+    const share = (r) => taxOf(r).heads.find((h) => h.name === name)?.rate;
+    const mine = rows.filter((r) => share(r) != null);
+    if (!mine.length) return null;
+    const rates = [...new Set(mine.map(share))];
+    return {
+      name,
+      rateOf: share,
+      label: rates.length === 1 ? `${name} @ ${pctText(rates[0])}` : `${name} (supplier GST %)`,
+      // One rate over every line on the sheet: the total at it, as their sheet has it.
+      single: rates.length === 1 && mine.length === rows.length ? rates[0] : null,
+      amount: Math.round(mine.reduce((n, r) => n + r.valTotal * share(r), 0)),
+    };
+  }).filter(Boolean);
+  return { heads, amount: heads.reduce((n, h) => n + h.amount, 0) };
 }
 
 /* Doc 8 · Purchase (Supplier) — against 8-Purchase.xlsx. The packing sheet
@@ -53,7 +61,7 @@ export function supplierPurchaseSheet(ctx, rows) {
   let first = 0;
   let last = 0;
   const gst = purchaseGst(ctx, rows);
-  const lineAt = [];                     // [sheet row, rate] per goods line
+  const lineAt = [];                     // [sheet row, line] per goods line
   rows.forEach((r) => {
     const g = String(r.it.group || "").trim();
     if (g && g !== band) {
@@ -87,7 +95,7 @@ export function supplierPurchaseSheet(ctx, rows) {
     ]);
     if (!first) first = line;
     last = line;
-    lineAt.push([line, gst.rateOf(r)]);
+    lineAt.push([line, r]);
     heights.push(25.5);
   });
 
@@ -100,18 +108,25 @@ export function supplierPurchaseSheet(ctx, rows) {
       st("M", S.totV), st("N", S.totV), { v: "", s: S.money }, st("P", S.totMoney),
     ]);
     const valueRow = out.length;
-    const blanks = Array(14).fill(null).map(() => ({ v: "", s: S.tailBlank }));
-    /* One rate: the total at it, as their sheet has it. Several: each rate
+    const blanks = () => Array(14).fill(null).map(() => ({ v: "", s: S.tailBlank }));
+    /* One rate over the whole sheet: the total at it. Otherwise each rate
        against the lines it applies to. */
-    const byRate = new Map();
-    lineAt.forEach(([row, rate]) => byRate.set(rate, [...(byRate.get(rate) || []), `P${row}`]));
-    const igst = gst.single != null
-      ? `ROUND(P${valueRow}*${gst.pct(gst.single)},0)`
-      : `ROUND(${[...byRate].map(([rate, cells]) => `SUM(${cells.join(",")})*${gst.pct(rate)}`).join("+")},0)`;
-    out.push([...blanks, { v: gst.label, s: S.tailLabel }, { f: igst, s: S.totMoney }]);
-    heights[out.length - 1] = 15;
-    out.push([...blanks, { v: "INV VALUE", s: S.tailLabel },
-      { f: `SUM(P${valueRow}:P${valueRow + 1})`, s: S.totMoney }]);
+    gst.heads.forEach((h) => {
+      let fml;
+      if (h.single != null) fml = `ROUND(P${valueRow}*${pctText(h.single)},0)`;
+      else {
+        const byRate = new Map();
+        lineAt.forEach(([row, r]) => {
+          const rate = h.rateOf(r);
+          if (rate != null) byRate.set(rate, [...(byRate.get(rate) || []), `P${row}`]);
+        });
+        fml = `ROUND(${[...byRate].map(([rate, cells]) => `SUM(${cells.join(",")})*${pctText(rate)}`).join("+")},0)`;
+      }
+      out.push([...blanks(), { v: h.label, s: S.tailLabel }, { f: fml, s: S.totMoney }]);
+      heights[out.length - 1] = 15;
+    });
+    out.push([...blanks(), { v: "INV VALUE", s: S.tailLabel },
+      { f: `SUM(P${valueRow}:P${valueRow + gst.heads.length})`, s: S.totMoney }]);
     heights[out.length - 1] = 15;
   }
 
@@ -138,7 +153,7 @@ export const B_8 = (ctx) => {
   let band = groups.length ? groups[0] : "";
   const value = sum(rows, "valTotal");
   const gst = purchaseGst(ctx, rows);
-  const igst = gst.amount;
+  const gstTotal = gst.amount;
   const body = rows.map((r) => {
     const it = r.it;
     const g = String(it.group || "").trim();
@@ -183,10 +198,10 @@ export const B_8 = (ctx) => {
         <td class="r" data-t="int" data-sum="box">${sum(rows, "boxes")}</td>
         <td></td>
         <td class="r" data-t="inr" data-sum="valtot">${wbRupee(value)}</td></tr>
-      <tr class="tot"><td class="nb" colspan="14"></td><td>${esc(gst.label)}</td>
-        <td class="r" data-t="inr" data-v="${igst}">${wbRupee(igst)}</td></tr>
+      ${gst.heads.map((h) => `<tr class="tot"><td class="nb" colspan="14"></td><td>${esc(h.label)}</td>
+        <td class="r" data-t="inr" data-v="${h.amount}">${wbRupee(h.amount)}</td></tr>`).join("")}
       <tr class="tot"><td class="nb" colspan="14"></td><td>INV VALUE</td>
-        <td class="r" data-t="inr" data-v="${value + igst}">${wbRupee(value + igst)}</td></tr>
+        <td class="r" data-t="inr" data-v="${value + gstTotal}">${wbRupee(value + gstTotal)}</td></tr>
     </table>`;
   return { name: "Purchase_8", html, sheet: supplierPurchaseSheet(ctx, rows) };
 };

@@ -11,6 +11,7 @@
 import { buildXLSX } from "./xlsx.js";
 import { buildDOCX } from "./docx.js";
 import { gridToSheet, gridToHtml, htmlToSheet } from "./sheet.js";
+import { fitCells, fitPages } from "./fitCells.js";
 
 function saveBlob(blob, filename) {
   try {
@@ -711,6 +712,27 @@ const PRINT_CSS = `
      without the rule above it drifting off the foot of the sheet. */
   .dl .dlfoot div + div { margin-top: 6px; }
 
+  /* 13 · Export value declaration, 14 · SCOMET, 15 · SDF, 16 · RoDTEP — the
+     one-page declarations. Each is a whole A4 sheet: the letterhead at the
+     head of the paper, the contact strip pinned to its foot, and the text set
+     large enough to fill what lies between rather than stopping two-thirds of
+     the way down. The form with no letterhead (13) spreads its lines over the
+     sheet instead. min-height, not height: one that runs long still flows on
+     to a second page rather than being cut off. */
+  .jg-doc:has(> .a4) { padding: 0; }
+  .a4 { min-height: 296mm; padding: 14mm 16mm 10mm; display: flex; flex-direction: column; }
+  .dl.a4 { font-size: 12pt; line-height: 1.6; }
+  .dl.a4 p, .dl.a4 .ins td, .dl.a4 table.fld td, .dl.a4 table.bx td { font-size: 12pt; line-height: 1.6; }
+  .dl.a4 p { margin: 0 0 16px; }
+  .dl.a4 .ins td { padding: 0 0 8px; }
+  .dl.a4 table.bx { margin: 18px 0; }
+  .dl.a4 table.bx td { padding: 4px 6px; }
+  .dl.a4 .sign { margin-top: 64px; }
+  .dl.a4 > .dlfootwrap { margin-top: auto; padding-top: 10mm; }
+  .evd.a4 { padding: 18mm 16mm 16mm; }
+  .evd.a4 > table { flex: 1 0 auto; }
+  .evd.a4 td { font-size: 13pt; }
+
   /* 34 · Container weight declaration — their forwarder's typed form. Not one
      of the exporter's papers and on no letterhead, so it is set as their file
      sets it: Calibri on a plain ruled grid, the title large over it, and the
@@ -805,7 +827,11 @@ export function downloadPDF(title, docs, opts = {}) {
 
   const frame = document.createElement("iframe");
   frame.setAttribute("aria-hidden", "true");
-  frame.style.cssText = "position:fixed;right:0;bottom:0;width:1px;height:1px;opacity:0;border:0;";
+  /* Off screen, but as wide as the paper: the cells are measured for
+     shrink-to-fit before printing (fitCells), and a frame a pixel wide would
+     lay every table out a pixel wide. */
+  const pageW = Math.round((opts.orientation === "portrait" ? 210 : 297) * 96 / 25.4);
+  frame.style.cssText = `position:fixed;left:-20000px;top:0;width:${pageW}px;height:1200px;opacity:0;border:0;pointer-events:none;`;
   document.body.appendChild(frame);
 
   let done = false;
@@ -849,7 +875,15 @@ export function downloadPDF(title, docs, opts = {}) {
         new Promise((res) => setTimeout(res, 1000)),
       ]);
     };
-    setTimeout(() => { ready().then(go); }, 120);
+    /* Once laid out: squeeze the one-line cells that would be cut off, then
+       shrink any sheet that runs a few lines past its page onto that page. */
+    const fit = () => {
+      try {
+        fitCells(doc.body);
+        fitPages(doc, opts.orientation === "portrait" ? "portrait" : "landscape");
+      } catch (e) { /* print as laid out */ }
+    };
+    setTimeout(() => { ready().then(fit).then(go); }, 120);
   } catch (e) {
     cleanup();
     alert("Could not build the PDF in this browser — use the Excel download instead.");
