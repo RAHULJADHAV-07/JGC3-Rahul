@@ -336,8 +336,17 @@ function sheetXml(sheet, styleOf) {
   // The column's own default — what a cell typed in below the table inherits.
   // A copied workbook states it, so the client's font carries on down the sheet.
   const cs = sheet.colStyle ? ` style="${styleOf(sheet.colStyle)}"` : "";
-  const cols = widths.length
-    ? `<cols>${widths.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${width(w)}"${cs} customWidth="1"/>`).join("")}</cols>`
+  /* Columns Setup → Document columns hides (lib/docColumns.js) stay in the
+     file, hidden — right-click → Unhide brings them back. */
+  const hidden = new Set(sheet.hiddenCols || []);
+  const hid = (i) => (hidden.has(i) ? ' hidden="1"' : "");
+  const ncols = Math.max(widths.length, hidden.size ? Math.max(...hidden) + 1 : 0);
+  const cols = ncols
+    ? `<cols>${Array.from({ length: ncols }, (_, i) => {
+      if (i < widths.length) return `<col min="${i + 1}" max="${i + 1}" width="${width(widths[i])}"${cs} customWidth="1"${hid(i)}/>`;
+      // Past the stated widths only a hidden column needs an entry.
+      return hidden.has(i) ? `<col min="${i + 1}" max="${i + 1}" width="${width(12)}"${cs}${hid(i)}/>` : "";
+    }).join("")}</cols>`
     : "";
 
   const merges = (sheet.merges || []).filter(Boolean);

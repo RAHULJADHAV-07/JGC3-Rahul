@@ -4049,8 +4049,7 @@ export function ltb30Rows(ctx) {
     GAP,
     R([17, "We hope you will find the above in order.", "-"]),
     GAP,
-    R([17, `Kindly arrange the remittance on ${due.day} ${due.date} (Shipment Date + ${LTB_CREDIT_DAYS} Days). This is due to forward`, "-"]),
-    R([17, "contract as per our understanding.", "-"]),
+    R([17, `Kindly arrange the remittance on ${due.day} ${due.date} (Shipment Date + ${LTB_CREDIT_DAYS} Days).`, "-"]),
     GAP,
     R([17, `Remittance to ${LTB_BANK.line1}`, "-"]),
     R([17, LTB_BANK.line2, "- b"]),
@@ -4275,7 +4274,9 @@ export function ebr40Rows(ctx) {
     GAP, GAP, GAP,
     R([10, "Proprietor.", "-"]),
     GAP,
-    H(DECL, [10, "270 Days Delay Declaration for Invoice No.- (If Required)", "- b j"]),
+    /* The pro-formas take a sheet of their own: run on under the declarations
+       they spill over the foot of the second. */
+    { ...H(DECL, [10, "270 Days Delay Declaration for Invoice No.- (If Required)", "- b j"]), brk: true },
     { cells: [[10, "", "- j"]], h: DECL },
     ...EBR_270.map((t) => H(DECL, [10, t, "- j"])),
     { cells: [[10, "", "- j"]], h: TBL },

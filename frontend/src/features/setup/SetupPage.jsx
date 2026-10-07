@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Layers, Globe, Truck, Route, Users as UsersIcon, Plus, Trash2, AlertTriangle, SlidersHorizontal } from "lucide-react";
+import { Layers, Globe, Truck, Route, Users as UsersIcon, Plus, Trash2, AlertTriangle, SlidersHorizontal, Columns3 } from "lucide-react";
 import {
   Card, CardHead, Btn, Seg, Field, Input, Select, Pill, Mono, EditBtn, Empty, Note, Step,
 } from "../../components/ui/index.jsx";
@@ -17,6 +17,7 @@ import UsersPanel from "./UsersPanel.jsx";
 import ItemsPanel from "./ItemsPanel.jsx";
 import RecordModal from "./RecordModal.jsx";
 import AdditionalSettingsPanel from "./AdditionalSettingsPanel.jsx";
+import DocColumnsPanel from "./DocColumnsPanel.jsx";
 
 /* Setup — everything you configure once and rarely touch again.
 
@@ -171,13 +172,14 @@ export default function SetupPage() {
         ...(canItems ? [["items", `Items · ${itemCount}`, Layers]] : []),
         ...(canParties ? [["buyers", `Buyers · ${buyers.length}`, Globe], ["suppliers", `Suppliers · ${suppliers.length}`, Truck], ["transports", `Transport · ${transports.length}`, Route]] : []),
         ...(isAdmin ? [["users", `Users · ${users.length}`, UsersIcon]] : []),
-        ...((canItems || canParties) ? [["additional", "Additional settings", SlidersHorizontal]] : []),
+        ...((canItems || canParties) ? [["additional", "Additional settings", SlidersHorizontal], ["doccols", "Document columns", Columns3]] : []),
       ]} value={tab} onChange={setTab} />
 
       {failed && <Note tone="amber" icon={AlertTriangle}>{failed}</Note>}
 
       {tab === "items" && canItems && <ItemsPanel />}
       {tab === "additional" && (canItems || canParties) && <AdditionalSettingsPanel />}
+      {tab === "doccols" && (canItems || canParties) && <DocColumnsPanel />}
 
       {/* ---------------- BUYERS ---------------- */}
       {tab === "buyers" && (

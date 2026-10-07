@@ -152,6 +152,20 @@ def save_item_columns(cols: list[dict] | None = Body(None, embed=True), db: Sess
     return options.save_item_columns(db, clean)
 
 
+# ---------- the documents' columns ----------
+
+@router.get("/doc-columns", dependencies=[Depends(_read)])
+def doc_columns(db: Session = Depends(get_db)):
+    """Setup → Document columns: the columns each document hides or deletes.
+    Every document built in the app reads this, so everyone signed in may."""
+    return options.get_doc_columns(db)
+
+
+@router.put("/doc-columns", dependencies=[Depends(_write)])
+def save_doc_columns(rules: list[dict] = Body([], embed=True), db: Session = Depends(get_db)):
+    return options.save_doc_columns(db, rules)
+
+
 # ---------- the item sequence ----------
 
 @router.put("/item-sequence", dependencies=[Depends(_write_items)])

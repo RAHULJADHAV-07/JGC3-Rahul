@@ -50,7 +50,9 @@ export function commercialInvoiceSheets(ctx) {
 
   const invRef = `${ctx.inv.invoiceNo || ""}${ctx.inv.date ? ` DT ${ddmm(ctx.inv.date)}` : ""}`;
   const dated = (no, d) => (no ? `${no}${d ? ` DT. ${ddmm(d)}` : ""}` : "");
-  const desc2 = wrapTo(buyerGoods(bands), 44, 2);
+  /* The goods run the width of the seven columns beside the marks, so they
+     stand on the one line rather than leaving a word under the last box no. */
+  const desc2 = wrapTo(buyerGoods(bands), 80, 2);
   const desc3 = wrapTo(buyerGoods(bands), 42, 3);
   /* The buyer's own order numbers, broken over the four lines their form gives
      them — the customs copy prints the exporter's single reference instead. */
@@ -298,7 +300,9 @@ export function commercialInvoiceHtml(ctx) {
   const { p1, p2 } = invoiceLayout(bands, CI_P1_BODY_BUYER);
   const marks = ciMarks(ctx, rows);
   const addr = addrLines(E), bAddr = addrLines({ addr: b.addr });
-  const desc2 = wrapTo(buyerGoods(bands), 44, 2);
+  /* The goods run the width of the seven columns beside the marks, so they
+     stand on the one line rather than leaving a word under the last box no. */
+  const desc2 = wrapTo(buyerGoods(bands), 80, 2);
   const desc3 = wrapTo(buyerGoods(bands), 42, 3);
   const orders = wrapTo(poHeaderList(ctx), 44, 4);
   const dated = (no, d) => (no ? `${no}${d ? ` DT. ${ddmm(d)}` : ""}` : "");
@@ -351,15 +355,18 @@ export function commercialInvoiceHtml(ctx) {
       ${td("", "lf bb", 2)}${td(esc(s.bankAddr || ""), "k rt0 bb", 4)}</tr>
     <tr>${td("Marks &amp; Nos.", "h l")}${td("No &amp; Kinds of Pkgs   Description of Goods", "h", 7)}
       ${["Quantity", "Rate", "Amount"].map((h) => td(h, "h")).join("")}</tr>
-    <tr>${vl(`${marks.prefix} NOS :`)}${td(esc(`${s.pkgs || `${sum(rows, "boxes")} PACKAGES`} CONTAINING`), "l", 7)}
+    <tr class="gd">${vl(`${marks.prefix} NOS :`)}${td(esc(`${s.pkgs || `${sum(rows, "boxes")} PACKAGES`} CONTAINING`), "l", 7)}
       ${td("")}${td("FOB MUMBAI IN US$", "c", 2)}</tr>
-    <tr>${vl(`${marks.start} - ${marks.end}`)}${td(esc(desc2[0]), "l", 7)}${td("", "", 2)}
+    <tr class="gd">${vl(`${marks.start} - ${marks.end}`)}${td(esc(desc2[0]), "l", 7)}${td("")}${td("")}
       ${td(second ? ciUsd(cfUsd) : "", "r")}</tr>
-    <tr>${vl(String(marks.end))}${td(esc(desc2[1]), "l", 7)}${td("", "", 3)}</tr>`;
+    <tr class="gd">${vl(String(marks.end))}${td(esc(desc2[1]), "l", 7)}${td("")}${td("")}${td("")}</tr>`;
 
   const line = (l) => {
-    if (!l) return `<tr class="gd fl">${td("")}${td("", "", 10)}</tr>`;
-    if (l.kind === "head") return `<tr class="gd"><td>&nbsp;</td>${td(esc(l.band.head), "bnd l", 7)}${td("", "", 3)}</tr>`;
+    /* Quantity, Rate and Amount are ruled as their own columns on every line,
+       so the three rules run unbroken from the heading to the total. */
+    const qra = `${td("")}${td("")}${td("")}`;
+    if (!l) return `<tr class="gd fl">${td("")}${td("", "", 7)}${qra}</tr>`;
+    if (l.kind === "head") return `<tr class="gd"><td>&nbsp;</td>${td(esc(l.band.head), "bnd l", 7)}${qra}</tr>`;
     if (l.kind === "cols") {
       const B = l.band;
       const cells = [td("CODE", "hd"), td(esc(B.size), "hd", B.wide ? 2 : 1)];

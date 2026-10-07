@@ -43,6 +43,17 @@ import { B_39 } from "./doc39.js";
 import { B_40 } from "./doc40.js";
 import { buildBalanceReport, despatchSupplierDocs, esc, ewaySupplierDocs, supplierPoDocs } from "./common.js";
 import { downloadDocsExcel, downloadDocsWord, downloadPDF } from "../download.js";
+import { applyColumnsToPart } from "../docColumns.js";
+
+/* The columns Setup → Document columns has hidden or deleted on this paper
+   (lib/docColumns.js), taken out of whatever the builder handed back — so the
+   preview, the PDF, the Excel and every bundle of them agree. `ctx.colRules`
+   is { docNo: { columnKey: "hide" | "delete" } }. */
+function withColumns(no, ctx, out) {
+  const rules = ctx?.colRules?.[String(no)];
+  if (!out || !rules || !Object.keys(rules).length) return out;
+  try { return applyColumnsToPart(out, rules); } catch (e) { return out; }
+}
 
 /* Base filename, no extension — the download helper adds the right one.
    A PO-stage document is stamped with its purchase order, an invoice-stage
@@ -146,12 +157,12 @@ export const SUPPLIER_SPLIT_DOCS = { 6: supplierPoDocs, 10: ewaySupplierDocs, 11
 
 export function supplierSplitDocs(no, ctx) {
   const fn = SUPPLIER_SPLIT_DOCS[String(no)];
-  try { return fn ? fn(ctx) : []; } catch (e) { return []; }
+  try { return fn ? fn(ctx).map((d) => withColumns(no, ctx, d)) : []; } catch (e) { return []; }
 }
 
 function buildOne(no, ctx, report) {
-  if (["36", "37", "38", "39"].includes(no) && report) return buildBalanceReport(no, ctx, report);
-  return B[no] ? B[no](ctx) : null;
+  if (["36", "37", "38", "39"].includes(no) && report) return withColumns(no, ctx, buildBalanceReport(no, ctx, report));
+  return B[no] ? withColumns(no, ctx, B[no](ctx)) : null;
 }
 
 /** One document as [{ name, html, sheet? }] — several entries when it splits
@@ -267,6 +278,7 @@ export function renderDocument(no, ctx, report) {
   try {
     if (["36", "37", "38", "39"].includes(no) && report) out = buildBalanceReport(no, ctx, report);
     else if (B[no]) out = B[no](ctx);
+    out = withColumns(no, ctx, out);
   } catch (e) { return `<div class="sub">Preview unavailable: ${esc(e.message)}</div>`; }
   return out ? out.html : "";
 }
@@ -823,6 +835,9 @@ export const PREVIEW_CSS = `
   .docprev .ebr .fc{text-align:center;}
   .docprev .ebr .fr{text-align:right;}
   /* The declarations at the end are typed in Calibri, as their file types them. */
+  /* Each sheet of it is shown apart, as it comes off the printer. */
+  .docprev .ebrpg + .ebrpg{margin-top:calc(var(--ebrpt, 1.42px) * 36);padding-top:calc(var(--ebrpt, 1.42px) * 24);
+    border-top:1px dashed #999;}
   .docprev .ebr .lh{padding:0;height:auto;border:none;}
   .docprev .ebr .lhbox{position:relative;height:calc(var(--ebrrow) * 8);}
   .docprev .ebr .lhbox img,.docprev .ebr .lhbx{position:absolute;}

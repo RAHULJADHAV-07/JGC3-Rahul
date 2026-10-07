@@ -12,7 +12,7 @@ import {
   useInvoices, useItems, useBuyers, useSuppliers, useTransports, usePoLines,
   useInvoiceMutations, usePoList, useOptions,
 } from "../../api/hooks.js";
-import { useHiddenFields } from "../../lib/columnPrefs.js";
+import { useHiddenFields, useDocColumnRules } from "../../lib/columnPrefs.js";
 import { useToast } from "../../providers/ToastProvider.jsx";
 import { useIsMobile } from "../../lib/useIsMobile.js";
 import { docCtx, poCtx } from "../../lib/docCtx.js";
@@ -129,6 +129,7 @@ export default function DocumentsPage({ group }) {
   const pos = poq.data || [];
   const sequence = useOptions().data?.item_sequence;
   const hidden = useHiddenFields();
+  const colRules = useDocColumnRules();
   /* One supplier's goods, or all of them in the item sequence. Every paper
      on the page — the preview, each download, the stage bundles — follows it. */
   const [supId, setSupId] = useState("");
@@ -188,16 +189,16 @@ export default function DocumentsPage({ group }) {
   const invCtx = useMemo(
     () => (inv ? docCtx({
       invoice: inv, items, buyers, suppliers, poLines, transports, invoices,
-      supplierId: sup, sequence, hidden,
+      supplierId: sup, sequence, hidden, colRules,
     }) : null),
-    [inv, items, buyers, suppliers, poLines, transports, invoices, sup, sequence, hidden],
+    [inv, items, buyers, suppliers, poLines, transports, invoices, sup, sequence, hidden, colRules],
   );
   const orderCtx = useMemo(
     () => (po ? poCtx({
       po: po.po, items, buyers, suppliers, poLines, transports,
-      supplierId: sup, sequence, hidden,
+      supplierId: sup, sequence, hidden, colRules,
     }) : null),
-    [po, items, buyers, suppliers, poLines, transports, sup, sequence, hidden],
+    [po, items, buyers, suppliers, poLines, transports, sup, sequence, hidden, colRules],
   );
   const ctx = poMode ? orderCtx : invCtx;
 
@@ -450,7 +451,7 @@ export default function DocumentsPage({ group }) {
    scrolling; a narrow one — the portrait forms — is shown at its own size,
    centred, as a sheet of paper rather than a page-wide band of white. The box around it takes the
    scaled height, so the page scrolls rather than a box inside it. */
-function FitPaper({ html }) {
+export function FitPaper({ html }) {
   const outer = useRef(null);
   const inner = useRef(null);
   const [fit, setFit] = useState({ scale: 1, height: undefined });

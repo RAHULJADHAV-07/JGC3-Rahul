@@ -555,7 +555,12 @@ const PRINT_CSS = `
   .ebr .fb { font-weight: 700; }
   .ebr .fc { text-align: center; }
   .ebr .fr { text-align: right; }
-  .ebr tr.pb { page-break-before: always; }
+  /* Every sheet is a whole A4 page with the margins their file prints at
+     (0.75in left, 0.5in round the rest), rather than the one inset .jg-doc
+     gives a run the print engine breaks for itself. */
+  .jg-doc:has(.ebrpg) { padding: 0; }
+  .ebrpg { padding: 12.7mm 12.7mm 12.7mm 19mm; page-break-inside: avoid; }
+  .ebrpg + .ebrpg { page-break-before: always; }
   .ebr .lh { padding: 0; border: none !important; }
   .ebr .lhbox { position: relative; height: calc(var(--ebrrow) * 8); }
   .ebr .lhbox img, .ebr .lhbx { position: absolute; }

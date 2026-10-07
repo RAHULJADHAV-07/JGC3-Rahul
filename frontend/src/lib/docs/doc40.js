@@ -60,16 +60,25 @@ export function billRegularisation(ctx) {
     >${imgTag(LOGO_SRC, "lhlogo", place(PKD_PLACE.mark))}</div></td></tr>`;
   /* Rows carry the depth the sheet gives them — their blocks stand on rows
      twice the letter's — so the paper reads the same in all three. */
-  const body = all.filter((r) => !r.lh).map((r) => {
+  const line = (r) => {
     const h = r.h ? ` style="height:calc(var(--ebrpt) * ${r.h})"` : "";
-    // The page ends where the sheet says it ends, not where the paper runs out.
-    const brk = r.brk ? ' class="pb"' : "";
-    return `<tr${brk}${h}>${r.cells.map(([span, v, spec]) => {
+    return `<tr${h}>${r.cells.map(([span, v, spec]) => {
       const cls = ebrClass(spec);
       return `<td${cls ? ` class="${cls}"` : ""}${span > 1 ? ` colspan="${span}"` : ""}>${esc(v) || "&nbsp;"}</td>`;
     }).join("")}</tr>`;
-  }).join("");
-  return `<div class="ebr"><table><colgroup>${colg}</colgroup>${letterhead}${body}</table></div>`;
+  };
+  /* The page ends where the sheet says it ends, not where the paper runs out.
+     Each sheet is cut as its own block, as doc17.js cuts the order's, so every
+     one keeps the whole A4 inset — one table broken by the print engine keeps
+     it only at the head of the first page, which left the declarations flush
+     against the top of the paper. */
+  const sheets = [[]];
+  all.filter((r) => !r.lh).forEach((r) => {
+    if (r.brk) sheets.push([]);
+    sheets[sheets.length - 1].push(r);
+  });
+  return sheets.map((rs, i) => `<div class="ebrpg"><div class="ebr"><table><colgroup>${colg}</colgroup>${
+    i === 0 ? letterhead : ""}${rs.map(line).join("")}</table></div></div>`).join("");
 }
 
 export const B_40 = (ctx) => ({

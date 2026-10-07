@@ -34,6 +34,7 @@ LISTS: dict[str, tuple[str, list[str]]] = {
 
 BANKS_KEY = "banks"
 COLUMNS_KEY = "item_columns"
+DOC_COLUMNS_KEY = "doc_columns"
 SEQUENCE_KEY = "item_sequence"
 
 MAX_ENTRIES = 200
@@ -126,6 +127,32 @@ def get_item_columns(db: Session) -> dict:
 def save_item_columns(db: Session, cols: list[dict] | None) -> dict:
     value = {"cols": cols}
     _save(db, COLUMNS_KEY, value)
+    return value
+
+
+# ---------- the documents' hidden and deleted columns ----------
+
+DOC_COLUMN_MODES = ("hide", "delete")
+
+
+def get_doc_columns(db: Session) -> dict:
+    row = _row(db, DOC_COLUMNS_KEY)
+    return {"rules": list((row.value or {}).get("rules", []))} if row else {"rules": []}
+
+
+def save_doc_columns(db: Session, rules: list[dict]) -> dict:
+    """One rule per document and column; the last one given wins."""
+    kept: dict[tuple[str, str], dict] = {}
+    for r in rules or []:
+        doc = str(r.get("doc") or "").strip()[:8]
+        key = re.sub(r"\s+", " ", str(r.get("key") or "")).strip()[:MAX_TEXT]
+        mode = str(r.get("mode") or "")
+        if not doc or not key or mode not in DOC_COLUMN_MODES:
+            continue
+        label = re.sub(r"\s+", " ", str(r.get("label") or key)).strip()[:MAX_TEXT]
+        kept[(doc, key)] = {"doc": doc, "key": key, "label": label, "mode": mode}
+    value = {"rules": list(kept.values())[:2000]}
+    _save(db, DOC_COLUMNS_KEY, value)
     return value
 
 
