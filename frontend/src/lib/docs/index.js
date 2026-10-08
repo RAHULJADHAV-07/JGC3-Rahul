@@ -42,17 +42,39 @@ import { B_38 } from "./doc38.js";
 import { B_39 } from "./doc39.js";
 import { B_40 } from "./doc40.js";
 import { buildBalanceReport, despatchSupplierDocs, esc, ewaySupplierDocs, supplierPoDocs } from "./common.js";
-import { downloadDocsExcel, downloadDocsWord, downloadPDF } from "../download.js";
-import { applyColumnsToPart } from "../docColumns.js";
+import { GRID_CSS, downloadDocsExcel, downloadDocsWord, downloadPDF } from "../download.js";
+import { applyColumnsToPart, colKey } from "../docColumns.js";
+import { rangeKey } from "../sequence.js";
 
 /* The columns Setup → Document columns has hidden or deleted on this paper
    (lib/docColumns.js), taken out of whatever the builder handed back — so the
    preview, the PDF, the Excel and every bundle of them agree. `ctx.colRules`
    is { docNo: { columnKey: "hide" | "delete" } }. */
 function withColumns(no, ctx, out) {
-  const rules = ctx?.colRules?.[String(no)];
-  if (!out || !rules || !Object.keys(rules).length) return out;
+  const rules = { ...autoColumns(ctx), ...(ctx?.colRules?.[String(no)] || {}) };
+  if (!out || !Object.keys(rules).length) return out;
   try { return applyColumnsToPart(out, rules); } catch (e) { return out; }
+}
+
+/* OSWIN codes belong to Oswin's own range, so the OSWIN CODE column is
+   printed only on a paper that carries Oswin goods — the Oswin supplier's
+   own papers, or the combined ones while Oswin is among the suppliers. Any
+   other supplier's paper leaves the column out altogether, and closes up
+   (lib/docColumns.js), as if Setup → Document columns had deleted it.
+   `ctx.autoColumns === false` turns this off — Setup reads every column a
+   paper can print. */
+const OSWIN_KEY = colKey("OSWIN CODE");
+function carriesOswin(ctx) {
+  const codeOf = (id) => (ctx.SUPPLIERS || []).find((s) => s.id === id)?.code || "";
+  const isOswin = (it, supId) => rangeKey(it || {}, codeOf(supId)) === "Oswin";
+  const lines = (ctx.inv?.lines || []).filter((l) => !ctx.supplierId || l.supplierId === ctx.supplierId);
+  if (lines.some((l) => isOswin((ctx.items || []).find((x) => x.id === l.itemId), l.supplierId))) return true;
+  // The PO-stage papers have no invoice lines: the order book is the paper.
+  return (ctx.buyerMaster || []).some((r) => isOswin(r.item, r.item?.supplierId));
+}
+function autoColumns(ctx) {
+  if (!ctx || ctx.autoColumns === false) return {};
+  return carriesOswin(ctx) ? {} : { [OSWIN_KEY]: "delete" };
 }
 
 /* Base filename, no extension — the download helper adds the right one.
@@ -877,4 +899,4 @@ export const PREVIEW_CSS = `
   .docprev .dl .dlfoot .r{text-align:right;}
   /* The contact strip set open, as the printed sheet sets it. */
   .docprev .dl .dlfoot div+div{margin-top:6px;}
-`;
+${GRID_CSS(".docprev ")}`;

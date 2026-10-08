@@ -129,7 +129,16 @@ export default function SetupPage() {
   const toast = useToast();
   const canItems = has("setup.items");
   const canParties = has("setup.parties");
-  const [tab, setTab] = useState(canItems ? "items" : canParties ? "buyers" : "users");
+  const [tab, setTabNow] = useState(canItems ? "items" : canParties ? "buyers" : "users");
+  /* Document columns holds its changes until Save: leaving the tab with any
+     unsaved asks first (the panel's own dialog — Save, Discard or stay). */
+  const [colsDirty, setColsDirty] = useState(false);
+  const [leaveTo, setLeaveTo] = useState(null);
+  const setTab = (t) => {
+    if (t === tab) return;
+    if (tab === "doccols" && colsDirty) setLeaveTo(t);
+    else setTabNow(t);
+  };
   const options = useOptions().data || {};
   const portOpts = (options.ports_ship_to || []).map((p) => ({ value: p, label: p }));
   const buyerSchema = BUYER_SCHEMA(portOpts);
@@ -172,14 +181,15 @@ export default function SetupPage() {
         ...(canItems ? [["items", `Items · ${itemCount}`, Layers]] : []),
         ...(canParties ? [["buyers", `Buyers · ${buyers.length}`, Globe], ["suppliers", `Suppliers · ${suppliers.length}`, Truck], ["transports", `Transport · ${transports.length}`, Route]] : []),
         ...(isAdmin ? [["users", `Users · ${users.length}`, UsersIcon]] : []),
-        ...((canItems || canParties) ? [["additional", "Additional settings", SlidersHorizontal], ["doccols", "Document columns", Columns3]] : []),
+        ...((canItems || canParties) ? [["doccols", "Document columns", Columns3], ["additional", "Additional settings", SlidersHorizontal]] : []),
       ]} value={tab} onChange={setTab} />
 
       {failed && <Note tone="amber" icon={AlertTriangle}>{failed}</Note>}
 
       {tab === "items" && canItems && <ItemsPanel />}
       {tab === "additional" && (canItems || canParties) && <AdditionalSettingsPanel />}
-      {tab === "doccols" && (canItems || canParties) && <DocColumnsPanel />}
+      {tab === "doccols" && (canItems || canParties) && <DocColumnsPanel onDirty={setColsDirty} leave={leaveTo}
+        onLeave={(go) => { if (go) setTabNow(leaveTo); setLeaveTo(null); }} />}
 
       {/* ---------------- BUYERS ---------------- */}
       {tab === "buyers" && (

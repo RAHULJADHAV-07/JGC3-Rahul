@@ -48,7 +48,7 @@ export function supplierGst(ctx, supId) {
    code 27). A purchase inside the state is taxed half CGST, half SGST; one
    from anywhere else (Oswin, VP — Daman) is all IGST. Read from the state
    Setup → Suppliers holds, or the GSTIN's state code when that is blank. */
-export const HOME_STATE = { name: "maharashtra", code: "27" };
+export const HOME_STATE = { name: "maharashtra", code: "27", label: "Maharashtra" };
 export function intraState(ctx, supId) {
   const s = supFor(ctx, supId);
   const st = String(s.state || "").trim().toLowerCase();
@@ -965,9 +965,9 @@ export function supplierPoBlock(ctx, sid, arr) {
   const gstTotal = heads.reduce((n, h) => n + h.amount, 0);
 
   const items = groups.map((g, gi) => `
-      <tr class="band"><td class="l" colspan="3">${esc(g.head)}</td><td></td><td></td><td></td><td class="c b">${gi === 0 ? "Rs." : ""}</td></tr>
-      ${gi === 0 ? `<tr><th class="l">CODE</th><th class="l">DESCRIPTION</th><th class="l">HSN CODE</th><th></th><th></th><th></th><th></th></tr>` : ""}
-      ${g.rows.map((x) => `<tr>
+      <tr class="band gi"><td class="l" colspan="3">${esc(g.head)}</td><td></td><td></td><td></td><td class="c b">${gi === 0 ? "Rs." : ""}</td></tr>
+      ${gi === 0 ? `<tr class="gi"><th class="l">CODE</th><th class="l">DESCRIPTION</th><th class="l">HSN CODE</th><th></th><th></th><th></th><th></th></tr>` : ""}
+      ${g.rows.map((x) => `<tr class="gi">
         <td>${esc(x.it.code)}</td>
         <td class="desc">${esc(bcDescription(x.it)).replace(/\n/g, "<br>")}</td>
         <td>${esc(hsnText(x.it))}</td>
@@ -994,17 +994,16 @@ export function supplierPoBlock(ctx, sid, arr) {
         <td class="gst c" colspan="4">GSTIN : ${esc(E.gstin)}<br>PAN No: ${esc(E.pan)}</td></tr>
       ${party.map((line, i) => `<tr><td class="party" colspan="3">${esc(line)}</td>
         <td class="lbl c" colspan="4">${i === 1 ? "Shipping Marks" : i === 2 ? esc(marks) : ""}</td></tr>`).join("")}
-      <tr><td class="lbl l" colspan="3">DESCRIPTION OF GOODS.</td>
+      <tr class="gi"><td class="lbl l" colspan="3">DESCRIPTION OF GOODS.</td>
         <th>QUANTITY</th><th>Unit Price.</th><th>Per Unit</th><th>Total Value.</th></tr>
-      <tr class="band"><td class="l" colspan="3">PP &amp; NYLON MOULDED FITTINGS</td>
+      <tr class="band gi"><td class="l" colspan="3">PP &amp; NYLON MOULDED FITTINGS</td>
         <td class="c b">PIECES</td><td class="c b">Rs.</td><td></td><td class="c b u">Ex-Works.</td></tr>
       ${items}
-      <tr><td colspan="6"></td><td></td></tr>
-      <tr><td class="r" colspan="3">TOTAL VALUE….</td><td colspan="3"></td>
+      <tr class="gi"><td class="r" colspan="3">TOTAL VALUE….</td><td colspan="3"></td>
         <td class="r" data-t="inr" data-v="${value}">${wbRupee(value)}</td></tr>
-      ${heads.map((h) => `<tr><td class="u" colspan="3">ADD : ${h.name} @ ${pctText(h.rate)}</td><td colspan="3"></td>
+      ${heads.map((h) => `<tr class="gi"><td class="u" colspan="3">ADD : ${h.name} @ ${pctText(h.rate)}</td><td colspan="3"></td>
         <td class="r" data-t="inr" data-v="${h.amount}">${wbRupee(h.amount)}</td></tr>`).join("")}
-      <tr><td class="r" colspan="3">TOTAL  NETT VALUE…………………</td><td colspan="3"></td>
+      <tr class="gi"><td class="r" colspan="3">TOTAL  NETT VALUE…………………</td><td colspan="3"></td>
         <td class="r bx" data-t="inr" data-v="${value + gstTotal}">${wbRupee(value + gstTotal)}</td></tr>
       <tr><td class="lbl">Delivery</td><td class="lbl" colspan="2"></td>
         <td class="lbl">Documents:</td><td colspan="3">1. Invoice</td></tr>
@@ -1879,11 +1878,11 @@ export function familyOf(it) {
   return "ppm";
 }
 
-/* The families that carry a length. The moulded fittings — PLASTIC (PP) and
-   PLASTIC (PA) — print none even where the master holds one (a riser's 300),
-   as the client's own packing list leaves that column out for them; the
-   cartons give the column to their three dimensions. */
-export const LEN_FAMILIES = ["mxm", "mxf"];
+/* The families that carry a length column. None does: the client's papers
+   leave LEN out for every range — the PP pipes as well as the moulded
+   fittings, though the master holds a length for them — and give its width
+   to the size. (The cartons give the column to their three dimensions.) */
+export const LEN_FAMILIES = [];
 
 /* Goods that travel in bundles rather than cartons (Setup → Items →
    Packaging). Their packing list says so beside the length — "1800 (BUNDLES)"
@@ -3017,10 +3016,26 @@ export const CHA_AGENT = ["M/s. Velji Dosabhai & Sons P Ltd,",
    on every letter but for the carting date. That is the carting date entered
    on record packing or the shipment details; an invoice without one is dated
    with its own date, which is what this letter carried before the field existed. */
+/* Where the goods on this invoice were made, as their letter words it: a
+   factory outside Maharashtra by its town ("Daman", "Vapi"), one inside it by
+   the state, last — "Daman, Vapi & Maharashtra". */
+export function madeIn(ctx) {
+  const out = [];
+  let home = false;
+  [...new Set(L(ctx).map((r) => r.supId))].forEach((id) => {
+    if (intraState(ctx, id)) { home = true; return; }
+    const s = supFor(ctx, id);
+    const where = String(s.place || s.state || "").trim();
+    if (where && !out.some((x) => x.toLowerCase() === where.toLowerCase())) out.push(where);
+  });
+  if (home) out.push(HOME_STATE.label);
+  return out.length < 2 ? out.join("") : `${out.slice(0, -1).join(", ")} & ${out.at(-1)}`;
+}
+
 export const CHA_NOTES = (ctx) => [
   "1. This is a nominated 1 x 20' FCL shipment",
   "2. Freight Payable at Destination",
-  "3. Goods manufactured in Daman, Vapi & Maharashtra",
+  `3. Goods manufactured in ${madeIn(ctx) || "Maharashtra"}`,
   `4. Goods will be carted on ${ddmm(ctx.inv.ship?.cartingDate || ctx.inv.date)}`,
   "5. Suppliers Details to be shown in S/Bill.",
   "6. FUMIGATION NOT REQUIRED.",
@@ -3476,8 +3491,15 @@ export function siStyle(spec) {
 export const siClass = (spec) => chaClass(spec);
 
 /* Their four columns, in the width units their own sheet states. It is set in
-   Arial 10, as the packing declaration is, so it takes that same correction. */
-export const SI_BASE = [20.4, 35.84, 32.41, 15.27];
+   Arial 10, as the packing declaration is, so it takes that same correction.
+
+   The cargo description's two columns are each split for the HS code table
+   under it — HS CODE and DESCRIPTION across the first, PACKAGES, GROSS WEIGHT
+   and TOTAL CBM across the second — so the form is laid on seven columns
+   whose outer edges are their four's. `SI_SPLIT` is how many of the seven
+   each of their four became. */
+export const SI_BASE = [20.4, 8.6, 27.24, 9.4, 11.6, 11.41, 15.27];
+export const SI_SPLIT = [1, 2, 3, 1];
 
 export const SI_W = SI_BASE.map((w) => Math.round(w * PKD_SCALE * 1e6) / 1e6);
 
@@ -3526,6 +3548,40 @@ export function siCargo(ctx, rows) {
   ].filter((l, i, a) => l !== "" || a[i + 1]).join("\n");
 }
 
+/* The goods by HS code, as the table under the cargo description lists
+   them: what they are, how many packages, their gross weight and volume. */
+export function siHsnTable(rows) {
+  const byHsn = new Map();
+  rows.forEach((r) => {
+    const k = String(r.it.hsn || "").replace(/\D/g, "") || "—";
+    if (!byHsn.has(k)) byHsn.set(k, []);
+    byHsn.get(k).push(r);
+  });
+  const what = (hsn, arr) => {
+    if (hsn.startsWith("4821")) return "Printed Paper Labels";
+    const has = (...f) => arr.some((r) => f.includes(familyOf(r.it)));
+    if (hsn.startsWith("4819") || (has("box") && !has("mxm", "mxf", "ppm", "grn"))) return "Corrugated Boxes";
+    const moulded = [has("ppm") && "(PP)", has("grn") && "(PA)"].filter(Boolean).join(" & ");
+    return [has("mxm", "mxf") && "Plastic (PP) Extruded Pipes", moulded && `Plastic ${moulded} Moulded Fittings`]
+      .filter(Boolean).join(" & ") || "Goods";
+  };
+  return [...byHsn].map(([hsn, arr]) => ({
+    hsn, what: what(hsn, arr),
+    packages: sum(arr, "boxes"), gross: sum(arr, "grossTotal"), cbm: sum(arr, "volTotal"),
+  }));
+}
+
+/* Their four columns' spans, onto the seven the form is laid on. */
+function siSpread(cells) {
+  let at = 0;
+  return cells.map(([span, ...rest]) => {
+    let n = 0;
+    for (let c = at; c < at + span; c++) n += SI_SPLIT[c];
+    at += span;
+    return [n, ...rest];
+  });
+}
+
 export function si26Rows(ctx) {
   const E = ctx.EXPORTER, b = ctx.buyer, s = ctx.inv.ship || {};
   const rows = L(ctx);
@@ -3536,10 +3592,27 @@ export function si26Rows(ctx) {
   const kg = (v, k) => Number(v || sum(rows, k) || 0).toFixed(3);
   const vol = sum(rows, "volTotal");
   const packages = String(sum(rows, "boxes"));
-  // The eight blank lines their form leaves between the terms and the footer.
-  const filler = Array.from({ length: 8 }, () => R([1, "", "lr g"], [2, "", "lr g"], [1, "", "lr c g"]));
+  /* The HS code table, between the description and the line's terms — its
+     header, a line per HS code and the grand total, then a blank line. It
+     takes its depth out of the blank lines below the terms, so the form
+     keeps its length while it can. */
+  const hs = siHsnTable(rows);
+  const side = (cells, h) => ({ cells: [[1, "", "lr g"], ...cells, [1, "", "lr c g"]], ...(h ? { h } : {}), wide: true });
+  const table = [
+    side([[1, "HS CODE", "lrtb b c g w"], [1, "DESCRIPTION", "lrtb b c g w"], [1, "PACKAGES", "lrtb b c g w"],
+      [1, "GROSS WEIGHT", "lrtb b c g w"], [1, "TOTAL CBM", "lrtb b c g w"]], 25.5),
+    ...hs.map((x) => side([[1, x.hsn, "lrtb c"], [1, x.what, "lrtb c"], [1, String(x.packages), "lrtb c"],
+      [1, x.gross.toFixed(3), "lrtb c"], [1, x.cbm.toFixed(2), "lrtb c"]])),
+    side([[2, "Grand Total", "lrtb b c"], [1, String(sum(hs, "packages")), "lrtb b c"],
+      [1, sum(hs, "gross").toFixed(3), "lrtb b c"], [1, sum(hs, "cbm").toFixed(2), "lrtb b c"]]),
+    side([[5, "", "lr"]]),
+  ];
 
-  return [
+  // The eight blank lines their form leaves between the terms and the footer.
+  const filler = Array.from({ length: Math.max(0, 8 - table.length) },
+    () => R([1, "", "lr g"], [2, "", "lr g"], [1, "", "lr c g"]));
+
+  const form = [
     R([2, "SHIPPER (MAX 5 LINES)", "lrt b g"], [2, "BOOKING NO :", "lrt b g"]),
     /* The line's own booking number, as entered on record packing or the
        shipment details — blank until it is, for whoever books the space. */
@@ -3571,6 +3644,7 @@ export function si26Rows(ctx) {
     R([1, "A/SEAL NO : ", "lr b g"], [2, "", CHA_HELD], [1, "KGS", "lr b c g"]),
     R([1, s.seal || "", "lr"], [2, "", CHA_HELD], [1, "", "lr c g"]),
     R([1, "", "lr g"], [2, "", "lr"], [1, "", "lr c g"]),
+    "table",
     R([1, "", "lr g"], [2, SI_TERMS[0], "lr"], [1, "", "lrb c g"]),
     R([1, "", "lr g"], [2, SI_TERMS[1], "lr"], [1, "FCL / FCL", "lrt b c g"]),
     R([1, "", "lr g"], [2, SI_TERMS[2], "lr"], [1, `${num(vol, 2)} cubic Mtr`, "lrt c"]),
@@ -3581,6 +3655,8 @@ export function si26Rows(ctx) {
     R([1, packages, "lr c"], [2, "", "lr g"], [1, "COLLECT", "lr c g"]),
     R([1, "", "lrb g"], [2, "", "lrb g"], [1, "", "lrb g"]),
   ];
+  return form.flatMap((r) => (r === "table" ? table : [{ ...r, cells: siSpread(r.cells) }]))
+    .map(({ wide, ...r }) => r);
 }
 
 /* ============================================================================
@@ -3862,11 +3938,11 @@ export function cs28Rows(ctx, sp, arr) {
       [2, "Quantity used", "lrt g"], [2, "Value of material", "lrt g"]),
     R([1, "", "lr g"], [2, "Used", "lr g"], [1, "Origin", "lr g"], [1, "Code", "lr g"],
       [2, "& Date", "lr g"], [1, "", "lr g"], [2, "in the Finished", "lr g"], [2, "used in the", "lr g"]),
-    R([1, "", "lrb g"], [2, "", "lrb g"], [1, "", "lrb g"], [1, "", "lrb g"], [2, "", "lb g"],
+    R([1, "", "lrb g"], [2, "", "lrb g"], [1, "", "lrb g"], [1, "", "lrb g"], [2, "", "lrb g"],
       [1, "", "lrb g"], [2, "Product", "lrb g"], [2, "Finished Product", "lrb g"]),
   ];
-  const blank = () => R([1, "", "lrtb g"], [2, "", "ltb g"], [1, "", "lrtb g"], [1, "", "lrtb g"],
-    [2, "", "ltb g"], [1, "", "lrtb g"], [2, "", "ltb g"], [2, "", "ltb g"]);
+  const blank = () => R([1, "", "lrtb g"], [2, "", "lrtb g"], [1, "", "lrtb g"], [1, "", "lrtb g"],
+    [2, "", "lrtb g"], [1, "", "lrtb g"], [2, "", "lrtb g"], [2, "", "lrtb g"]);
 
   return [
     ...Array.from({ length: CS_HEAD }, () => ({ cells: [[12, "", "- g"]], h: 15, lh: 1 })),
@@ -3888,7 +3964,7 @@ export function cs28Rows(ctx, sp, arr) {
     R([12, "", "- g"]),
     ...head(),
     blank(),
-    R([1, "", "lrtb g"], [11, "NOT APPLICABLE", "ltb c g"]),
+    R([1, "", "lrtb g"], [11, "NOT APPLICABLE", "lrtb c g"]),
     blank(),
     R([12, "", "t g"]),
     R([8, "", "- g"], [2, "TOTAL", "- g"], [2, "", "b g"]),
@@ -3899,9 +3975,9 @@ export function cs28Rows(ctx, sp, arr) {
     /* The factory's own invoice for the material is not recorded here, so the
        column it is entered in is ruled and left, as the weighbridge's ticket is
        on the gross-mass declaration. */
-    R([1, "1", "lrtb c g"], [2, CS_MATERIAL.name, "ltb g"], [1, CS_MATERIAL.origin, "lrtb g"],
-      [1, CS_MATERIAL.hs, "lrtb c g"], [2, "", "ltb"], [1, CS_MATERIAL.unit, "lrtb g"],
-      [2, "100%", "ltb c g"], [2, money(c.purchase), "ltb l"]),
+    R([1, "1", "lrtb c g"], [2, CS_MATERIAL.name, "lrtb g"], [1, CS_MATERIAL.origin, "lrtb g"],
+      [1, CS_MATERIAL.hs, "lrtb c g"], [2, "", "lrtb"], [1, CS_MATERIAL.unit, "lrtb g"],
+      [2, "100%", "lrtb c g"], [2, money(c.purchase), "lrtb l"]),
     blank(),
     blank(),
     R([12, "", "t g"]),

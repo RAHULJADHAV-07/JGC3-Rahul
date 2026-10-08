@@ -181,9 +181,9 @@ export function customsInvoiceSheets(ctx) {
     if (line.kind === "cols") {
       const B = line.band;
       const cells = [[1, { v: "", s: G.colA }], [1, { v: "CODE", s: G.cols }],
-        [B.wide ? 2 : 1, { v: B.size, s: G.cols }]];
+        [B.len ? 1 : 2, { v: B.size, s: G.cols }]];
+      // No length, and the size takes its column — no blank column between.
       if (B.len) cells.push([1, { v: "LEN (MM)", s: G.cols }]);
-      else if (!B.wide) cells.push([1, { v: "", s: G.fill }]);
       cells.push([1, { v: "PIECES", s: G.cols }], [1, { v: B.rate, s: G.cols }], ...blank(5, G.fill));
       row(cells);
       return;
@@ -192,9 +192,8 @@ export function customsInvoiceSheets(ctx) {
     const rate = band.per100 ? r.fobPc * 100 : r.fobPc;
     const gst = gstFor(ctx, r.it, r.supId);
     const cells = [[1, { v: "", s: G.colA }], [1, numOrText(r.it.code, G.code)],
-      [band.wide ? 2 : 1, { v: r.it.size || "", s: G.ctr }]];
+      [band.len ? 1 : 2, { v: r.it.size || "", s: G.ctr }]];
     if (band.len) cells.push([1, { v: r.it.length || "", s: G.ctr }]);
-    else if (!band.wide) cells.push([1, { v: "", s: G.ctr }]);
     cells.push(
       [1, { v: r.pieces, t: "n", s: G.num }],
       [1, { v: rate, t: "n", s: G.usd }],
@@ -551,18 +550,16 @@ export function customsInvoiceHtml(ctx) {
     if (l.kind === "head") return `<tr class="gd"><td>&nbsp;</td>${td(esc(l.band.head), "bnd l", 6)}${td("", "", 4)}</tr>`;
     if (l.kind === "cols") {
       const B = l.band;
-      const cells = [td("CODE", "hd"), td(esc(B.size), "hd", B.wide ? 2 : 1)];
+      const cells = [td("CODE", "hd"), td(esc(B.size), "hd", B.len ? 1 : 2)];
       if (B.len) cells.push(td("LEN (MM)", "hd"));
-      else if (!B.wide) cells.push(td(""));
       cells.push(td("PIECES", "hd"), td(esc(B.rate), "hd"), td("", "", 5));
       return `<tr class="gd"><td>&nbsp;</td>${cells.join("")}</tr>`;
     }
     const { band, r } = l;
     const rate = band.per100 ? r.fobPc * 100 : r.fobPc;
     const g = gstFor(ctx, r.it, r.supId), tax = r.fobTotal * ex;
-    const cells = [td(esc(r.it.code), "c"), td(esc(r.it.size), "c", band.wide ? 2 : 1)];
+    const cells = [td(esc(r.it.code), "c"), td(esc(r.it.size), "c", band.len ? 1 : 2)];
     if (band.len) cells.push(td(esc(r.it.length), "c"));
-    else if (!band.wide) cells.push(td(""));
     /* Where each figure sits in its column is the cell's own setting on their
        sheet: the quantity, the rate per piece and the GST rate centred, the
        money ranged right against the rule. */

@@ -6,7 +6,7 @@ import { CHA_HELD, SI_W, esc, fitSheet, formGrid, si26Rows, siClass, siStyle } f
 
 export function si26Sheet(ctx, name) {
   const rows = si26Rows(ctx);
-  const G = formGrid(4);
+  const G = formGrid(SI_W.length);
   rows.forEach((r) => G.row(
     r.cells.map(([span, v, spec, down = 0]) => [span, { v, s: siStyle(spec) }, down]), r.h,
   ));

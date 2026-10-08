@@ -17,7 +17,8 @@ export function proformaBands(ctx) {
       head,
       rows,
       boxes: k === "box",
-      lengths: rows.some((r) => String(r.it.length || "").trim()),
+      // No range prints a length (LEN_FAMILIES): the size takes its column.
+      lengths: false,
       per: commonOf(rows, (r) => fobModeOf(r.it)) === "piece" ? "Per Piece" : "Per 100 Pieces",
     };
   });

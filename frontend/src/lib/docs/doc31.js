@@ -164,11 +164,11 @@ export function commercialInvoiceSheets(ctx) {
     if (line.kind === "cols") {
       const B = line.band;
       const cells = [[1, { v: "", s: G.colA }], [1, { v: "CODE", s: G.cols }],
-        [B.wide ? 2 : 1, { v: B.size, s: G.cols }]];
-      if (B.len) cells.push([1, { v: "LEN (MM)", s: G.cols }]);
-      else if (!B.wide) cells.push([1, { v: "", s: G.fill }]);
-      // The columns the rupee half took on the customs copy run on blank here.
-      cells.push(...blank(4, G.fill), [1, { v: "PIECES", s: G.cols }],
+        [B.len ? 1 : 6, { v: B.size, s: G.cols }]];
+      /* No length, and the size takes its column and the four the rupee half
+         takes on the customs copy — no blank columns between. */
+      if (B.len) cells.push([5, { v: "LEN (MM)", s: G.cols }]);
+      cells.push([1, { v: "PIECES", s: G.cols }],
         [1, { v: B.rate, s: G.cols }], [1, { v: "", s: G.fill }]);
       row(cells);
       return;
@@ -176,10 +176,9 @@ export function commercialInvoiceSheets(ctx) {
     const { band, r } = line;
     const rate = band.per100 ? r.fobPc * 100 : r.fobPc;
     const cells = [[1, { v: "", s: G.colA }], [1, numOrText(r.it.code, G.code)],
-      [band.wide ? 2 : 1, { v: r.it.size || "", s: G.ctr }]];
-    if (band.len) cells.push([1, { v: r.it.length || "", s: G.ctr }]);
-    else if (!band.wide) cells.push([1, { v: "", s: G.ctr }]);
-    cells.push(...blank(4, G.ctr),
+      [band.len ? 1 : 6, { v: r.it.size || "", s: G.ctr }]];
+    if (band.len) cells.push([5, { v: r.it.length || "", s: G.ctr }]);
+    cells.push(
       [1, { v: r.pieces, t: "n", s: G.num }],
       [1, { v: rate, t: "n", s: G.usd }],
       [1, { f: `I${at}*J${at}${band.per100 ? "/100" : ""}`, s: G.usdL }]);
@@ -369,19 +368,18 @@ export function commercialInvoiceHtml(ctx) {
     if (l.kind === "head") return `<tr class="gd"><td>&nbsp;</td>${td(esc(l.band.head), "bnd l", 7)}${qra}</tr>`;
     if (l.kind === "cols") {
       const B = l.band;
-      const cells = [td("CODE", "hd"), td(esc(B.size), "hd", B.wide ? 2 : 1)];
-      if (B.len) cells.push(td("LEN (MM)", "hd"));
-      else if (!B.wide) cells.push(td(""));
-      // The columns the rupee half took on the customs copy run on blank here.
-      cells.push(td("", "", 4), td("PIECES", "hd"), td(esc(B.rate), "hd"), td(""));
+      /* No length, and the size takes its column and the four the rupee half
+         takes on the customs copy — no blank columns between. */
+      const cells = [td("CODE", "hd"), td(esc(B.size), "hd", B.len ? 1 : 6)];
+      if (B.len) cells.push(td("LEN (MM)", "hd", 5));
+      cells.push(td("PIECES", "hd"), td(esc(B.rate), "hd"), td(""));
       return `<tr class="gd"><td>&nbsp;</td>${cells.join("")}</tr>`;
     }
     const { band, r } = l;
     const rate = band.per100 ? r.fobPc * 100 : r.fobPc;
-    const cells = [td(esc(r.it.code), "c"), td(esc(r.it.size), "c", band.wide ? 2 : 1)];
-    if (band.len) cells.push(td(esc(r.it.length), "c"));
-    else if (!band.wide) cells.push(td(""));
-    cells.push(td("", "", 4),
+    const cells = [td(esc(r.it.code), "c"), td(esc(r.it.size), "c", band.len ? 1 : 6)];
+    if (band.len) cells.push(td(esc(r.it.length), "c", 5));
+    cells.push(
       `<td class="c" data-t="int" data-v="${r.pieces}">${ciInt(r.pieces)}</td>`,
       `<td class="c" data-t="usd" data-v="${rate}">${ciUsd(rate)}</td>`,
       `<td class="r" data-t="usd" data-v="${r.fobTotal}">${ciUsd(r.fobTotal)}</td>`);

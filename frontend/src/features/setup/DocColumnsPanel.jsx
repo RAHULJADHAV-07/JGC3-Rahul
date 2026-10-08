@@ -26,7 +26,10 @@ import { FitPaper } from "../documents/DocumentsPage.jsx";
    Picking Hide or Delete for a column offers to do the same wherever else the
    library prints a column of that name — "LEN (MM)" on the invoice is
    "LENGTH" on the packing sheet — the same name ticked, a similar one left for
-   the client to decide. Nothing is saved until Save. */
+   the client to decide. Nothing is saved until Save: the moment anything is
+   changed a pop-up stands at the foot of the screen with Save in it, and
+   leaving the tab (or the page) with changes unsaved asks first. Each paper
+   can be reset to print every column again. */
 
 const DOCS = [...new Set(DOC_GROUPS.flatMap((g) => g.docs))];
 
@@ -56,7 +59,10 @@ function ModePick({ value, onChange }) {
   );
 }
 
-export default function DocColumnsPanel() {
+/* `leave` is a tab Setup wants to switch to while this panel is open;
+   `onLeave(true)` lets it go, `onLeave(false)` keeps the panel. `onDirty`
+   tells Setup whether there is anything unsaved. */
+export default function DocColumnsPanel({ leave = null, onLeave = () => {}, onDirty = () => {} }) {
   const toast = useToast();
   const mobile = useIsMobile();
 
@@ -92,7 +98,7 @@ export default function DocColumnsPanel() {
       const out = {};
       DOCS.forEach((no) => {
         const ctx = isPoDoc(no) ? orderCtx : invCtx;
-        try { out[no] = ctx ? discoverColumns(renderDocument(no, ctx)) : []; } catch (e) { out[no] = []; }
+        try { out[no] = ctx ? discoverColumns(renderDocument(no, { ...ctx, autoColumns: false })) : []; } catch (e) { out[no] = []; }
       });
       setCatalog(out);
     }, 0);
@@ -112,6 +118,16 @@ export default function DocColumnsPanel() {
     for (const [k, r] of draft) if (a.get(k)?.mode !== r.mode) return true;
     return false;
   }, [draft, saved.data]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => { onDirty(dirty); }, [dirty]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => onDirty(false), []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Closing or reloading the page with changes unsaved asks first.
+  useEffect(() => {
+    if (!dirty) return undefined;
+    const h = (e) => { e.preventDefault(); e.returnValue = ""; };
+    window.addEventListener("beforeunload", h);
+    return () => window.removeEventListener("beforeunload", h);
+  }, [dirty]);
 
   const modeOf = (doc, key) => draft?.get(id(doc, key))?.mode || "show";
   const countOf = (doc) => (draft ? [...draft.values()].filter((r) => r.doc === doc).length : 0);
@@ -187,13 +203,22 @@ export default function DocColumnsPanel() {
     return ctx ? renderDocument(open, { ...ctx, colRules: draftRules }) : "";
   }, [preview, open, draftRules, invCtx, orderCtx]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const commit = () => save.mutate([...draft.values()], {
+  const commit = (then) => save.mutate([...draft.values()], {
     onSuccess: (data) => {
       setDraft(new Map((data.rules || []).map((r) => [id(r.doc, r.key), r])));
       toast("Document columns saved — every preview and download now follows them");
+      if (typeof then === "function") then();
     },
     onError: (e) => toast(e.message || "Could not save the document columns"),
   });
+
+  /* Reset — a paper back to printing every column. Like any change it waits
+     for Save. */
+  const [resetting, setResetting] = useState(null); // doc no, or "all"
+  const resetDoc = (no) => {
+    setModes([...draft.values()].filter((r) => no === "all" || r.doc === no).map((r) => ({ ...r, mode: "show" })));
+    setResetting(null);
+  };
 
   if (saved.isLoading || !draft || !ready) return <Spinner label="Reading the documents…" />;
   if (!invCtx && !orderCtx) {
@@ -212,7 +237,7 @@ export default function DocColumnsPanel() {
     : (invCtx ? `invoice ${invoices[0].invoice_no}` : null));
 
   return (
-    <div className="stack">
+    <div className="stack" style={{ paddingBottom: dirty ? 80 : 0 }}>
       <Note tone="teal" icon={Columns3}>
         Choose, document by document, which columns print.{" "}
         <b>Hide</b> leaves the column off the preview and the PDF and hides it in the Excel (still in the
@@ -227,6 +252,7 @@ export default function DocColumnsPanel() {
         <Card>
           <CardHead icon={FileText} title="Documents">
             {total > 0 && <Pill tone="amber">{total} column{total === 1 ? "" : "s"} changed</Pill>}
+            {total > 0 && <Btn size="sm" variant="ghost" icon={RotateCcw} onClick={() => setResetting("all")}>Reset all</Btn>}
           </CardHead>
           <div style={{ padding: "10px 12px 4px" }}>
             <SearchInput value={q} onChange={setQ} placeholder="Find a document…" />
@@ -257,12 +283,11 @@ export default function DocColumnsPanel() {
         <Card>
           <CardHead icon={Columns3} title={`${open} · ${DOC_META[open] || ""}`}>
             <Btn size="sm" variant="ghost" icon={Eye} onClick={() => setPreview(true)} disabled={!ctxFor(open)}>Preview</Btn>
-            {countOf(open) > 0 && (
-              <Btn size="sm" variant="ghost" icon={RotateCcw}
-                onClick={() => setModes([...draft.values()].filter((r) => r.doc === open).map((r) => ({ ...r, mode: "show" })))}>
-                Show all
-              </Btn>
-            )}
+            <Btn size="sm" variant="ghost" icon={RotateCcw} disabled={!countOf(open)}
+              title={countOf(open) ? "Print every column of this document again" : "Every column of this document already prints"}
+              onClick={() => setResetting(open)}>
+              Reset document
+            </Btn>
           </CardHead>
           {!catalog ? <Spinner label="Reading the documents…" /> : (
             <div>
@@ -311,16 +336,58 @@ export default function DocColumnsPanel() {
         </Card>
       </div>
 
-      {/* ---------- save ---------- */}
-      <div className="row wrap" style={{ gap: 10, justifyContent: "flex-end", alignItems: "center" }}>
-        {dirty && (
-          <span className="row" style={{ gap: 6, fontSize: 12.5, color: "var(--amber-ink)" }}>
-            <AlertTriangle size={14} /> Unsaved changes
+      {/* ---------- unsaved changes: a pop-up with Save in it ---------- */}
+      {dirty && !leave && (
+        <div role="status" style={{
+          position: "fixed", zIndex: 60, bottom: 16, left: mobile ? 16 : "50%", right: mobile ? 16 : "auto",
+          transform: mobile ? "none" : "translateX(-50%)", maxWidth: mobile ? "none" : 640,
+          display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10, padding: "12px 14px",
+          background: "var(--surface)", color: "var(--ink)", border: "1px solid var(--amber)",
+          borderRadius: 12, boxShadow: "0 10px 30px rgba(0,0,0,.28)",
+        }}>
+          <span className="row" style={{ gap: 8, flex: "1 1 220px", fontSize: 13 }}>
+            <AlertTriangle size={16} style={{ color: "var(--amber-ink)", flexShrink: 0 }} />
+            <span><b>Please save your changes.</b> {draft.size} column rule{draft.size === 1 ? "" : "s"} not saved yet — the documents still print as before.</span>
           </span>
-        )}
-        <Btn variant="ghost" icon={RotateCcw} disabled={!dirty || save.isPending} onClick={() => setDraft(fromSaved())}>Discard</Btn>
-        <Btn icon={Save} disabled={!dirty || save.isPending} onClick={commit}>{save.isPending ? "Saving…" : "Save"}</Btn>
-      </div>
+          <Btn size="sm" variant="ghost" icon={RotateCcw} disabled={save.isPending} onClick={() => setDraft(fromSaved())}>Discard</Btn>
+          <Btn size="sm" icon={Save} disabled={save.isPending} onClick={commit}>{save.isPending ? "Saving…" : "Save changes"}</Btn>
+        </div>
+      )}
+
+      {/* ---------- leaving with changes unsaved ---------- */}
+      {leave && (
+        <Modal size="sm" title="Save unsaved changes?" icon={AlertTriangle} onClose={() => onLeave(false)}
+          footer={<>
+            <Btn variant="ghost" onClick={() => onLeave(false)}>Keep editing</Btn>
+            <Btn variant="ghost" icon={RotateCcw} disabled={save.isPending}
+              onClick={() => { setDraft(fromSaved()); onLeave(true); }}>Discard</Btn>
+            <Btn icon={Save} disabled={save.isPending} onClick={() => commit(() => onLeave(true))}>
+              {save.isPending ? "Saving…" : "Save"}
+            </Btn>
+          </>}>
+          <div style={{ fontSize: 13 }}>
+            The column changes you made here are not saved yet. Save them so every preview and download
+            follows them, or discard them.
+          </div>
+        </Modal>
+      )}
+
+      {/* ---------- reset ---------- */}
+      {resetting && (
+        <Modal size="sm" title={resetting === "all" ? "Reset every document?" : `Reset document ${resetting}?`}
+          icon={RotateCcw} onClose={() => setResetting(null)}
+          footer={<>
+            <Btn variant="ghost" onClick={() => setResetting(null)}>Cancel</Btn>
+            <Btn icon={RotateCcw} onClick={() => resetDoc(resetting)}>Reset</Btn>
+          </>}>
+          <div style={{ fontSize: 13 }}>
+            {resetting === "all"
+              ? "Every document goes back to printing all its columns."
+              : <>{DOC_META[resetting]} goes back to printing all its columns ({countOf(resetting)} hidden or deleted now).</>}
+            {" "}Nothing changes on the papers until you save.
+          </div>
+        </Modal>
+      )}
 
       {/* ---------- "also in other documents" ---------- */}
       {suggest && (

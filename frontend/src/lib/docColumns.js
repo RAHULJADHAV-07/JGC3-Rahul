@@ -34,9 +34,9 @@
      · Nothing above a table's first header band is ever lost: a column that
        carries anything there (a form's own head — the consignee, the ports) is
        blanked under its heading rather than taken out.
-     · A plain grid loses the column outright. A ruled form (one with its own
-       column widths) keeps the column at no width instead, so the frame lines
-       its cells draw stay where they are. */
+     · The column then goes outright, so the paper closes up — no empty
+       strip where it was. A ruled form (one with its own column widths)
+       shares the column's width out over the columns it keeps. */
 
 /* ---------- naming a column ---------- */
 
@@ -82,12 +82,13 @@ const cellText = (el) => String(el.textContent || "").replace(/\s+/g, " ").trim(
 
 /* What marks a heading, across the library's three ways of printing one:
    a <th> (the workbook-style grids); a heading cell or a heading row on the
-   invoice-style forms (`h` / `hd` on a ruled `ci` table, `tr.hc` on the
-   packing list, `tr.hd` on the e-way bill's goods); and a row of bold boxed
+   invoice-style forms (`h` / `hd` on a ruled `ci` table, `tr.hc` and
+   `colh` on the packing list, `tr.hd` on the e-way bill's goods); and a row of bold boxed
    cells on the typed forms (the suppliers' details, the e-way bill). */
 const BOXED = ["el", "er", "et", "eb"];
 function isHead(el, tr, table) {
-  if (el.tagName === "TH") return true;
+  // `colh` marks a heading a form draws as a plain cell (the packing list's).
+  if (el.tagName === "TH" || el.classList.contains("colh")) return true;
   const ci = table.classList.contains("ci");
   if (ci && (el.classList.contains("h") || el.classList.contains("hd"))) return true;
   if (tr.classList.contains("hc") || (tr.classList.contains("hd") && !ci)) return true;
@@ -178,8 +179,46 @@ function columnsOf(grid) {
          sub-heading row) heads no column. */
       if (inBand.filter((p) => p.r0 < h.r0 && overlaps(p, h) && !within(p, h)).length >= 2) return;
       const parts = [...up.map((p) => p.text), h.text];
-      leaves.push({ key: keyOf(parts), label: labelOf(parts), c0: h.c0, c1: h.c1, band, cell: h });
+      leaves.push({ key: keyOf(parts), label: labelOf(parts), c0: h.c0, c1: h.c1, band, cell: h, end: band.end });
     });
+  });
+
+  /* How far down a heading reaches. A heading of the table's own header row
+     rules everything under it — the sub-headings printed inside its width
+     further down (CODE / SIZE / LEN under "Description of Goods" on the
+     invoice, PIECES under "Quantity") and their goods — until a heading
+     further down straddles its edge, or the table's headings are printed over
+     again. A sub-heading rules its own group only: "Qty/Pkg-Pcs" over the
+     pipes is not "Qty/Ctn-Pcs" over the fittings, though they share the
+     column. */
+  const tops = leaves.filter((l) => l.band === bands[0]);
+  const top = new Set(tops.map((l) => l.key));
+  /* A later header row is a sub-heading row only when each of its headings
+     sits inside one heading of the table's own header row; one that does not
+     (the e-way bill's "3. Goods Details" under its "From" / "To") starts a
+     new section, and no heading above reaches past it. */
+  const nested = bands.map((b) => leaves.filter((x) => x.band === b)
+    .every((x) => tops.some((t) => x.c0 >= t.c0 && x.c1 <= t.c1)));
+  leaves.forEach((l) => {
+    if (l.band !== bands[0]) return;
+    for (let i = 1; i < bands.length; i++) {
+      if (!nested[i]) break;
+      const stop = leaves.some((x) => {
+        if (x.band !== bands[i] || x.c1 < l.c0 || x.c0 > l.c1) return false;
+        if (x.c0 < l.c0 || x.c1 > l.c1) return true;   // straddles its edge
+        return top.has(x.key);                          // the headings again
+      });
+      if (stop) break;
+      l.end = bands[i].end;
+    }
+  });
+  /* …and nothing reaches past a section title across the whole table ("3.
+     Goods Details" on the e-way bill). */
+  const titles = grid.cells.filter((x) => !x.head && x.text && x.c0 === 0 && x.c1 >= grid.cols - 1)
+    .map((x) => x.r0);
+  leaves.forEach((l) => {
+    const t = titles.filter((r) => r > l.band.r1 && r <= l.end);
+    if (t.length) l.end = Math.min(...t) - 1;
   });
   return { leaves, firstBand: bands[0].r0 };
 }
@@ -223,19 +262,40 @@ function plan(grid, rules) {
       common = common ? new Set([...common].filter((c) => mine.has(c))) : mine;
     });
     common.forEach((c) => collapse.add(c));
-    // …and, band by band, the cells under the heading.
+    /* …and every cell under the heading, as far down as it reaches — with
+       a line that starts in its column and runs mostly inside it (the
+       goods' description over the description column), which is the
+       column's own text, not its neighbour's. */
     occ.forEach((o) => grid.cells.forEach((x) => {
-      if (x.r0 >= o.band.r0 && x.r1 <= o.band.end && x.c0 >= o.c0 && x.c1 <= o.c1) blank.add(x);
+      if (x.r0 < o.band.r0 || x.r1 > o.end || x.c0 < o.c0 || x.c0 > o.c1) return;
+      const inside = Math.min(x.c1, o.c1) - x.c0 + 1;
+      if (x.c1 <= o.c1 || (!x.head && inside * 2 > x.c1 - x.c0 + 1)) blank.add(x);
     }));
   });
 
+  /* A grid column another band prints a different heading over is that
+     band's column as well ("Qty/Ctn-Pcs" under the fittings where the pipes
+     have "Qty/Pkg-Pcs"): it stays, and only the chosen heading's cells go —
+     folded into the cell beside them. A heading's own group, and every
+     sub-heading within its reach (CODE / SIZE / LEN under the description
+     of goods), is the same column, not another one. */
+  const kin = (x) => chosen.some((l) => l.key === x.key || l.key.startsWith(`${x.key} > `) || x.key.startsWith(`${l.key} > `)
+    || (x.band.r0 > l.band.r0 && x.band.r0 <= l.end && x.c0 >= l.c0 && x.c1 <= l.c1));
+  leaves.forEach((l) => {
+    if (kin(l)) return;
+    for (let c = l.c0; c <= l.c1; c++) collapse.delete(c);
+  });
+
   /* Never take out a column that carries anything above the table's first
-     header band — that is the form's own head, not the column. */
+     header band — that is the form's own head, not the column. The columns
+     held back for it are noted: a ruled form can part its head from its
+     goods and take them out of the goods all the same (applyTable). */
+  const held = new Set();
   grid.cells.forEach((x) => {
     if (x.r0 >= firstBand || !x.text) return;
     let inside = true;
     for (let c = x.c0; c <= x.c1; c++) if (!collapse.has(c)) { inside = false; break; }
-    if (inside) for (let c = x.c0; c <= x.c1; c++) collapse.delete(c);
+    if (inside) for (let c = x.c0; c <= x.c1; c++) { collapse.delete(c); held.add(c); }
   });
 
   /* Below the first band, everything wholly inside a column taken out goes
@@ -246,7 +306,7 @@ function plan(grid, rules) {
     for (let c = x.c0; c <= x.c1; c++) if (!collapse.has(c)) { inside = false; break; }
     if (inside) blank.add(x);
   });
-  return { collapse, blank, firstBand };
+  return { collapse, blank, firstBand, held };
 }
 
 const wholly = (x, cols) => {
@@ -272,8 +332,6 @@ function absorb(grid, spill, join, may = () => true) {
   });
 }
 
-const ZERO = "padding:0 !important;width:0;max-width:0;font-size:0 !important;line-height:0;overflow:hidden";
-
 /* A table's <col> elements, one per grid column (a span is split up). */
 function colsOf(table) {
   const out = [];
@@ -292,56 +350,129 @@ function colsOf(table) {
   return out;
 }
 
+/* A ruled form whose head (the consignee, the ports …) shares grid columns
+   with its goods is parted in two at its first header row: the head keeps
+   every column exactly as printed, and the goods below — a table of their own,
+   same widths, drawn flush under it — can lose a column outright. Not when a
+   cell runs across the parting. */
+function partHead(table, grid, firstBand) {
+  if (!firstBand || grid.cells.some((x) => x.r0 < firstBand && x.r1 >= firstBand)) return false;
+  const head = table.cloneNode(false);
+  head.removeAttribute("id");
+  table.querySelectorAll(":scope > colgroup").forEach((g) => head.appendChild(g.cloneNode(true)));
+  const body = table.ownerDocument.createElement("tbody");
+  head.appendChild(body);
+  [...table.rows].slice(0, firstBand).forEach((tr) => body.appendChild(tr));
+  table.before(head);
+  // Drawn flush, one rule between them, not two.
+  head.setAttribute("style", `${head.getAttribute("style") || ""};margin-bottom:0`);
+  table.setAttribute("style", `${table.getAttribute("style") || ""};margin-top:-1px`);
+  return true;
+}
+
+const TOTALS = /\b(total|c\/f|b\/f|balance)\b/i;
+
+/* Each label goes to the nearest empty cell left in its row, the one before
+   it first. A row with none has nowhere to put it. */
+function rehome(grid, labels) {
+  labels.forEach(({ x, html, cls }) => {
+    if (x.el.isConnected && cellText(x.el)) return;
+    const free = grid.cells.filter((y) => y !== x && y.r0 === x.r0 && y.el.isConnected && !cellText(y.el) && !y.el.hasAttribute("data-v"));
+    if (!free.length) return;
+    const y = free.sort((a, b) => (a.c0 < x.c0 ? 0 : 1) - (b.c0 < x.c0 ? 0 : 1) || Math.abs(a.c0 - x.c0) - Math.abs(b.c0 - x.c0))[0];
+    y.el.innerHTML = html;
+    if (cls) y.el.className = cls;
+  });
+}
+
 function applyTable(table, rules) {
   const grid = htmlGrid(table);
   const p = plan(grid, rules);
   if (!p) return;
   const cols = colsOf(table);
   const ruled = cols.length > 0 && cols.some((c) => c.el && /width/.test(c.el.getAttribute("style") || "") || c.el?.getAttribute("width"));
+  /* A ruled form's head is laid out on the same grid as its goods, and a
+     column out of it would reshape the head too — so the head is parted off
+     first and kept exactly as printed. */
+  if (ruled && (p.collapse.size || p.held.size) && partHead(table, grid, p.firstBand)) { applyTable(table, rules); return; }
 
+  /* A totals label ("Total C/F Page :2", "BALANCE C/F") standing in a column
+     that goes is not the column's own: it moves to an empty cell of its row. */
+  const labels = [...p.blank].filter((x) => !x.head && TOTALS.test(x.text))
+    .map((x) => ({ x, html: x.el.innerHTML, cls: x.el.className }));
+  // Rows that say something now — one left with nothing to say goes (below).
+  const said = new Set([...table.rows].filter((tr) => cellText(tr)));
   p.blank.forEach((x) => { x.el.innerHTML = "&nbsp;"; });
   /* What is blanked but stays in the grid — the column carries the form's own
      head as well — is handed to the cell beside it, so the column under the
-     heading closes up rather than standing empty. */
-  absorb(grid, [...p.blank].filter((x) => !wholly(x, p.collapse)), (y, x) => {
+     heading closes up rather than standing empty. A cell that runs on into a
+     column that stays just narrows to it. */
+  const kept = (x) => { for (let c = x.c0; c <= x.c1; c++) if (p.collapse.has(c)) return false; return true; };
+  absorb(grid, [...p.blank].filter(kept), (y, x) => {
     y.el.colSpan = y.c1 - y.c0 + 1;
     x.el.remove();
   });
   if (!p.collapse.size) return;
 
+  /* The column goes outright — a cell spanning it narrows, a cell wholly
+     inside it goes — so the paper closes up rather than keeping an empty
+     strip. (A column kept at no width instead is not safe: on an auto-width
+     grid with ruled widths the browser stretches a 0 % column with a border
+     across the page.) */
+  const gone = new Set();              // data-k of the headings taken out
+  grid.cells.forEach((x) => {
+    if (x.gone) return;
+    let keep = 0;
+    for (let c = x.c0; c <= x.c1; c++) if (!p.collapse.has(c)) keep++;
+    if (keep === x.c1 - x.c0 + 1) return;
+    if (keep === 0) {
+      const k = x.el.getAttribute("data-k");
+      if (k) gone.add(k);
+      x.el.remove();
+    } else {
+      x.el.colSpan = keep;
+      /* Narrower now: what it says wraps rather than being cut off. */
+      if (cellText(x.el)) x.el.setAttribute("style", `${x.el.getAttribute("style") || ""};white-space:normal;overflow:visible`);
+    }
+  });
+  rehome(grid, labels);
+
+  /* A row emptied by the columns taken out (a range's name that stood in the
+     description) goes too, rather than standing as a blank stripe — unless a
+     cell runs down into it or out of it. */
+  const spans = grid.cells.filter((x) => x.r1 > x.r0 && x.el.isConnected);
+  [...table.rows].forEach((tr, r) => {
+    if (!said.has(tr) || cellText(tr)) return;
+    if (spans.some((x) => r >= x.r0 && r <= x.r1)) return;
+    tr.remove();
+  });
+
+  /* A ruled form's widths are shared out again over the columns it keeps, so
+     it fills the same width it did. */
   if (ruled) {
-    /* A ruled form keeps the column at no width, so the frame lines stay. */
     const pct = cols.map((c) => {
       const m = /width\s*:\s*([\d.]+)%/.exec(c.el?.getAttribute("style") || "");
       return m ? Number(m[1]) : null;
     });
     const total = pct.every((v) => v != null) ? pct.reduce((a, b) => a + b, 0) : null;
     const kept = total != null ? pct.reduce((a, v, i) => a + (p.collapse.has(i) ? 0 : v), 0) : null;
-    cols.forEach((c, i) => {
-      if (!c.el) return;
-      if (p.collapse.has(i)) c.el.setAttribute("style", "width:0");
-      else if (kept) c.el.setAttribute("style", `width:${((pct[i] / kept) * total).toFixed(3)}%`);
-    });
-    grid.cells.forEach((x) => {
-      if (x.gone || !wholly(x, p.collapse)) return;
-      if (x.r0 < p.firstBand && x.text) return;
-      x.el.innerHTML = "";
-      x.el.setAttribute("style", `${x.el.getAttribute("style") || ""};${ZERO}`);
-    });
-    return;
+    if (kept) {
+      cols.forEach((c, i) => {
+        if (c.el && !p.collapse.has(i)) c.el.setAttribute("style", `width:${((pct[i] / kept) * total).toFixed(3)}%`);
+      });
+    }
   }
-
-  /* A plain grid loses the column outright: a cell spanning it narrows, a
-     cell wholly inside it goes. */
-  grid.cells.forEach((x) => {
-    if (x.gone) return;
-    let keep = 0;
-    for (let c = x.c0; c <= x.c1; c++) if (!p.collapse.has(c)) keep++;
-    if (keep === x.c1 - x.c0 + 1) return;
-    if (keep === 0) x.el.remove();
-    else x.el.colSpan = keep;
-  });
   cols.forEach((c, i) => { if (p.collapse.has(i) && c.el) c.el.remove(); });
+
+  /* A figure worked out from a column that is gone keeps its printed value:
+     the Excel built from this HTML would otherwise read the missing column
+     as 0. */
+  if (gone.size) {
+    table.querySelectorAll("[data-f]").forEach((el) => {
+      const f = el.getAttribute("data-f") || "";
+      if ([...gone].some((k) => f.includes(`{${k}}`))) el.removeAttribute("data-f");
+    });
+  }
 }
 
 /** A document's HTML with the chosen columns taken out. */

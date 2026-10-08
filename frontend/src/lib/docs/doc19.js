@@ -427,12 +427,12 @@ export function packingListHtml(ctx, form) {
       ${td("", "lf rt0", 3)}</tr>
     <tr>${vl((s.pod || b.shipTo || "").toUpperCase(), "lrb c", 3)}
       ${vl((s.finalDest || s.pod || b.shipTo || "").toUpperCase(), "lrb c")}${td("", "lrb", 2)}${td("", "lrb", 3)}</tr>
-    <tr>${vl("Sr.Nos.", "k lf")}${vl("No. & Kind of Pkgs   Description of Goods", "k lrt l", 5)}
-      ${vl("Quantity", "k lrt c")}${vl("WEIGHT", "k rt c", 2)}</tr>
+    <tr>${vl("Sr.Nos.", "k lf colh")}${vl("No. & Kind of Pkgs   Description of Goods", "k lrt l colh", 5)}
+      ${vl("Quantity", "k lrt c colh")}${vl("WEIGHT", "k rt c colh", 2)}</tr>
     <tr>${td("", "lf")}${vl(desc[0], "lf rt0 l", 5)}${td("", "lf rt0")}
-      ${vl("NETT", "k bx c")}${vl("GROSS", "k bx c")}</tr>
+      ${vl("NETT", "k bx c colh")}${vl("GROSS", "k bx c colh")}</tr>
     <tr>${td("", "lf")}${vl(desc[1], "lf rt0 l", 5)}${td("", "lf")}
-      ${vl("KGS", "k lrb c")}${vl("KGS", "k lrb c")}</tr>`;
+      ${vl("KGS", "k lrb c colh")}${vl("KGS", "k lrb c colh")}</tr>`;
 
   const line = (l) => {
     if (!l) return `<tr class="fl">${Array(9).fill(td("")).join("")}</tr>`;

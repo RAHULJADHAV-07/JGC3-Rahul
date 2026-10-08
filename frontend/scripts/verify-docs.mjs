@@ -164,15 +164,33 @@ group("Length column", () => {
 const moulded = (bands) => bands.filter((b) => ["ppm", "grn"].includes(b.key));
 check("Length column", "doc 18/31 bands: moulded fittings carry no LEN", moulded(C.invoiceBands(ctx)).every((b) => !b.len));
 check("Length column", "doc 19/20/32 bands: moulded fittings carry no LEN", moulded(C.packingBands(ctx)).every((b) => !b.len));
-check("Length column", "pipes keep their LEN", C.packingBands(ctx).filter((b) => ["mxm", "mxf"].includes(b.key)).every((b) => b.len));
+check("Length column", "no range prints a LEN column — the PP pipes neither", C.packingBands(ctx).every((b) => !b.len) && C.invoiceBands(ctx).every((b) => !b.len));
+check("Length column", "docs 18, 19, 31 print no LEN (MM) heading", ["18", "19", "31"].every((no) => !/LEN \(MM\)/.test(html(no))));
 check("Length column", "doc 19: PET1512 prints no 300 length", /PET1512 15 300 /.test(t19) && !/PET1512 15 300 300/.test(t19), "PET1512 → size 15, then Qty/Ctn 300");
 });
 
 // 4 · bundles in brackets (19)
 group("Bundles (19)", () => {
-check("Bundles (19)", "1800 mm pipe shows 1800 (BUNDLES) in LEN", t19.includes("1800 (BUNDLES)"));
+check("Bundles (19)", "the 1800 mm pipe in bundles shows (BUNDLES) beside its size", t19.includes('2" (BUNDLES)'));
 check("Bundles (19)", "corrugated boxes show (BUNDLES) beside the size", t19.includes("570 X 368 X 178 (BUNDLES)"));
-check("Bundles (19)", "Excel carries the same", cells("19").includes("1800 (BUNDLES)"));
+check("Bundles (19)", "Excel carries the same", cells("19").includes('2" (BUNDLES)'));
+});
+
+// 4b · the HS code table on the shipping instructions (26)
+group("HS code table (26)", () => {
+const t26 = text(html("26"));
+const hs = C.siHsnTable(C.L(ctx));
+check("HS code table (26)", "a line per HS code, under its heading", /HS CODE DESCRIPTION PACKAGES GROSS WEIGHT TOTAL CBM/.test(t26) && hs.length === 3, hs.map((x) => x.hsn).join(", "));
+check("HS code table (26)", "packages add up to the shipment", hs.reduce((n, x) => n + x.packages, 0) === C.L(ctx).reduce((n, r) => n + r.boxes, 0));
+check("HS code table (26)", "grand total printed", /Grand Total 57 616\.200 3\.42/.test(t26), (t26.match(/Grand Total[^A-Z]*/) || [""])[0]);
+check("HS code table (26)", "Excel carries it", cells("26").includes("Grand Total"));
+});
+
+// 4c · where the goods were made, on the letter to the CHA (22)
+group("Made in (22)", () => {
+check("Made in (22)", "outside Maharashtra by town, Maharashtra by state, last", /Goods manufactured in Daman & Maharashtra/.test(text(html("22"))), (text(html("22")).match(/Goods manufactured in [^0-9]*/) || [""])[0]);
+const only = (sid) => docCtx({ invoice: D.invoices[1], items: D.items, buyers: D.buyers, suppliers: D.suppliers, poLines: D.poLines, transports: D.transports, invoices: D.invoices, supplierId: sid });
+check("Made in (22)", "one supplier's letter names its own place only", C.madeIn(only(OSW)) === "Daman" && C.madeIn(only(HAN)) === "Maharashtra", `${C.madeIn(only(OSW))} / ${C.madeIn(only(HAN))}`);
 });
 
 // 5 · break-up of weights only with corrugated boxes (19)

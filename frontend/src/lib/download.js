@@ -122,6 +122,25 @@ export function downloadGridPDF(title, columns, rows, opts) {
    padding on the document itself, below. */
 const pageRule = (orientation) => `@page { size: A4 ${orientation === "portrait" ? "portrait" : "landscape"}; margin: 0; }`;
 
+/* Every row and every column of a goods table is ruled — on screen and on
+   paper alike. A form's own head, a letter's text and the blank rows that pad
+   a page out stay as their layout draws them; what is ruled is the tables of
+   goods and figures: the workbook grids, the goods block of the invoices,
+   packing lists and supplier order (doc 6 marks those rows "gi"), the BL
+   annexure, and the goods of the buyer's order form. `p` scopes the rules —
+   ".docprev " for the preview, "" for the PDF. */
+export const GRID_CSS = (p = "") => `
+  ${p}table.wb:not(.letter):not(.ci):not(.bpo) tr > td,
+  ${p}table.wb:not(.letter):not(.ci):not(.bpo) tr > th,
+  ${p}table.wb.ci tr.gd:not(.fl) > td,
+  ${p}table.wb.ci tr.ln > td,
+  ${p}table.wb.ci tr.tt > td,
+  ${p}table.wb.letter tr.gi > td,
+  ${p}table.wb.letter tr.gi > th,
+  ${p}table.bpo tr.ln > td,
+  ${p}.bla td.c { border: 1px solid #000 !important; }
+`;
+
 const PRINT_CSS = `
   * { -webkit-print-color-adjust: exact; print-color-adjust: exact; box-sizing: border-box; }
   body { font-family: Calibri, Arial, sans-serif; font-size: 10pt; color: #243b53; margin: 0; padding: 0; }
@@ -814,7 +833,7 @@ const PRINT_CSS = `
   .cwd .hd2 { font-size: 8pt; margin-top: 8px; }
   .cwd .cl { margin-top: 10px; font-size: 10pt; }
 
-`;
+${GRID_CSS()}`;
 
 const escHtml = (s) => String(s ?? "")
   .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
