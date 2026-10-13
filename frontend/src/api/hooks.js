@@ -238,6 +238,19 @@ export function useSaveItemColumns() {
   });
 }
 
+/* Setup → Document columns: which columns each document hides or deletes
+   (lib/docColumns.js). Every paper built in the app reads it. */
+export const useDocColumns = () =>
+  useQuery({ queryKey: ["doc-columns"], queryFn: api.options.docColumns, staleTime: 60_000 });
+
+export function useSaveDocColumns() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (rules) => api.options.saveDocColumns(rules),
+    onSuccess: (data) => qc.setQueryData(["doc-columns"], data),
+  });
+}
+
 // Users — admin only; the query is disabled for everyone else so a
 // non-admin never fires a request the API would refuse.
 export const useUsers = (enabled = true) =>

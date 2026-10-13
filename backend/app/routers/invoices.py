@@ -14,16 +14,27 @@ _read = require("shipment.packing", "shipment.details", "shipment.reports", "pre
 _write = require("shipment.packing", "shipment.details")
 
 
-def _out(inv: models.Invoice) -> schemas.InvoiceOut:
+def _out(inv: models.Invoice, legs: dict | None = None) -> schemas.InvoiceOut:
     out = schemas.InvoiceOut.model_validate(inv)
     out.status = calc.invoice_status(inv)
+    if legs is not None:
+        out.po_legs = legs.get(inv.invoice_no, {})
     return out
+
+
+def _po_legs(db: Session) -> dict:
+    """Which orders every invoice's boxes cleared, from the same FIFO ledger
+    the balance registers and the price freeze run on."""
+    items = {i.id: i for i in db.query(models.Item).all()}
+    return calc.invoice_po_legs(calc.compute_ledger(
+        db.query(models.PurchaseOrderLine).all(), db.query(models.Invoice).all(), items))
 
 
 @router.get("", response_model=list[schemas.InvoiceOut], dependencies=[Depends(_read)])
 def list_invoices(db: Session = Depends(get_db)):
     rows = db.query(models.Invoice).order_by(models.Invoice.date.desc()).all()
-    return [_out(i) for i in rows]
+    legs = _po_legs(db)
+    return [_out(i, legs) for i in rows]
 
 
 @router.get("/{iid}", response_model=schemas.InvoiceOut, dependencies=[Depends(_read)])
@@ -31,7 +42,7 @@ def get_invoice(iid: str, db: Session = Depends(get_db)):
     inv = db.get(models.Invoice, iid)
     if not inv:
         raise HTTPException(404, "Invoice not found")
-    return _out(inv)
+    return _out(inv, _po_legs(db))
 
 
 @router.get("/{iid}/serials", dependencies=[Depends(_read)])
@@ -139,7 +150,7 @@ def create_invoice(body: schemas.InvoiceCreate, db: Session = Depends(get_db)):
     db.add(inv)
     db.commit()
     db.refresh(inv)
-    return _out(inv)
+    return _out(inv, _po_legs(db))
 
 
 @router.put("/{iid}", response_model=schemas.InvoiceOut, dependencies=[Depends(_write)])
@@ -168,7 +179,7 @@ def update_invoice(iid: str, body: schemas.InvoiceUpdate, db: Session = Depends(
         inv.lines = _freeze_prices(db, incoming, keep=keep, exclude_invoice_id=inv.id)
     db.commit()
     db.refresh(inv)
-    return _out(inv)
+    return _out(inv, _po_legs(db))
 
 
 @router.delete("/{iid}", status_code=204, dependencies=[Depends(_write)])

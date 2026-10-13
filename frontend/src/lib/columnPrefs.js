@@ -13,7 +13,8 @@
    dependent column falls back to its plain value rather than to a reference
    that now points at nothing (sheet.js would read it as 0). */
 import { useMemo } from "react";
-import { useItemColumns } from "../api/hooks.js";
+import { useItemColumns, useDocColumns } from "../api/hooks.js";
+import { rulesByDoc } from "./docColumns.js";
 
 /* The column manager's catalogue keys — features/setup/ItemsPanel.jsx COLS. */
 export const ITEM_FIELD_KEYS = [
@@ -32,6 +33,13 @@ export function hiddenFieldsOf(saved) {
   if (!Array.isArray(cols)) return new Set();
   return new Set(cols.filter((c) => c && !c.custom && c.visible === false && ITEM_FIELD_KEYS.includes(c.key))
     .map((c) => c.key));
+}
+
+/* Setup → Document columns' saved rules, ready to hand to docCtx / poCtx as
+   `colRules` — every paper then leaves those columns out (lib/docColumns.js). */
+export function useDocColumnRules() {
+  const q = useDocColumns();
+  return useMemo(() => rulesByDoc(q.data), [q.data]);
 }
 
 export function useHiddenFields() {

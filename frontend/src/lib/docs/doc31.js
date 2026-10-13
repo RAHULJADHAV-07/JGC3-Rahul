@@ -50,7 +50,9 @@ export function commercialInvoiceSheets(ctx) {
 
   const invRef = `${ctx.inv.invoiceNo || ""}${ctx.inv.date ? ` DT ${ddmm(ctx.inv.date)}` : ""}`;
   const dated = (no, d) => (no ? `${no}${d ? ` DT. ${ddmm(d)}` : ""}` : "");
-  const desc2 = wrapTo(buyerGoods(bands), 44, 2);
+  /* The goods run the width of the seven columns beside the marks, so they
+     stand on the one line rather than leaving a word under the last box no. */
+  const desc2 = wrapTo(buyerGoods(bands), 80, 2);
   const desc3 = wrapTo(buyerGoods(bands), 42, 3);
   /* The buyer's own order numbers, broken over the four lines their form gives
      them — the customs copy prints the exporter's single reference instead. */
@@ -162,11 +164,11 @@ export function commercialInvoiceSheets(ctx) {
     if (line.kind === "cols") {
       const B = line.band;
       const cells = [[1, { v: "", s: G.colA }], [1, { v: "CODE", s: G.cols }],
-        [B.wide ? 2 : 1, { v: B.size, s: G.cols }]];
-      if (B.len) cells.push([1, { v: "LEN (MM)", s: G.cols }]);
-      else if (!B.wide) cells.push([1, { v: "", s: G.fill }]);
-      // The columns the rupee half took on the customs copy run on blank here.
-      cells.push(...blank(4, G.fill), [1, { v: "PIECES", s: G.cols }],
+        [B.len ? 1 : 6, { v: B.size, s: G.cols }]];
+      /* No length, and the size takes its column and the four the rupee half
+         takes on the customs copy — no blank columns between. */
+      if (B.len) cells.push([5, { v: "LEN (MM)", s: G.cols }]);
+      cells.push([1, { v: "PIECES", s: G.cols }],
         [1, { v: B.rate, s: G.cols }], [1, { v: "", s: G.fill }]);
       row(cells);
       return;
@@ -174,10 +176,9 @@ export function commercialInvoiceSheets(ctx) {
     const { band, r } = line;
     const rate = band.per100 ? r.fobPc * 100 : r.fobPc;
     const cells = [[1, { v: "", s: G.colA }], [1, numOrText(r.it.code, G.code)],
-      [band.wide ? 2 : 1, { v: r.it.size || "", s: G.ctr }]];
-    if (band.len) cells.push([1, { v: r.it.length || "", s: G.ctr }]);
-    else if (!band.wide) cells.push([1, { v: "", s: G.ctr }]);
-    cells.push(...blank(4, G.ctr),
+      [band.len ? 1 : 6, { v: r.it.size || "", s: G.ctr }]];
+    if (band.len) cells.push([5, { v: r.it.length || "", s: G.ctr }]);
+    cells.push(
       [1, { v: r.pieces, t: "n", s: G.num }],
       [1, { v: rate, t: "n", s: G.usd }],
       [1, { f: `I${at}*J${at}${band.per100 ? "/100" : ""}`, s: G.usdL }]);
@@ -298,7 +299,9 @@ export function commercialInvoiceHtml(ctx) {
   const { p1, p2 } = invoiceLayout(bands, CI_P1_BODY_BUYER);
   const marks = ciMarks(ctx, rows);
   const addr = addrLines(E), bAddr = addrLines({ addr: b.addr });
-  const desc2 = wrapTo(buyerGoods(bands), 44, 2);
+  /* The goods run the width of the seven columns beside the marks, so they
+     stand on the one line rather than leaving a word under the last box no. */
+  const desc2 = wrapTo(buyerGoods(bands), 80, 2);
   const desc3 = wrapTo(buyerGoods(bands), 42, 3);
   const orders = wrapTo(poHeaderList(ctx), 44, 4);
   const dated = (no, d) => (no ? `${no}${d ? ` DT. ${ddmm(d)}` : ""}` : "");
@@ -351,30 +354,32 @@ export function commercialInvoiceHtml(ctx) {
       ${td("", "lf bb", 2)}${td(esc(s.bankAddr || ""), "k rt0 bb", 4)}</tr>
     <tr>${td("Marks &amp; Nos.", "h l")}${td("No &amp; Kinds of Pkgs   Description of Goods", "h", 7)}
       ${["Quantity", "Rate", "Amount"].map((h) => td(h, "h")).join("")}</tr>
-    <tr>${vl(`${marks.prefix} NOS :`)}${td(esc(`${s.pkgs || `${sum(rows, "boxes")} PACKAGES`} CONTAINING`), "l", 7)}
+    <tr class="gd">${vl(`${marks.prefix} NOS :`)}${td(esc(`${s.pkgs || `${sum(rows, "boxes")} PACKAGES`} CONTAINING`), "l", 7)}
       ${td("")}${td("FOB MUMBAI IN US$", "c", 2)}</tr>
-    <tr>${vl(`${marks.start} - ${marks.end}`)}${td(esc(desc2[0]), "l", 7)}${td("", "", 2)}
+    <tr class="gd">${vl(`${marks.start} - ${marks.end}`)}${td(esc(desc2[0]), "l", 7)}${td("")}${td("")}
       ${td(second ? ciUsd(cfUsd) : "", "r")}</tr>
-    <tr>${vl(String(marks.end))}${td(esc(desc2[1]), "l", 7)}${td("", "", 3)}</tr>`;
+    <tr class="gd">${vl(String(marks.end))}${td(esc(desc2[1]), "l", 7)}${td("")}${td("")}${td("")}</tr>`;
 
   const line = (l) => {
-    if (!l) return `<tr class="gd">${td("")}${td("", "", 10)}</tr>`;
-    if (l.kind === "head") return `<tr class="gd"><td>&nbsp;</td>${td(esc(l.band.head), "bnd l", 7)}${td("", "", 3)}</tr>`;
+    /* Quantity, Rate and Amount are ruled as their own columns on every line,
+       so the three rules run unbroken from the heading to the total. */
+    const qra = `${td("")}${td("")}${td("")}`;
+    if (!l) return `<tr class="gd fl">${td("")}${td("", "", 7)}${qra}</tr>`;
+    if (l.kind === "head") return `<tr class="gd"><td>&nbsp;</td>${td(esc(l.band.head), "bnd l", 7)}${qra}</tr>`;
     if (l.kind === "cols") {
       const B = l.band;
-      const cells = [td("CODE", "hd"), td(esc(B.size), "hd", B.wide ? 2 : 1)];
-      if (B.len) cells.push(td("LEN (MM)", "hd"));
-      else if (!B.wide) cells.push(td(""));
-      // The columns the rupee half took on the customs copy run on blank here.
-      cells.push(td("", "", 4), td("PIECES", "hd"), td(esc(B.rate), "hd"), td(""));
+      /* No length, and the size takes its column and the four the rupee half
+         takes on the customs copy — no blank columns between. */
+      const cells = [td("CODE", "hd"), td(esc(B.size), "hd", B.len ? 1 : 6)];
+      if (B.len) cells.push(td("LEN (MM)", "hd", 5));
+      cells.push(td("PIECES", "hd"), td(esc(B.rate), "hd"), td(""));
       return `<tr class="gd"><td>&nbsp;</td>${cells.join("")}</tr>`;
     }
     const { band, r } = l;
     const rate = band.per100 ? r.fobPc * 100 : r.fobPc;
-    const cells = [td(esc(r.it.code), "c"), td(esc(r.it.size), "c", band.wide ? 2 : 1)];
-    if (band.len) cells.push(td(esc(r.it.length), "c"));
-    else if (!band.wide) cells.push(td(""));
-    cells.push(td("", "", 4),
+    const cells = [td(esc(r.it.code), "c"), td(esc(r.it.size), "c", band.len ? 1 : 6)];
+    if (band.len) cells.push(td(esc(r.it.length), "c", 5));
+    cells.push(
       `<td class="c" data-t="int" data-v="${r.pieces}">${ciInt(r.pieces)}</td>`,
       `<td class="c" data-t="usd" data-v="${rate}">${ciUsd(rate)}</td>`,
       `<td class="r" data-t="usd" data-v="${r.fobTotal}">${ciUsd(r.fobTotal)}</td>`);
@@ -416,7 +421,7 @@ export function commercialInvoiceHtml(ctx) {
     const cell = margin[i];
     const out = line(p2[i]);
     return cell == null ? out
-      : out.replace("<td>&nbsp;</td>", `<td class="c k">${esc(String(cell))}</td>`);
+      : out.replace('<tr class="gd fl">', '<tr class="gd">').replace("<td>&nbsp;</td>", `<td class="c k">${esc(String(cell))}</td>`);
   }).join("");
 
   const page2 = `<table class="wb ci ci31">${colg}<tbody>${head(true)}${body2}
