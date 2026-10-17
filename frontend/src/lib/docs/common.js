@@ -13,6 +13,7 @@
 
 import { ADDR_ASPECT, LOGO_SRC, imgTag, logoImage, primeLogo } from "../logo.js";
 import { colLetter } from "../xlsx.js";
+import { boreMm } from "../sequence.js";
 
 // The supplier order prints on the letterhead, so the mark is fetched up front.
 primeLogo();
@@ -41,6 +42,35 @@ export const gstRate = (hsn) => (String(hsn).startsWith("4819") ? 0.05 : 0.18);
 export function supplierGst(ctx, supId) {
   const p = (ctx.SUPPLIERS || []).find((s) => s.id === supId)?.gstPct;
   return p === null || p === undefined || p === "" || !Number.isFinite(Number(p)) ? null : Number(p) / 100;
+}
+
+/* Whether a supplier sits in the exporter's own state (Maharashtra, GST state
+   code 27). A purchase inside the state is taxed half CGST, half SGST; one
+   from anywhere else (Oswin, VP — Daman) is all IGST. Read from the state
+   Setup → Suppliers holds, or the GSTIN's state code when that is blank. */
+export const HOME_STATE = { name: "maharashtra", code: "27", label: "Maharashtra" };
+export function intraState(ctx, supId) {
+  const s = supFor(ctx, supId);
+  const st = String(s.state || "").trim().toLowerCase();
+  if (st) return st.includes(HOME_STATE.name);
+  return String(s.gstin || "").trim().startsWith(HOME_STATE.code);
+}
+
+export const pctText = (x) => `${Number((x * 100).toFixed(2))}%`;
+
+/* How one supplier's goods are taxed: its rate (18 % unless Setup gives it
+   one) and the heads it falls under — CGST + SGST at half the rate each
+   inside Maharashtra, IGST at the full rate outside it. */
+export function supplierTax(ctx, supId) {
+  const rate = supplierGst(ctx, supId) ?? 0.18;
+  const intra = intraState(ctx, supId);
+  const heads = intra
+    ? [{ name: "CGST", rate: rate / 2 }, { name: "SGST", rate: rate / 2 }]
+    : [{ name: "IGST", rate }];
+  return {
+    rate, intra, heads,
+    terms: heads.map((h) => `${h.name} @ ${pctText(h.rate)}`).join(" + "),
+  };
 }
 
 /* The GST an item is taxed at: its supplier's rate when one is set — that is
@@ -139,7 +169,12 @@ function invoiceLines(ctx) {
     const stickers = Math.ceil(labelsFor(it, boxes)), sheets = sheetsFor(it, boxes);
     const from = sr, to = sr + boxes - 1; sr += boxes;
     const range = boxes ? `${from}-${to}` : "—";
-    const pos = [...new Set(ctx.buyerMaster.filter((r) => r.itemId === it.id).map((r) => r.po))].sort();
+    /* The orders these boxes cleared — not every order the item has ever
+       been on, which put the same full list against every line. */
+    const legs = ctx.inv.poLegs;
+    const pos = legs
+      ? [...new Set((legs[it.id] || []).map((x) => x.po))]
+      : [...new Set(ctx.buyerMaster.filter((r) => r.itemId === it.id).map((r) => r.po))].sort();
     // Stickers a single box consumes, allowance included — inlined into the
     // Excel formulas so the sticker and sheet counts follow the box count.
     const stkPerBox = ttl * (Number(it.labelSpoilage) || 1);
@@ -184,9 +219,27 @@ export function orderRows(ctx) {
   }));
 }
 
-export function poHeaderList(ctx) {
+/* PO → date for the orders a paper cites. An invoice cites the orders its
+   boxes cleared (narrowed to the chosen supplier's lines); the PO-stage
+   papers, and an invoice from an API without the ledger, the order book. */
+function citedOrders(ctx) {
   const seen = {};
+  const legs = ctx.inv?.poLegs;
+  if (legs && !ctx.po) {
+    const mine = new Set(ctx.inv.lines
+      .filter((l) => !ctx.supplierId || l.supplierId === ctx.supplierId).map((l) => l.itemId));
+    Object.entries(legs).forEach(([itemId, xs]) => {
+      if (!mine.has(itemId)) return;
+      xs.forEach((x) => { if (!seen[x.po] || x.date < seen[x.po]) seen[x.po] = x.date; });
+    });
+    return seen;
+  }
   ctx.buyerMaster.forEach((r) => { if (!seen[r.po]) seen[r.po] = r.date; });
+  return seen;
+}
+
+export function poHeaderList(ctx) {
+  const seen = citedOrders(ctx);
   return Object.entries(seen).sort((a, b) => a[1].localeCompare(b[1])).map(([po, d]) => `${po} DT ${ddmm(d)}`).join(", ");
 }
 
@@ -718,9 +771,13 @@ export function supplierLetterSheet(ctx, s, arr) {
     { v: "", s: L.valueP }, { v: "", s: L.valueP }, { v: "", s: L.valueP }, { f: sumRange, s: L.totVal }]);
   span(1, 3, r);
   const valueRow = r;
-  r = row([{ v: "ADD : IGST @ 18%", s: L.totLabelU }, { v: "", s: L.totLabelU }, { v: "", s: L.totLabelU },
-    { v: "", s: L.valueP }, { v: "", s: L.valueP }, { v: "", s: L.valueP }, { f: `ROUND(G${valueRow}*18%,0)`, s: L.totVal }]);
-  span(1, 3, r);
+  const tax = supplierTax(ctx, s.id);
+  tax.heads.forEach((h) => {
+    r = row([{ v: `ADD : ${h.name} @ ${pctText(h.rate)}`, s: L.totLabelU }, { v: "", s: L.totLabelU }, { v: "", s: L.totLabelU },
+      { v: "", s: L.valueP }, { v: "", s: L.valueP }, { v: "", s: L.valueP },
+      { f: `ROUND(G${valueRow}*${pctText(h.rate)},0)`, s: L.totVal }]);
+    span(1, 3, r);
+  });
   const gstRowNo = r;
   r = row([{ v: "TOTAL  NETT VALUE…………………", s: L.totLabel }, { v: "", s: L.totLabel }, { v: "", s: L.totLabel },
     { v: "", s: L.valueP }, { v: "", s: L.valueP }, { v: "", s: L.valueP },
@@ -739,7 +796,7 @@ export function supplierLetterSheet(ctx, s, arr) {
   term("Delivery", "", ["Documents:", "1. Invoice"], L.termT, L.termValT);
   term("Payment", "Against Delivery as usual", ["", "2. Packing cum weight List"], L.term, L.termVal);
   term("Packing", "As per attached Sheet", null, L.term, L.termVal);
-  term("GST", "IGST @ 18% TO BE CHARGED", null, L.termB, L.termVal);
+  term("GST", `${tax.terms} TO BE CHARGED`, null, L.termB, L.termVal);
   r = row([{ v: "SELLER'S CONFIRMATION", s: L.conf }, { v: "", s: L.conf }, { v: "", s: L.conf },
     { v: `For ${E.name}`, s: L.confR }, { v: "", s: L.confR }, { v: "", s: L.confR }, { v: "", s: L.confR }]);
   span(1, 3, r); span(4, 7, r);
@@ -903,12 +960,14 @@ export function supplierPoBlock(ctx, sid, arr) {
   const marks = ctx.inv.ship?.marks || "";
   const party = [`Messrs. ${s.name || ""}`, s.addr || "", s.place || "", s.gstin ? `GSTIN : ${s.gstin}` : ""].filter(Boolean);
   const value = sum(arr, "valTotal");
-  const igst = Math.round(value * 0.18);
+  const tax = supplierTax(ctx, sid);
+  const heads = tax.heads.map((h) => ({ ...h, amount: Math.round(value * h.rate) }));
+  const gstTotal = heads.reduce((n, h) => n + h.amount, 0);
 
   const items = groups.map((g, gi) => `
-      <tr class="band"><td class="l" colspan="3">${esc(g.head)}</td><td></td><td></td><td></td><td class="c b">${gi === 0 ? "Rs." : ""}</td></tr>
-      ${gi === 0 ? `<tr><th class="l">CODE</th><th class="l">DESCRIPTION</th><th class="l">HSN CODE</th><th></th><th></th><th></th><th></th></tr>` : ""}
-      ${g.rows.map((x) => `<tr>
+      <tr class="band gi"><td class="l" colspan="3">${esc(g.head)}</td><td></td><td></td><td></td><td class="c b">${gi === 0 ? "Rs." : ""}</td></tr>
+      ${gi === 0 ? `<tr class="gi"><th class="l">CODE</th><th class="l">DESCRIPTION</th><th class="l">HSN CODE</th><th></th><th></th><th></th><th></th></tr>` : ""}
+      ${g.rows.map((x) => `<tr class="gi">
         <td>${esc(x.it.code)}</td>
         <td class="desc">${esc(bcDescription(x.it)).replace(/\n/g, "<br>")}</td>
         <td>${esc(hsnText(x.it))}</td>
@@ -935,24 +994,23 @@ export function supplierPoBlock(ctx, sid, arr) {
         <td class="gst c" colspan="4">GSTIN : ${esc(E.gstin)}<br>PAN No: ${esc(E.pan)}</td></tr>
       ${party.map((line, i) => `<tr><td class="party" colspan="3">${esc(line)}</td>
         <td class="lbl c" colspan="4">${i === 1 ? "Shipping Marks" : i === 2 ? esc(marks) : ""}</td></tr>`).join("")}
-      <tr><td class="lbl l" colspan="3">DESCRIPTION OF GOODS.</td>
+      <tr class="gi"><td class="lbl l" colspan="3">DESCRIPTION OF GOODS.</td>
         <th>QUANTITY</th><th>Unit Price.</th><th>Per Unit</th><th>Total Value.</th></tr>
-      <tr class="band"><td class="l" colspan="3">PP &amp; NYLON MOULDED FITTINGS</td>
+      <tr class="band gi"><td class="l" colspan="3">PP &amp; NYLON MOULDED FITTINGS</td>
         <td class="c b">PIECES</td><td class="c b">Rs.</td><td></td><td class="c b u">Ex-Works.</td></tr>
       ${items}
-      <tr><td colspan="6"></td><td></td></tr>
-      <tr><td class="r" colspan="3">TOTAL VALUE….</td><td colspan="3"></td>
+      <tr class="gi"><td class="r" colspan="3">TOTAL VALUE….</td><td colspan="3"></td>
         <td class="r" data-t="inr" data-v="${value}">${wbRupee(value)}</td></tr>
-      <tr><td class="u" colspan="3">ADD : IGST @ 18%</td><td colspan="3"></td>
-        <td class="r" data-t="inr" data-v="${igst}">${wbRupee(igst)}</td></tr>
-      <tr><td class="r" colspan="3">TOTAL  NETT VALUE…………………</td><td colspan="3"></td>
-        <td class="r bx" data-t="inr" data-v="${value + igst}">${wbRupee(value + igst)}</td></tr>
+      ${heads.map((h) => `<tr class="gi"><td class="u" colspan="3">ADD : ${h.name} @ ${pctText(h.rate)}</td><td colspan="3"></td>
+        <td class="r" data-t="inr" data-v="${h.amount}">${wbRupee(h.amount)}</td></tr>`).join("")}
+      <tr class="gi"><td class="r" colspan="3">TOTAL  NETT VALUE…………………</td><td colspan="3"></td>
+        <td class="r bx" data-t="inr" data-v="${value + gstTotal}">${wbRupee(value + gstTotal)}</td></tr>
       <tr><td class="lbl">Delivery</td><td class="lbl" colspan="2"></td>
         <td class="lbl">Documents:</td><td colspan="3">1. Invoice</td></tr>
       <tr><td class="lbl">Payment</td><td class="lbl" colspan="2">Against Delivery as usual</td>
         <td></td><td colspan="3">2. Packing cum weight List</td></tr>
       <tr><td class="lbl">Packing</td><td class="lbl" colspan="2">As per attached Sheet</td><td></td><td colspan="3"></td></tr>
-      <tr><td class="lbl">GST</td><td class="lbl" colspan="2">IGST @ 18% TO BE CHARGED</td><td></td><td colspan="3"></td></tr>
+      <tr><td class="lbl">GST</td><td class="lbl" colspan="2">${esc(tax.terms)} TO BE CHARGED</td><td></td><td colspan="3"></td></tr>
       <tr><td class="lbl" colspan="3">SELLER'S CONFIRMATION</td>
         <td class="sgn r" colspan="4">For ${esc(E.name)}</td></tr>
       <tr class="sign"><td colspan="3"></td><td colspan="4"></td></tr>
@@ -1061,8 +1119,7 @@ export const poStack = (pos) => (pos || []).join(",\n");
 
 /* Their banner writes the order list with a stop after DT. */
 export const poBannerList = (ctx) => {
-  const seen = {};
-  ctx.buyerMaster.forEach((r) => { if (!seen[r.po]) seen[r.po] = r.date; });
+  const seen = citedOrders(ctx);
   return Object.entries(seen).sort((a, b) => a[1].localeCompare(b[1]))
     .map(([po, d]) => `${po} DT.${ddmm(d)}`).join(", ");
 };
@@ -1089,8 +1146,9 @@ export function transportInfo(ctx, sid) {
    way their format sheet does.
 
    The consignment is one line, as the portal takes it: the range's name, the
-   four-digit HSN chapter heading, total pieces, and the taxable value. Coming
-   from Daman to Maharashtra it is interstate, so the tax is all IGST.       */
+   four-digit HSN chapter heading, total pieces, and the taxable value. A
+   factory in Maharashtra charges CGST + SGST, half the rate each; one from
+   outside the state (Daman) charges it all as IGST — see supplierTax.      */
 export const EW_SHIP_TO = {
   name: "ALL CARGO TERMINALS LTD", addr: "NEXT TO AMEYA CFS, JNPT AREA",
   place: "Village Khopta", pin: "410206", state: "MAHARASHTRA",
@@ -1129,7 +1187,10 @@ export function eway10Block(ctx, sid, arr) {
   const tr = transportInfo(ctx, sid);
   const qty = sum(arr, "pieces");
   const taxable = sum(arr, "valTotal");
-  const igst = Math.round(taxable * 0.18 * 100) / 100;
+  const tax = supplierTax(ctx, sid);
+  const rateOf = (name) => tax.heads.find((h) => h.name === name)?.rate || 0;
+  const cut = (name) => Math.round(taxable * rateOf(name) * 100) / 100;
+  const cgst = cut("CGST"), sgst = cut("SGST"), igst = cut("IGST");
   const goods = ewGoods(arr);
   const hsn = (commonOf(arr, (x) => x.it.hsn) || "").slice(0, 4);
   const [sAddr1, sAddr2] = ewAddr(sp.addr);
@@ -1173,14 +1234,14 @@ export function eway10Block(ctx, sid, arr) {
       <tr class="hd"><td>Product Name</td><td>Descripton</td><td>HSN</td><td>Quantity</td><td>Unit</td>
         <td>Value/Taxable<br>Value(RS)</td><td colspan="4">Tax Rate (C+S+I+C)</td></tr>
       <tr>${box(esc(goods))}${box(esc(goods))}${box(esc(hsn), "c")}${box(qty, "c")}${box("PCS", "c")}
-        ${box(money(taxable), "c")}${box("0.00", "c")}${box("0.00", "c")}${box("18.00", "c")}${box("0.00", "c")}</tr>
+        ${box(money(taxable), "c")}${box(money(rateOf("CGST") * 100), "c")}${box(money(rateOf("SGST") * 100), "c")}${box(money(rateOf("IGST") * 100), "c")}${box("0.00", "c")}</tr>
     </table>
 
     <table class="ewtot">
       <tr class="hd"><td>Total Amt / Taxable Amt</td><td>CGST Amount</td><td>SGST Amount</td>
         <td>IGST Amount</td><td>CESS Amount</td><td>Total Inv . Value</td></tr>
-      <tr>${box(money(taxable), "c")}${box("0.00", "c")}${box("0.00", "c")}
-        ${box(money(igst), "c")}${box("0.00", "c")}${box(money(taxable + igst), "c")}</tr>
+      <tr>${box(money(taxable), "c")}${box(money(cgst), "c")}${box(money(sgst), "c")}
+        ${box(money(igst), "c")}${box("0.00", "c")}${box(money(taxable + cgst + sgst + igst), "c")}</tr>
     </table>
 
     <div class="lbl">Transportation Details</div>
@@ -1236,6 +1297,8 @@ export function eway10Sheet(ctx, sid, arr) {
   const goods = ewGoods(arr);
   const hsn = (commonOf(arr, (x) => x.it.hsn) || "").slice(0, 4);
   const [sAddr1, sAddr2] = ewAddr(sp.addr);
+  const tax = supplierTax(ctx, sid);
+  const ratePc = (name) => Number(((tax.heads.find((h) => h.name === name)?.rate || 0) * 100).toFixed(2));
   const G = formGrid(13);
   const { row, gap } = G;
   const cell = (v, s, extra) => [1, { v, s, ...extra }];
@@ -1285,14 +1348,15 @@ export function eway10Sheet(ctx, sid, arr) {
   row([run(2, goods, EW.fld), run(2, goods, EW.fld), run(1, hsn, EW.fldC, { t: "s" }),
     run(1, sum(arr, "pieces"), EW.num, { t: "n" }), run(1, "PCS", EW.fldC),
     run(2, sum(arr, "valTotal"), EW.money, { t: "n" }),
-    run(1, 0, EW.money, { t: "n" }), run(1, 0, EW.money, { t: "n" }),
-    run(1, 18, EW.money, { t: "n" }), run(1, 0, EW.money, { t: "n" })], 25.5);
+    run(1, ratePc("CGST"), EW.money, { t: "n" }), run(1, ratePc("SGST"), EW.money, { t: "n" }),
+    run(1, ratePc("IGST"), EW.money, { t: "n" }), run(1, 0, EW.money, { t: "n" })], 25.5);
   gap();
 
   row([run(3, "Total Amt / Taxable Amt", EW.hdC), run(2, "CGST Amount", EW.hdC), run(2, "SGST Amount", EW.hdC),
     run(2, "IGST Amount", EW.hdC), run(2, "CESS Amount", EW.hdC), run(2, "Total Inv . Value", EW.hdC)]);
   const tot = G.at() + 1;
-  row([[3, { f: `H${item}`, s: EW.money }], run(2, 0, EW.money, { t: "n" }), run(2, 0, EW.money, { t: "n" }),
+  row([[3, { f: `H${item}`, s: EW.money }],
+    [2, { f: `ROUND(H${item}*J${item}/100,2)`, s: EW.money }], [2, { f: `ROUND(H${item}*K${item}/100,2)`, s: EW.money }],
     [2, { f: `ROUND(H${item}*L${item}/100,2)`, s: EW.money }], run(2, 0, EW.money, { t: "n" }),
     [2, { f: `A${tot}+D${tot}+F${tot}+H${tot}+J${tot}`, s: EW.money }]]);
   gap();
@@ -1394,11 +1458,11 @@ export const letterheadBlock = (E) => `<table class="dlhead"><tr>
       <td class="lg">${imgTag(LOGO_SRC)}</td></tr></table>
     <div class="rule"></div>`;
 
-export const letterFootBlock = (E) => `<div class="rule"></div>
+export const letterFootBlock = (E) => `<div class="dlfootwrap"><div class="rule"></div>
     <table class="dlfoot"><tr>
       <td><div>${esc(E.iec)}</div><div class="b">${esc(E.gstin)}</div></td>
       <td class="r"><div>+91-${esc(E.tel)}</div><div class="b">${esc(E.email)}</div><div>${esc(E.addr)}</div></td>
-    </tr></table>`;
+    </tr></table></div>`;
 
 /* Both letters that end this way — the undertaking, then the signature over
    the printed name, then the date and the space for the signature itself. */
@@ -1814,6 +1878,21 @@ export function familyOf(it) {
   return "ppm";
 }
 
+/* The families that carry a length column. None does: the client's papers
+   leave LEN out for every range — the PP pipes as well as the moulded
+   fittings, though the master holds a length for them — and give its width
+   to the size. (The cartons give the column to their three dimensions.) */
+export const LEN_FAMILIES = [];
+
+/* Goods that travel in bundles rather than cartons (Setup → Items →
+   Packaging). Their packing list says so beside the length — "1800 (BUNDLES)"
+   — or, for the cartons, which have no length, beside the size. */
+export const inBundles = (it) => /bundle|bdl/i.test(String(it?.packagingType || ""));
+export const bundled = (v, it) => {
+  const t = String(v ?? "").trim();
+  return inBundles(it) ? `${t}${t ? " " : ""}(BUNDLES)` : v;
+};
+
 export const bandOf = (it) => PROFORMA_FAMILIES.find(([k]) => k === familyOf(it))[1];
 
 /* Their form is a ruled frame, not a table that stops with the goods. */
@@ -1994,7 +2073,7 @@ export function invoiceBands(ctx, labels = CI_BANDS) {
       head: hsn && !named ? `${label} (HSN CODE : ${hsn})` : label,
       // The pipes carry a length; the fittings do not, and the cartons give
       // the size that column as well — their size is three dimensions.
-      len: k !== "box" && rows.some((r) => String(r.it.length || "").trim()),
+      len: LEN_FAMILIES.includes(k) && rows.some((r) => String(r.it.length || "").trim()),
       wide: k === "box",
       rate: per100 ? "PER 100 PCS" : "PER PC",
       size: k === "box" ? "SIZE ( MM)" : "SIZE (IN / MM)",
@@ -2113,10 +2192,24 @@ export function wrapTo(text, width, lines) {
   return Array.from({ length: lines }, (_, i) => out[i] || "");
 }
 
+/* The same, but spread evenly over every line the box has — a long run of
+   purchase orders fills the box line by line rather than piling what will not
+   fit onto the last one, so any squeezing the cells then need is even. */
+export const wrapEven = (text, width, lines) =>
+  wrapTo(text, Math.max(width, Math.ceil(String(text || "").length / lines) + 6), lines);
+
+/* The order box at the head of the customs papers (18, 19): two lines for
+   the buyer's orders and two for any other reference. With no other
+   reference the orders take all four, as the item-wise list (20) gives them. */
+export const orderBox = (orderRef, otherRef, width) => (otherRef
+  ? { orders: [...wrapEven(orderRef, width, 2), "", ""], label2: "Other Reference(s):", other: otherRef }
+  : { orders: wrapEven(orderRef, width, 4), label2: "", other: "" });
+
 export function goodsWrapped(bands, width, lines) {
   const seen = [];
   bands.forEach((b) => { const t = CI_DESCRIBE[b.key]; if (t && !seen.includes(t)) seen.push(t); });
-  return wrapTo(seen.join(", "), width, lines);
+  // Spread over the lines evenly, so a long list is squeezed evenly too.
+  return wrapEven(seen.join(", "), width, lines);
 }
 
 /* An entry that is all digits is a figure on their sheets rather than a label —
@@ -2248,12 +2341,15 @@ export const plP2Body = (p2, form) => Math.max(form.p2Body, p2.length);
    behind it that have to be read against the orders they came off, so it gives
    the whole box to the run of purchase orders — labelled once, ruled as one
    block, and broken over the four lines their file breaks it over. */
-export const plOrderBox = (ctx, form, orderRef, s) => (form.orders === "list"
-  ? wrapTo(poHeaderList(ctx), 40, 4).map((line, i) => [
-    i === 0 ? "Buyers Order No: " : "", line,
-    i === 0 ? ["lt", "lrt"] : i === 3 ? ["lb", "lrb"] : ["l", "lr"]])
-  : [["Buyers Order No: ", orderRef, ["lt", "lrt"]], ["", "", ["lb", "lrb"]],
-    ["Other Reference(s):", s.otherRef || "", ["lt", "lrt"]], ["", "", ["lb", "lrb"]]]);
+export function plOrderBox(ctx, form, orderRef, s) {
+  const box = (lines) => lines.map((line, i) => [i === 0 ? "Buyers Order No: " : "", line,
+    i === 0 ? ["lt", "lrt"] : i === lines.length - 1 ? ["lb", "lrb"] : ["l", "lr"]]);
+  if (form.orders === "list") return box(wrapEven(poHeaderList(ctx), 34, 4));
+  const { orders, label2, other } = orderBox(orderRef, s.otherRef, 34);
+  if (!other) return box(orders);
+  return [["Buyers Order No: ", orders[0], ["lt", "lrt"]], ["", orders[1], ["lb", "lrb"]],
+    [label2, other, ["lt", "lrt"]], ["", "", ["lb", "lrb"]]];
+}
 
 export function packingBands(ctx, buyer = false) {
   const by = new Map();
@@ -2267,7 +2363,7 @@ export function packingBands(ctx, buyer = false) {
     // The pipes carry a length in its own column; a family that has none gives
     // the size that column as well, which is what the cartons need — theirs is
     // three dimensions.
-    const len = rows.some((r) => String(r.it.length || "").trim());
+    const len = LEN_FAMILIES.includes(key) && rows.some((r) => String(r.it.length || "").trim());
     return { key, rows, head, pkg, per, len, size: len ? "SIZE (MM/IN)" : "SIZE (MM)" };
   });
 }
@@ -2920,10 +3016,26 @@ export const CHA_AGENT = ["M/s. Velji Dosabhai & Sons P Ltd,",
    on every letter but for the carting date. That is the carting date entered
    on record packing or the shipment details; an invoice without one is dated
    with its own date, which is what this letter carried before the field existed. */
+/* Where the goods on this invoice were made, as their letter words it: a
+   factory outside Maharashtra by its town ("Daman", "Vapi"), one inside it by
+   the state, last — "Daman, Vapi & Maharashtra". */
+export function madeIn(ctx) {
+  const out = [];
+  let home = false;
+  [...new Set(L(ctx).map((r) => r.supId))].forEach((id) => {
+    if (intraState(ctx, id)) { home = true; return; }
+    const s = supFor(ctx, id);
+    const where = String(s.place || s.state || "").trim();
+    if (where && !out.some((x) => x.toLowerCase() === where.toLowerCase())) out.push(where);
+  });
+  if (home) out.push(HOME_STATE.label);
+  return out.length < 2 ? out.join("") : `${out.slice(0, -1).join(", ")} & ${out.at(-1)}`;
+}
+
 export const CHA_NOTES = (ctx) => [
   "1. This is a nominated 1 x 20' FCL shipment",
   "2. Freight Payable at Destination",
-  "3. Goods manufactured in Daman, Vapi & Maharashtra",
+  `3. Goods manufactured in ${madeIn(ctx) || "Maharashtra"}`,
   `4. Goods will be carted on ${ddmm(ctx.inv.ship?.cartingDate || ctx.inv.date)}`,
   "5. Suppliers Details to be shown in S/Bill.",
   "6. FUMIGATION NOT REQUIRED.",
@@ -2968,7 +3080,8 @@ export function cha22Rows(ctx) {
   const deliv = Math.max(3, parties.length);
   const notes = CHA_NOTES(ctx);
   // The order the shipping bill is raised against, and when it was placed.
-  const po = ctx.buyerMaster.slice().sort((x, y) => String(x.date).localeCompare(String(y.date)))[0];
+  const po = Object.entries(citedOrders(ctx)).map(([no, date]) => ({ po: no, date }))
+    .sort((x, y) => String(x.date).localeCompare(String(y.date)))[0];
   const invDt = ddmm(ctx.inv.date);
   // Their sheet prints the weights plain, to three places and no separator.
   const wt = (v, k) => Number(v || sum(rows, k) || 0).toFixed(3);
@@ -3259,10 +3372,19 @@ export const BLA_W = BLA_TW.map((t) => Math.round(t / 20 / 5.299 * 1e4) / 1e4);
 /* A bore as their sheet writes it — the millimetre their master keeps and the
    inch that goes with it, which the item's own group carries ("15 MM (1/2\")").
    A group with no inch in it simply prints the millimetre. */
+/* The bore is worked out the way the item sequence works it out (boreMm):
+   the master writes a size either in millimetres ("32") or in inches
+   ('1-1/4"'), and both are the same 32MM pipe. Stripping the digits out of
+   the inch spelling used to turn '1/2"' into "12MM" and '1-1/4"' into
+   "114MM", which put sizes on the sheet that were never shipped and split one
+   bore over several lines. The inch is the one the group names, or the
+   standard one for the bore when the group (the M/F pipes') names none. */
+const MM_TO_INCH = { 15: "1/2", 20: "3/4", 25: "1", 32: "1.1/4", 40: "1.1/2", 50: "2", 65: "2.1/2", 80: "3", 100: "4" };
 export const boreOf = (it) => {
-  const mm = String(it.size || "").replace(/[^\d.]/g, "");
+  const n = boreMm(it);
+  const mm = n < 1e9 ? String(n) : String(it.size || "").trim();
   const inch = /\(([^)]+)\)/.exec(String(it.group || ""));
-  const q = inch ? inch[1].replace(/["”]/g, "").trim() : "";
+  const q = inch ? inch[1].replace(/["”]/g, "").trim() : MM_TO_INCH[n] || "";
   return { mm, text: q ? `SIZE : ${mm}MM (${q}”) X ASSORTED LENGTHS` : `SIZE : ${mm}MM X ASSORTED LENGTHS` };
 };
 
@@ -3317,7 +3439,7 @@ export function bla24Rows(ctx) {
       // The cartons are described by the three dimensions their master keeps.
       const desc = (r) => (band.key === "box"
         ? `${boxDims(r.it).filter(Boolean).join(" X ")} MM`
-        : r.it.description || "");
+        : String(r.it.description || "").replace(/\s*\n\s*/g, " "));
       out.push({
         kind: "tbl",
         rows: [[["CODE"], [band.head], ["PIECES"]],
@@ -3369,8 +3491,15 @@ export function siStyle(spec) {
 export const siClass = (spec) => chaClass(spec);
 
 /* Their four columns, in the width units their own sheet states. It is set in
-   Arial 10, as the packing declaration is, so it takes that same correction. */
-export const SI_BASE = [20.4, 35.84, 32.41, 15.27];
+   Arial 10, as the packing declaration is, so it takes that same correction.
+
+   The cargo description's two columns are each split for the HS code table
+   under it — HS CODE and DESCRIPTION across the first, PACKAGES, GROSS WEIGHT
+   and TOTAL CBM across the second — so the form is laid on seven columns
+   whose outer edges are their four's. `SI_SPLIT` is how many of the seven
+   each of their four became. */
+export const SI_BASE = [20.4, 8.6, 27.24, 9.4, 11.6, 11.41, 15.27];
+export const SI_SPLIT = [1, 2, 3, 1];
 
 export const SI_W = SI_BASE.map((w) => Math.round(w * PKD_SCALE * 1e6) / 1e6);
 
@@ -3419,6 +3548,40 @@ export function siCargo(ctx, rows) {
   ].filter((l, i, a) => l !== "" || a[i + 1]).join("\n");
 }
 
+/* The goods by HS code, as the table under the cargo description lists
+   them: what they are, how many packages, their gross weight and volume. */
+export function siHsnTable(rows) {
+  const byHsn = new Map();
+  rows.forEach((r) => {
+    const k = String(r.it.hsn || "").replace(/\D/g, "") || "—";
+    if (!byHsn.has(k)) byHsn.set(k, []);
+    byHsn.get(k).push(r);
+  });
+  const what = (hsn, arr) => {
+    if (hsn.startsWith("4821")) return "Printed Paper Labels";
+    const has = (...f) => arr.some((r) => f.includes(familyOf(r.it)));
+    if (hsn.startsWith("4819") || (has("box") && !has("mxm", "mxf", "ppm", "grn"))) return "Corrugated Boxes";
+    const moulded = [has("ppm") && "(PP)", has("grn") && "(PA)"].filter(Boolean).join(" & ");
+    return [has("mxm", "mxf") && "Plastic (PP) Extruded Pipes", moulded && `Plastic ${moulded} Moulded Fittings`]
+      .filter(Boolean).join(" & ") || "Goods";
+  };
+  return [...byHsn].map(([hsn, arr]) => ({
+    hsn, what: what(hsn, arr),
+    packages: sum(arr, "boxes"), gross: sum(arr, "grossTotal"), cbm: sum(arr, "volTotal"),
+  }));
+}
+
+/* Their four columns' spans, onto the seven the form is laid on. */
+function siSpread(cells) {
+  let at = 0;
+  return cells.map(([span, ...rest]) => {
+    let n = 0;
+    for (let c = at; c < at + span; c++) n += SI_SPLIT[c];
+    at += span;
+    return [n, ...rest];
+  });
+}
+
 export function si26Rows(ctx) {
   const E = ctx.EXPORTER, b = ctx.buyer, s = ctx.inv.ship || {};
   const rows = L(ctx);
@@ -3429,10 +3592,27 @@ export function si26Rows(ctx) {
   const kg = (v, k) => Number(v || sum(rows, k) || 0).toFixed(3);
   const vol = sum(rows, "volTotal");
   const packages = String(sum(rows, "boxes"));
-  // The eight blank lines their form leaves between the terms and the footer.
-  const filler = Array.from({ length: 8 }, () => R([1, "", "lr g"], [2, "", "lr g"], [1, "", "lr c g"]));
+  /* The HS code table, between the description and the line's terms — its
+     header, a line per HS code and the grand total, then a blank line. It
+     takes its depth out of the blank lines below the terms, so the form
+     keeps its length while it can. */
+  const hs = siHsnTable(rows);
+  const side = (cells, h) => ({ cells: [[1, "", "lr g"], ...cells, [1, "", "lr c g"]], ...(h ? { h } : {}), wide: true });
+  const table = [
+    side([[1, "HS CODE", "lrtb b c g w"], [1, "DESCRIPTION", "lrtb b c g w"], [1, "PACKAGES", "lrtb b c g w"],
+      [1, "GROSS WEIGHT", "lrtb b c g w"], [1, "TOTAL CBM", "lrtb b c g w"]], 25.5),
+    ...hs.map((x) => side([[1, x.hsn, "lrtb c"], [1, x.what, "lrtb c"], [1, String(x.packages), "lrtb c"],
+      [1, x.gross.toFixed(3), "lrtb c"], [1, x.cbm.toFixed(2), "lrtb c"]])),
+    side([[2, "Grand Total", "lrtb b c"], [1, String(sum(hs, "packages")), "lrtb b c"],
+      [1, sum(hs, "gross").toFixed(3), "lrtb b c"], [1, sum(hs, "cbm").toFixed(2), "lrtb b c"]]),
+    side([[5, "", "lr"]]),
+  ];
 
-  return [
+  // The eight blank lines their form leaves between the terms and the footer.
+  const filler = Array.from({ length: Math.max(0, 8 - table.length) },
+    () => R([1, "", "lr g"], [2, "", "lr g"], [1, "", "lr c g"]));
+
+  const form = [
     R([2, "SHIPPER (MAX 5 LINES)", "lrt b g"], [2, "BOOKING NO :", "lrt b g"]),
     /* The line's own booking number, as entered on record packing or the
        shipment details — blank until it is, for whoever books the space. */
@@ -3464,6 +3644,7 @@ export function si26Rows(ctx) {
     R([1, "A/SEAL NO : ", "lr b g"], [2, "", CHA_HELD], [1, "KGS", "lr b c g"]),
     R([1, s.seal || "", "lr"], [2, "", CHA_HELD], [1, "", "lr c g"]),
     R([1, "", "lr g"], [2, "", "lr"], [1, "", "lr c g"]),
+    "table",
     R([1, "", "lr g"], [2, SI_TERMS[0], "lr"], [1, "", "lrb c g"]),
     R([1, "", "lr g"], [2, SI_TERMS[1], "lr"], [1, "FCL / FCL", "lrt b c g"]),
     R([1, "", "lr g"], [2, SI_TERMS[2], "lr"], [1, `${num(vol, 2)} cubic Mtr`, "lrt c"]),
@@ -3474,6 +3655,8 @@ export function si26Rows(ctx) {
     R([1, packages, "lr c"], [2, "", "lr g"], [1, "COLLECT", "lr c g"]),
     R([1, "", "lrb g"], [2, "", "lrb g"], [1, "", "lrb g"]),
   ];
+  return form.flatMap((r) => (r === "table" ? table : [{ ...r, cells: siSpread(r.cells) }]))
+    .map(({ wide, ...r }) => r);
 }
 
 /* ============================================================================
@@ -3755,11 +3938,11 @@ export function cs28Rows(ctx, sp, arr) {
       [2, "Quantity used", "lrt g"], [2, "Value of material", "lrt g"]),
     R([1, "", "lr g"], [2, "Used", "lr g"], [1, "Origin", "lr g"], [1, "Code", "lr g"],
       [2, "& Date", "lr g"], [1, "", "lr g"], [2, "in the Finished", "lr g"], [2, "used in the", "lr g"]),
-    R([1, "", "lrb g"], [2, "", "lrb g"], [1, "", "lrb g"], [1, "", "lrb g"], [2, "", "lb g"],
+    R([1, "", "lrb g"], [2, "", "lrb g"], [1, "", "lrb g"], [1, "", "lrb g"], [2, "", "lrb g"],
       [1, "", "lrb g"], [2, "Product", "lrb g"], [2, "Finished Product", "lrb g"]),
   ];
-  const blank = () => R([1, "", "lrtb g"], [2, "", "ltb g"], [1, "", "lrtb g"], [1, "", "lrtb g"],
-    [2, "", "ltb g"], [1, "", "lrtb g"], [2, "", "ltb g"], [2, "", "ltb g"]);
+  const blank = () => R([1, "", "lrtb g"], [2, "", "lrtb g"], [1, "", "lrtb g"], [1, "", "lrtb g"],
+    [2, "", "lrtb g"], [1, "", "lrtb g"], [2, "", "lrtb g"], [2, "", "lrtb g"]);
 
   return [
     ...Array.from({ length: CS_HEAD }, () => ({ cells: [[12, "", "- g"]], h: 15, lh: 1 })),
@@ -3781,7 +3964,7 @@ export function cs28Rows(ctx, sp, arr) {
     R([12, "", "- g"]),
     ...head(),
     blank(),
-    R([1, "", "lrtb g"], [11, "NOT APPLICABLE", "ltb c g"]),
+    R([1, "", "lrtb g"], [11, "NOT APPLICABLE", "lrtb c g"]),
     blank(),
     R([12, "", "t g"]),
     R([8, "", "- g"], [2, "TOTAL", "- g"], [2, "", "b g"]),
@@ -3792,9 +3975,9 @@ export function cs28Rows(ctx, sp, arr) {
     /* The factory's own invoice for the material is not recorded here, so the
        column it is entered in is ruled and left, as the weighbridge's ticket is
        on the gross-mass declaration. */
-    R([1, "1", "lrtb c g"], [2, CS_MATERIAL.name, "ltb g"], [1, CS_MATERIAL.origin, "lrtb g"],
-      [1, CS_MATERIAL.hs, "lrtb c g"], [2, "", "ltb"], [1, CS_MATERIAL.unit, "lrtb g"],
-      [2, "100%", "ltb c g"], [2, money(c.purchase), "ltb l"]),
+    R([1, "1", "lrtb c g"], [2, CS_MATERIAL.name, "lrtb g"], [1, CS_MATERIAL.origin, "lrtb g"],
+      [1, CS_MATERIAL.hs, "lrtb c g"], [2, "", "lrtb"], [1, CS_MATERIAL.unit, "lrtb g"],
+      [2, "100%", "lrtb c g"], [2, money(c.purchase), "lrtb l"]),
     blank(),
     blank(),
     R([12, "", "t g"]),
@@ -3942,8 +4125,7 @@ export function ltb30Rows(ctx) {
     GAP,
     R([17, "We hope you will find the above in order.", "-"]),
     GAP,
-    R([17, `Kindly arrange the remittance on ${due.day} ${due.date} (Shipment Date + ${LTB_CREDIT_DAYS} Days). This is due to forward`, "-"]),
-    R([17, "contract as per our understanding.", "-"]),
+    R([17, `Kindly arrange the remittance on ${due.day} ${due.date} (Shipment Date + ${LTB_CREDIT_DAYS} Days).`, "-"]),
     GAP,
     R([17, `Remittance to ${LTB_BANK.line1}`, "-"]),
     R([17, LTB_BANK.line2, "- b"]),
@@ -4168,7 +4350,9 @@ export function ebr40Rows(ctx) {
     GAP, GAP, GAP,
     R([10, "Proprietor.", "-"]),
     GAP,
-    H(DECL, [10, "270 Days Delay Declaration for Invoice No.- (If Required)", "- b j"]),
+    /* The pro-formas take a sheet of their own: run on under the declarations
+       they spill over the foot of the second. */
+    { ...H(DECL, [10, "270 Days Delay Declaration for Invoice No.- (If Required)", "- b j"]), brk: true },
     { cells: [[10, "", "- j"]], h: DECL },
     ...EBR_270.map((t) => H(DECL, [10, t, "- j"])),
     { cells: [[10, "", "- j"]], h: TBL },

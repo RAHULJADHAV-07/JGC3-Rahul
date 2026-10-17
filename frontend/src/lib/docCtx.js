@@ -92,6 +92,10 @@ export const docInvoice = (inv) => (inv ? {
   rbi: inv.rbi, serialStart: inv.serial_start,
   vehicles: inv.vehicles || {}, ship: inv.ship || {}, stepSkip: inv.step_skip || {},
   packingTransports: inv.packing_transports || {},
+  /* item id → [{po, date, boxes}]: the orders this invoice's boxes cleared,
+     oldest first, from the server's FIFO ledger. Absent on an API that
+     predates it; the papers then fall back to the whole order book. */
+  poLegs: inv.po_legs || null,
   /* Each line carries the prices the invoice was actually raised at. A
      delivered invoice is history — its customs paperwork, the supplier's bill
      and the bank documents were all issued at these figures — so every
@@ -131,10 +135,12 @@ export const docOrderLines = (poLines, itemsById) =>
 
    `supplierId` narrows every paper to one supplier's goods (the Documents
    page's supplier filter); `sequence` is the item order the rows are listed
-   in; `hidden` the item fields Setup → Items has unticked. */
+   in; `hidden` the item fields Setup → Items has unticked; `colRules` the
+   columns Setup → Document columns hides or deletes, per document
+   (lib/docColumns.js rulesByDoc). */
 export function docCtx({
   invoice, items = [], buyers = [], suppliers = [], poLines = [], transports = [], invoices = [],
-  supplierId = "", sequence, hidden,
+  supplierId = "", sequence, hidden, colRules,
 }) {
   const docItems = items.map((i) => docItem(i, hidden));
   const byId = Object.fromEntries(docItems.map((i) => [i.id, i]));
@@ -145,6 +151,7 @@ export function docCtx({
   return {
     inv, buyer, items: docItems,
     supplierId: supplierId || "",
+    colRules: colRules || {},
     cmpItems: itemComparator(suppliers, sequence),
     buyerMaster: supplierId ? lines.filter((r) => r.item.supplierId === supplierId) : lines,
     invoices: invoices.map(docInvoice),
@@ -167,7 +174,7 @@ export function docCtx({
    that number as the order reference. */
 export function poCtx({
   po, items = [], buyers = [], suppliers = [], poLines = [], transports = [],
-  supplierId = "", sequence, hidden,
+  supplierId = "", sequence, hidden, colRules,
 }) {
   const docItems = items.map((i) => docItem(i, hidden));
   const byId = Object.fromEntries(docItems.map((i) => [i.id, i]));
@@ -182,6 +189,7 @@ export function poCtx({
   return {
     po,
     supplierId: supplierId || "",
+    colRules: colRules || {},
     cmpItems: itemComparator(suppliers, sequence),
     inv: {
       id: `po-${po}`, invoiceNo: "", date: date || new Date().toISOString().slice(0, 10),

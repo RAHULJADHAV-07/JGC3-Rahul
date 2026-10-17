@@ -532,6 +532,20 @@ def compute_ledger(po_lines, invoices, items_by_id) -> dict:
     return by_item
 
 
+def invoice_po_legs(ledger) -> dict:
+    """Invoice number → item id → the purchase orders that invoice's boxes
+    cleared, oldest first: [{po, date, boxes}]. What the supplier papers
+    (7 · Packing, 8 · Purchase, 9 · Sales) print in their PO column — the
+    orders this delivery actually answers, not every order the item was ever on."""
+    out: dict = {}
+    for iid, b in ledger.items():
+        for d in b["demands"]:
+            for inv_no, boxes in (d.get("cleared") or {}).items():
+                out.setdefault(inv_no, {}).setdefault(iid, []).append(
+                    {"po": d["po"], "date": d["date"], "boxes": boxes})
+    return out
+
+
 def cleared_list(demand) -> list:
     """A demand's allocation trail as [{invoice_no, boxes}], oldest invoice
     first the way the boxes arrived."""

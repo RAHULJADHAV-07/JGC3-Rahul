@@ -5,6 +5,8 @@ node_modules/
 
 # Build output
 dist/
+# npm run verify:docs writes its demo papers here
+verify-output/
 dist-ssr/
 *.local
 

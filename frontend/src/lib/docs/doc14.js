@@ -34,7 +34,7 @@ export function scomet14Sheet(ctx) {
 
 export const B_14 = (ctx) => {
   const E = ctx.EXPORTER;
-  const html = `<div class="dl just">
+  const html = `<div class="dl just a4">
     ${letterheadBlock(E)}
 
     ${letterFieldBlock("Invoice No & Date", scometRef(ctx))}

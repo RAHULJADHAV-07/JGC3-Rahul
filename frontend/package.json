@@ -1,12 +1,13 @@
 {
   "name": "jaikvin-frontend",
   "private": true,
-  "version": "7.1.0",
+  "version": "7.2.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "verify:docs": "node scripts/verify-docs.mjs"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.62.7",
