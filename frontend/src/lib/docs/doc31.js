@@ -1,4 +1,4 @@
-import { CI_BUYER_BANDS, CI_P1_BODY_BUYER, CI_P1_TOP, CI_P2_TOP, CI_PLAIN, CI_USD, CI_USDT, L, USD, addrLines, amountWords, buyerGoods, ciMarks, ciP2Body, ddmm, esc, fitSheet, formGrid, formLogo, invoiceBands, invoiceLayout, num, numOrText, poHeaderList, sum, wrapTo } from "./common.js";
+import { CI_BUYER_BANDS, CI_P1_BODY_BUYER, CI_P1_TOP, CI_P2_TOP, CI_PLAIN, CI_USD, CI_USDT, L, USD, addrLines, amountWords, bundled, buyerGoods, ciMarks, ciP2Body, ddmm, esc, fitSheet, formGrid, formLogo, invoiceBands, invoiceLayout, num, numOrText, packagesText, poHeaderList, sum, wrapTo } from "./common.js";
 import { LOGO_SRC, imgTag } from "../logo.js";
 import { colLetter } from "../xlsx.js";
 
@@ -142,7 +142,7 @@ export function commercialInvoiceSheets(ctx) {
     const M = (v, r) => (mirror ? { f: `Page1!${r}`, s: { ...C.txt, border: "lr" } } : { v, s: { ...C.txt, border: "lr" } });
     row([[1, M(`${marks.prefix} NOS :`, "A23")],
       [7, mirror ? { f: "Page1!B23", s: { ...C.txt, border: "lr", align: "left" } }
-        : { v: `${s.pkgs || `${sum(rows, "boxes")} PACKAGES`} CONTAINING`, s: { ...C.txt, border: "lr", align: "left" } }],
+        : { v: `${packagesText(ctx, rows)} CONTAINING`, s: { ...C.txt, border: "lr", align: "left" } }],
       [1, { v: "", s: { ...C.txt, border: "lr" } }],
       [2, { v: "FOB MUMBAI IN US$", s: { ...C.ctr, border: "lr" } }]]);
     row([[1, M(`${marks.start} - ${marks.end}`, "A24")],
@@ -176,8 +176,8 @@ export function commercialInvoiceSheets(ctx) {
     const { band, r } = line;
     const rate = band.per100 ? r.fobPc * 100 : r.fobPc;
     const cells = [[1, { v: "", s: G.colA }], [1, numOrText(r.it.code, G.code)],
-      [band.len ? 1 : 6, { v: r.it.size || "", s: G.ctr }]];
-    if (band.len) cells.push([5, { v: r.it.length || "", s: G.ctr }]);
+      [band.len ? 1 : 6, { v: (band.len ? r.it.size : bundled(r.it.size, r.it)) || "", s: G.ctr }]];
+    if (band.len) cells.push([5, { v: bundled(r.it.length, r.it) || "", s: G.ctr }]);
     cells.push(
       [1, { v: r.pieces, t: "n", s: G.num }],
       [1, { v: rate, t: "n", s: G.usd }],
@@ -354,7 +354,7 @@ export function commercialInvoiceHtml(ctx) {
       ${td("", "lf bb", 2)}${td(esc(s.bankAddr || ""), "k rt0 bb", 4)}</tr>
     <tr>${td("Marks &amp; Nos.", "h l")}${td("No &amp; Kinds of Pkgs   Description of Goods", "h", 7)}
       ${["Quantity", "Rate", "Amount"].map((h) => td(h, "h")).join("")}</tr>
-    <tr class="gd">${vl(`${marks.prefix} NOS :`)}${td(esc(`${s.pkgs || `${sum(rows, "boxes")} PACKAGES`} CONTAINING`), "l", 7)}
+    <tr class="gd">${vl(`${marks.prefix} NOS :`)}${td(esc(`${packagesText(ctx, rows)} CONTAINING`), "l", 7)}
       ${td("")}${td("FOB MUMBAI IN US$", "c", 2)}</tr>
     <tr class="gd">${vl(`${marks.start} - ${marks.end}`)}${td(esc(desc2[0]), "l", 7)}${td("")}${td("")}
       ${td(second ? ciUsd(cfUsd) : "", "r")}</tr>
@@ -377,8 +377,8 @@ export function commercialInvoiceHtml(ctx) {
     }
     const { band, r } = l;
     const rate = band.per100 ? r.fobPc * 100 : r.fobPc;
-    const cells = [td(esc(r.it.code), "c"), td(esc(r.it.size), "c", band.len ? 1 : 6)];
-    if (band.len) cells.push(td(esc(r.it.length), "c", 5));
+    const cells = [td(esc(r.it.code), "c"), td(esc(band.len ? r.it.size : bundled(r.it.size, r.it)), "c", band.len ? 1 : 6)];
+    if (band.len) cells.push(td(esc(bundled(r.it.length, r.it)), "c", 5));
     cells.push(
       `<td class="c" data-t="int" data-v="${r.pieces}">${ciInt(r.pieces)}</td>`,
       `<td class="c" data-t="usd" data-v="${rate}">${ciUsd(rate)}</td>`,

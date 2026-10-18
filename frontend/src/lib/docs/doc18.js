@@ -1,4 +1,4 @@
-import { CI_HSN_ROWS, CI_P1_BODY, CI_P1_TOP, CI_P2_TOP, CI_PCT, CI_PLAIN, CI_USD, CI_USDT, L, P7, RUPEE, USD, addrLines, amountWords, ciMarks, ciP2Body, ddmm, esc, exRate, fitSheet, formGrid, formLogo, goodsWrapped, gstFor, hsnRuns, hsnText, inr, invoiceBands, invoiceLayout, num, numOrText, orderBox, poHeaderList, rangeRefs, sum, usd, wbFixed, wbRupee } from "./common.js";
+import { CI_HSN_ROWS, CI_P1_BODY, CI_P1_TOP, CI_P2_TOP, CI_PCT, CI_PLAIN, CI_USD, CI_USDT, L, P7, RUPEE, USD, addrLines, amountWords, bundled, ciMarks, ciP2Body, ddmm, esc, exRate, fitSheet, formGrid, formLogo, goodsWrapped, gstFor, hsnRuns, hsnText, inr, invoiceBands, invoiceLayout, num, numOrText, orderBox, packagesText, proformaRefOf, rangeRefs, sum, usd, wbFixed, wbRupee } from "./common.js";
 import { LOGO_SRC, imgTag } from "../logo.js";
 import { colLetter } from "../xlsx.js";
 
@@ -56,8 +56,7 @@ export function customsInvoiceSheets(ctx) {
 
   /* ---- the head of the invoice, rows 1-25 -------------------------------- */
   const invRef = `${ctx.inv.invoiceNo || ""}${ctx.inv.date ? ` DT ${ddmm(ctx.inv.date)}` : ""}`;
-  const orderRef = ctx.buyer.orderNo
-    ? `${ctx.buyer.orderNo}${ctx.inv.date ? ` DT ${ddmm(ctx.inv.date)}` : ""}` : poHeaderList(ctx);
+  const orderRef = proformaRefOf(ctx);
   // A run of several orders goes over the lines their form gives it.
   const ordBox = orderBox(orderRef, s.otherRef, 50);
   const [ord1, ord2, ord3, ord4] = ordBox.orders;
@@ -158,7 +157,7 @@ export function customsInvoiceSheets(ctx) {
     const M = (v, r) => (mirror ? { f: `Page1!${r}`, s: { ...C.txt, border: "lr" } } : { v, s: { ...C.txt, border: "lr" } });
     row([[1, M(`${marks.prefix} NOS :`, "A23")],
       [4, mirror ? { f: "Page1!B23", s: { ...C.txt, border: "lr", align: "left" } }
-        : { v: `${s.pkgs || `${sum(rows, "boxes")} PACKAGES`} CONTAINING`, s: { ...C.txt, border: "lr", align: "left" } }],
+        : { v: `${packagesText(ctx, rows)} CONTAINING`, s: { ...C.txt, border: "lr", align: "left" } }],
       [2, { v: "FOB MUMBAI IN US$", s: { ...C.ctr, border: "lr" } }],
       [2, { v: "FOB MUMBAI IN INR", s: { ...C.ctr, border: "lr" } }],
       [2, { v: "", s: { ...C.txt, border: "lr" } }]]);
@@ -192,8 +191,9 @@ export function customsInvoiceSheets(ctx) {
     const rate = band.per100 ? r.fobPc * 100 : r.fobPc;
     const gst = gstFor(ctx, r.it, r.supId);
     const cells = [[1, { v: "", s: G.colA }], [1, numOrText(r.it.code, G.code)],
-      [band.len ? 1 : 2, { v: r.it.size || "", s: G.ctr }]];
-    if (band.len) cells.push([1, { v: r.it.length || "", s: G.ctr }]);
+      [band.len ? 1 : 2, { v: (band.len ? r.it.size : bundled(r.it.size, r.it)) || "", s: G.ctr }]];
+    // Goods packed in bundles say so beside the length, or the size, as on the packing list.
+    if (band.len) cells.push([1, { v: bundled(r.it.length, r.it) || "", s: G.ctr }]);
     cells.push(
       [1, { v: r.pieces, t: "n", s: G.num }],
       [1, { v: rate, t: "n", s: G.usd }],
@@ -474,7 +474,7 @@ export function customsInvoiceHtml(ctx) {
   const addr = addrLines(E), bAddr = addrLines({ addr: b.addr });
   const dated = (no, d) => (no ? `${no}${d ? ` DT. ${ddmm(d)}` : ""}` : "");
   const invRef = `${ctx.inv.invoiceNo || ""}${ctx.inv.date ? ` DT ${ddmm(ctx.inv.date)}` : ""}`;
-  const orderRef = b.orderNo ? `${b.orderNo}${ctx.inv.date ? ` DT ${ddmm(ctx.inv.date)}` : ""}` : poHeaderList(ctx);
+  const orderRef = proformaRefOf(ctx);
   const ordBox = orderBox(orderRef, s.otherRef, 50);
   const [ord1, ord2, ord3, ord4] = ordBox.orders;
   const irn = String(s.irn || "");
@@ -539,7 +539,7 @@ export function customsInvoiceHtml(ctx) {
       ${td("", "lf bb", 2)}${td(esc(s.bankAddr || ""), "k rt0 bb", 4)}</tr>
     <tr>${td("Marks &amp; Nos.", "h l")}${td("No &amp; Kinds of Pkgs   Description of Goods", "h", 3)}
       ${["Quantity", "Rate", "Amount", "Rate", "Taxable Amount", "GST Rate", "GST Amount"].map((h) => td(h, "h")).join("")}</tr>
-    <tr>${vl(`${marks.prefix} NOS :`)}${td(esc(`${s.pkgs || `${sum(rows, "boxes")} PACKAGES`} CONTAINING`), "l", 4)}
+    <tr>${vl(`${marks.prefix} NOS :`)}${td(esc(`${packagesText(ctx, rows)} CONTAINING`), "l", 4)}
       ${td("FOB MUMBAI IN US$", "c", 2)}${td("FOB MUMBAI IN INR", "c", 2)}${td("", "", 2)}</tr>
     <tr>${vl(`${marks.start} - ${marks.end}`)}${td(esc(desc2[0]), "l", 4)}${td("", "", 2)}
       ${td(esc(`EX. RATE @ Rs.${num(ex)}`), "c", 2)}${td("", "", 2)}</tr>
@@ -558,8 +558,8 @@ export function customsInvoiceHtml(ctx) {
     const { band, r } = l;
     const rate = band.per100 ? r.fobPc * 100 : r.fobPc;
     const g = gstFor(ctx, r.it, r.supId), tax = r.fobTotal * ex;
-    const cells = [td(esc(r.it.code), "c"), td(esc(r.it.size), "c", band.len ? 1 : 2)];
-    if (band.len) cells.push(td(esc(r.it.length), "c"));
+    const cells = [td(esc(r.it.code), "c"), td(esc(band.len ? r.it.size : bundled(r.it.size, r.it)), "c", band.len ? 1 : 2)];
+    if (band.len) cells.push(td(esc(bundled(r.it.length, r.it)), "c"));
     /* Where each figure sits in its column is the cell's own setting on their
        sheet: the quantity, the rate per piece and the GST rate centred, the
        money ranged right against the rule. */

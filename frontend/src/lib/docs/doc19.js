@@ -1,4 +1,4 @@
-import { L, PL_FORMS, bundled, PL_P2_TOP, PL_TOP, PL_WEIGHTS, PL_WT, addrLines, ciMarks, ddmm, esc, familyOf, fitSheet, formGrid, formLogo, lineRuns, numOrText, packingBands, packingDescribe, packingLayout, plOrderBox, plP2Body, poHeaderList, rangeRefs, sum, wbFixed } from "./common.js";
+import { L, PL_FORMS, bundled, PL_P2_TOP, PL_TOP, PL_WEIGHTS, PL_WT, addrLines, ciMarks, ddmm, esc, familyOf, fitSheet, formGrid, formLogo, lineRuns, numOrText, packingBands, packingDescribe, packingLayout, plOrderBox, plP2Body, proformaRefOf, rangeRefs, sum, wbFixed } from "./common.js";
 
 /* The break-up of weights by material is printed only when the consignment
    carries corrugated boxes — it exists to separate the cartons' weight from
@@ -56,8 +56,7 @@ export function packingListSheets(ctx, form) {
 
   /* ---- the head of the list, rows 1-24 ----------------------------------- */
   const invRef = `${ctx.inv.invoiceNo || ""}${ctx.inv.date ? ` DT ${ddmm(ctx.inv.date)}` : ""}`;
-  const orderRef = b.orderNo
-    ? `${b.orderNo}${ctx.inv.date ? ` DT ${ddmm(ctx.inv.date)}` : ""}` : poHeaderList(ctx);
+  const orderRef = proformaRefOf(ctx);
   const blLine = s.blNo ? `BL : ${s.blNo}${s.blDate ? `  DT. ${ddmm(s.blDate)}` : ""}` : "";
   const addr = addrLines(E), bAddr = addrLines({ addr: b.addr });
 
@@ -371,8 +370,7 @@ export function packingListHtml(ctx, form) {
   const desc = packingDescribe(ctx, bands, rows, form.buyer);
   const addr = addrLines(E), bAddr = addrLines({ addr: b.addr });
   const invRef = `${ctx.inv.invoiceNo || ""}${ctx.inv.date ? ` DT ${ddmm(ctx.inv.date)}` : ""}`;
-  const orderRef = b.orderNo
-    ? `${b.orderNo}${ctx.inv.date ? ` DT ${ddmm(ctx.inv.date)}` : ""}` : poHeaderList(ctx);
+  const orderRef = proformaRefOf(ctx);
   const blLine = s.blNo ? `BL : ${s.blNo}${s.blDate ? `  DT. ${ddmm(s.blDate)}` : ""}` : "";
 
   const td = (v, cls = "", span = 1) =>

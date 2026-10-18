@@ -7,6 +7,20 @@
 
 export const RELEASES = [
   {
+    version: "7.3.0",
+    date: "2026-10-18",
+    notes: [
+      "Setup → Document columns: hide or delete any column, paper by paper.",
+      "Hiding a column offers to do the same wherever else it is printed.",
+      "Packages split into cartons and HDP bundles on every paper that names them.",
+      "Items packed in bundles (Setup → Items) count as bundles, not cartons.",
+      "Invoices 18 and 31 show bundled goods as “1800 (BUNDLES)” too.",
+      "Docs 17, 18, 19 print the proforma no. and date when the shipment has one.",
+      "Despatch letter (11) and letter to buyer (30): reference and date left blank.",
+      "VGM (27): verified gross mass left blank for the weighbridge figure.",
+    ],
+  },
+  {
     version: "7.2.0",
     date: "2026-10-07",
     notes: [

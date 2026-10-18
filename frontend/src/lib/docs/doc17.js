@@ -1,4 +1,4 @@
-import { FOOT_PT, L, PROFORMA_FAMILIES, PROFORMA_ROWS, SIGN_PT, USD, buyerLogoImage, commonOf, ddmm, deliveryMonth, esc, familyOf, fitSheet, fobModeOf, formGrid, num, perLabel, proformaRate, sum, usd } from "./common.js";
+import { FOOT_PT, L, PROFORMA_FAMILIES, PROFORMA_ROWS, SIGN_PT, USD, buyerLogoImage, commonOf, ddmm, deliveryMonth, esc, familyOf, fitSheet, fobModeOf, formGrid, num, perLabel, proformaDateOf, proformaNoOf, proformaRate, sum, usd } from "./common.js";
 
 /* A band per item group, in the order the invoice runs. A band whose goods have
    no length loses that column, as their moulded-fitting pages do. */
@@ -73,9 +73,9 @@ export function proforma17Sheet(ctx, bands) {
   // The mark stands in this row, so it is given the height to hold it.
   row([[5, { v: "", s: P.plain }], [2, { v: "PURCHASE ORDER", s: P.ttl }], [1, { v: "", s: P.plain }]],
     b.logo ? 46 : undefined);
-  row([[4, { v: b.name || "", s: P.brand }], [1, { v: "NO.", s: P.lbl }], [3, { v: b.orderNo || "", s: P.val }]], 21);
+  row([[4, { v: b.name || "", s: P.brand }], [1, { v: "NO.", s: P.lbl }], [3, { v: proformaNoOf(ctx), s: P.val }]], 21);
   row([[4, { v: b.tagline || (b.brand ? `T/A ${b.brand}` : ""), s: P.sub }],
-    [1, { v: "DATE", s: P.lbl }], [3, { v: ddmm(ctx.inv.date), s: P.val }]]);
+    [1, { v: "DATE", s: P.lbl }], [3, { v: ddmm(proformaDateOf(ctx)), s: P.val }]]);
   gap();
 
   row([[1, { v: "", s: P.plain }], [3, { v: "TO:", s: P.lbl }],
@@ -287,9 +287,9 @@ export const B_17 = (ctx) => {
         <tr class="nb"><td class="nb c" colspan="4">${b.logo ? `<img class="bpo-logo" src="${esc(b.logo)}" alt="">` : ""}</td>
           <td class="nb"></td><td class="nb b c ttl" colspan="2">PURCHASE ORDER</td><td class="nb"></td></tr>
         <tr class="nb"><td class="nb big c" colspan="4">${esc(b.name || "")}</td>
-          <td class="nb">NO.</td><td class="nb b val" colspan="3">${esc(b.orderNo || "")}</td></tr>
+          <td class="nb">NO.</td><td class="nb b val" colspan="3">${esc(proformaNoOf(ctx))}</td></tr>
         <tr class="nb"><td class="nb c tag" colspan="4">${esc(b.tagline || (b.brand ? `T/A ${b.brand}` : ""))}</td>
-          <td class="nb">DATE</td><td class="nb b val" colspan="3">${ddmm(ctx.inv.date)}</td></tr>
+          <td class="nb">DATE</td><td class="nb b val" colspan="3">${ddmm(proformaDateOf(ctx))}</td></tr>
         ${SPACE}
         <tr class="nb"><td class="nb"></td><td class="nb" colspan="3">TO:</td>
           <td class="nb"></td><td class="nb" colspan="3">DELIVER TO:</td></tr>

@@ -238,6 +238,16 @@ function citedOrders(ctx) {
   return seen;
 }
 
+/* The order's number and date as the head of docs 17-19 prints them: the
+   proforma's own when the shipment carries one, else the buyer's order number
+   against the invoice date, else the run of purchase orders. */
+export const proformaNoOf = (ctx) => ctx.inv.ship?.proformaNo || ctx.buyer.orderNo || "";
+export const proformaDateOf = (ctx) => ctx.inv.ship?.proformaDate || ctx.inv.date;
+export function proformaRefOf(ctx) {
+  const no = proformaNoOf(ctx), d = proformaDateOf(ctx);
+  return no ? `${no}${d ? ` DT ${ddmm(d)}` : ""}` : poHeaderList(ctx);
+}
+
 export function poHeaderList(ctx) {
   const seen = citedOrders(ctx);
   return Object.entries(seen).sort((a, b) => a[1].localeCompare(b[1])).map(([po, d]) => `${po} DT ${ddmm(d)}`).join(", ");
@@ -1489,7 +1499,8 @@ export function despatch11Block(ctx, sid, arr) {
   return `<div class="dl">
     ${letterheadBlock(E)}
 
-    <div class="ref">${esc(letterRef(ctx))}<br>${esc(LETTER_DATE(ctx.inv.date))}</div>
+    <!-- The reference and the date are left for the client to write in. -->
+    <div class="ref">&nbsp;<br>&nbsp;</div>
     <p class="to">${to}</p>
     <p class="refline"><span class="k">Ref</span>&nbsp;&nbsp;&nbsp;Our Export Order ${esc(poBannerList(ctx))}</p>
     <p class="b">DESPATCH DATE: ${esc(LETTER_DAY(ctx.inv.date))}</p>
@@ -1597,8 +1608,9 @@ export function despatch11Sheet(ctx, sid, arr) {
 
   letterheadRows(G, E);
 
-  line(letterRef(ctx));
-  line(LETTER_DATE(ctx.inv.date));
+  // The reference and the date are left for the client to write in.
+  line("");
+  line("");
   gap();
   to.forEach((l) => line(l));
   gap();
@@ -2432,7 +2444,7 @@ export function packingGoods(bands) {
 /* The consignment as the form describes it in prose — what it is made up of
    and what is inside it, broken over the two lines their form types it on. */
 export const packingDescribe = (ctx, bands, rows, buyer = false) => wrapTo(
-  `${ctx.inv.ship?.pkgs || `${sum(rows, "boxes")} PACKAGES`} CONTAINING ${(buyer ? buyerGoods : packingGoods)(bands)}`,
+  `${packagesText(ctx, rows)} CONTAINING ${(buyer ? buyerGoods : packingGoods)(bands)}`,
   70, 2,
 );
 
@@ -2825,18 +2837,40 @@ export function vesselVoyage(vessel) {
   return trailing ? [trailing[1].trim(), trailing[2].trim()] : [t, ""];
 }
 
-/* The packages a consignment is made up of, with the split their forms ask for
-   — the corrugated boxes travel in HDP bundles and everything else in cartons.
-   A consignment with no bundles simply states its packages, rather than
-   printing a nil half of a sentence. The declaration (21) and the letter to the
-   CHA (22) both name it, so it is worded once. */
-export function packagesMade(rows) {
+/* The packages a consignment is made up of, split into cartons and bundles.
+   A line goes in bundles when its item's packaging (Setup → Items) says so,
+   or when it is the corrugated boxes, which always travel in HDP bundles;
+   everything else is cartons. */
+export const isBundle = (it) => inBundles(it) || familyOf(it) === "box";
+export function packageCounts(rows) {
   const total = sum(rows, "boxes");
-  const bundles = sum(rows.filter((r) => familyOf(r.it) === "box"), "boxes");
-  const cartons = total - bundles;
-  return bundles && cartons
-    ? `${total} PACKAGES (${cartons} CARTONS & ${bundles} HDP BUNDLES)`
-    : `${total} PACKAGES`;
+  const bundles = sum(rows.filter((r) => isBundle(r.it)), "boxes");
+  return { total, cartons: total - bundles, bundles };
+}
+
+/* "(400 CARTONS & 61 HDP BUNDLES)" — a nil half is left out rather than
+   printed, so a shipment of cartons alone reads "(461 CARTONS)". */
+export function packageSplit(rows) {
+  const { cartons, bundles } = packageCounts(rows);
+  const parts = [cartons && `${cartons} CARTONS`, bundles && `${bundles} HDP BUNDLES`].filter(Boolean);
+  return parts.length ? `(${parts.join(" & ")})` : "";
+}
+
+/* Every paper that names the packages (18, 19-21, 22, 26, 30-32) words them
+   here, so they all give the same split. */
+export function packagesMade(rows) {
+  const split = packageSplit(rows);
+  return `${sum(rows, "boxes")} PACKAGES${split ? ` ${split}` : ""}`;
+}
+
+/* The same, but a "No & kinds of pkgs" typed on the shipment wins. If what was
+   typed does not itself say cartons or bundles, the split is added after it. */
+export function packagesText(ctx, rows) {
+  const typed = String(ctx.inv.ship?.pkgs || "").trim();
+  if (!typed) return packagesMade(rows);
+  if (/carton|ctn|bundle|bdl/i.test(typed)) return typed;
+  const split = packageSplit(rows);
+  return split ? `${typed} ${split}` : typed;
 }
 
 /* The mark alone, as those same two forms name it: their marks read
@@ -3531,15 +3565,14 @@ export function siParty(lead, b) {
 export function siCargo(ctx, rows) {
   const s = ctx.inv.ship || {};
   const total = sum(rows, "boxes");
-  const bundles = sum(rows.filter((r) => familyOf(r.it) === "box"), "boxes");
-  const cartons = total - bundles;
+  const split = packageSplit(rows);
   const hsn = [...new Set(rows.map((r) => String(r.it.hsn || "").trim()).filter(Boolean))];
   const sb = s.sbNo ? `S/BILL NO. : ${s.sbNo}${s.sbDate ? ` DT ${dashDate(s.sbDate)}` : ""}` : "";
   return [
     "SAID TO CONTAIN / WEIGHT",
     `TOTAL ${total} PACKAGES`,
     `(TOTAL ${wordsIntl(total)} PACKAGES ONLY)`,
-    bundles && cartons ? `(${cartons} CARTONS & ${bundles} HDP BUNDLES) CONTAINING` : "CONTAINING",
+    split ? `${split} CONTAINING` : "CONTAINING",
     packingGoods(packingBands(ctx)),
     "DESCRIPTION AS PER ATTACHED SHEET",
     "",
@@ -3693,8 +3726,6 @@ export const slashDate = (s) => ddmm(s).replace(/\./g, "/");
    serial ending in a star is one the form marks mandatory. */
 export function vgm27Rows(ctx) {
   const E = ctx.EXPORTER, s = ctx.inv.ship || {};
-  const rows = L(ctx);
-  const gross = Number(s.grossWt) || sum(rows, "grossTotal");
   return [
     ["1*", "Booking No.", s.bookingNo || ""],
     ["2*", "Name of the shipper", E.name || ""],
@@ -3707,11 +3738,9 @@ export function vgm27Rows(ctx) {
     ["8*", "Maximum permissible weight of container as per the CSC plate", VGM_MAX],
     ["9*", "Weighbridge registration no. & Address of Weighbridge", VGM_BRIDGE.join("\n")],
     ["10*", "Weighing Method (Method-1 /Method-2)", "METHOD-2"],
-    /* The cargo's own weight is known; the container's tare is stamped on its
-       door and the sum of the two is what the weighbridge certifies, so the
-       line is printed for those two to be written in. */
-    ["11*", "Verified Gross Mass of the Container (with unit of measure KG / MT / LBS)",
-      `NT WT ${Number(gross || 0).toFixed(3)} + TARE WT __________ = VGM __________ KGS`],
+    /* The verified mass and the time of weighing come off the weighbridge
+       ticket, so both are left blank for it. */
+    ["11*", "Verified Gross Mass of the Container (with unit of measure KG / MT / LBS)", ""],
     ["12*", "Date and time of weighing", ""],
     ["13*", "Weighing Slip No.", ""],
     ["14", "Type (Normal/Reefer/Hazardous/FLAT RACK/OPEN TOP)", "NORMAL"],
@@ -4092,9 +4121,9 @@ export function ltb30Rows(ctx) {
   return [
     ...Array.from({ length: LTB_HEAD }, () => ({ cells: [[17, "", "-"]], lh: 1 })),
     /* Their own letter number runs in a series this system does not keep, so
-       the line is left for it as the reference on the letter to the CHA is. */
+       the line is left for it, and the date beside it, to be written in. */
     R([17, "", "-"]),
-    R([17, LETTER_DATE(s.blDate || ctx.inv.date), "- l"]),
+    R([17, "", "- l"]),
     GAP,
     R([17, `Messrs. ${b.brand || b.name || ""},`, "- l"]),
     ...[bAddr[0], bAddr[1], b.country ? `(${b.country})` : ""]
@@ -4104,7 +4133,7 @@ export function ltb30Rows(ctx) {
     R([3, "Kind Attn :", "-"], [14, "", "- l"]),
     GAP,
     R([2, "Ref :", "-"], [2, "Shipment of ", "-"], [1, String(sum(rows, "boxes")), "b c"],
-      [3, "Packages", "-"], [9, goods, "b"]),
+      [3, "Packages", "-"], [9, [packageSplit(rows), goods].filter(Boolean).join(" "), "b"]),
     /* The line the container sails with is not kept here either, so that box is
        ruled and left the way their own copy rules it. */
     R([1, "", "-"], [2, "per", "-"], [7, s.vessel || "", "b"], [1, "Ship of", "t"],
