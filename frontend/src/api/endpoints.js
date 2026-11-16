@@ -162,7 +162,10 @@ export const dashboard = {
    layout and the item sequence every list is read in. */
 export const options = {
   all: () => apiGet("/api/options"),
-  saveList: (key, values, renames) => apiPut(`/api/options/list/${encodeURIComponent(key)}`, { values, renames: renames || {} }),
+  // `modes` ({ entry: ["air", …] }) only for the lists that carry them; left
+  // out, every entry keeps the modes it had.
+  saveList: (key, values, renames, modes) => apiPut(`/api/options/list/${encodeURIComponent(key)}`,
+    { values, renames: renames || {}, ...(modes ? { modes } : {}) }),
   addBank: (b) => apiPost("/api/options/banks", b),
   updateBank: (id, b) => apiPut(`/api/options/banks/${encodeURIComponent(id)}`, b),
   removeBank: (id) => apiDelete(`/api/options/banks/${encodeURIComponent(id)}`),

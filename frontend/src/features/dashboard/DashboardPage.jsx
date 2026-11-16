@@ -6,6 +6,7 @@ import { useDashboardMatrix, useInvoices, useItems, useBuyers, useHiddenPoMutati
 import { dmy, num } from "../../lib/format.js";
 import { useIsMobile } from "../../lib/useIsMobile.js";
 import { INV_STATUS_TONE } from "../../lib/constants.js";
+import { carriageRef } from "../../lib/modes.js";
 
 /* Dashboard — the client's "Balance Orders, Boxes & Volume" sheet (doc 39),
    live: suppliers down the side, every open PO across the top, pending boxes
@@ -123,8 +124,8 @@ function InvoiceCards({ rows, brand, onOpen }) {
             <div className="dt-pair"><dt>Boxes</dt><dd className="r"><b>{boxes}</b></dd></div>
             <div className="dt-pair"><dt>Volume m³</dt><dd className="r">{num(volume, 3)}</dd></div>
             <div className="dt-pair">
-              <dt>Container</dt>
-              <dd className="r">{inv.ship?.container ? <Mono>{inv.ship.container}</Mono> : "—"}</dd>
+              <dt>Container / AWB</dt>
+              <dd className="r">{carriageRef(inv.ship) ? <Mono>{carriageRef(inv.ship)}</Mono> : "—"}</dd>
             </div>
             <div className="dt-pair">
               <dt>Status</dt>
@@ -356,7 +357,7 @@ export default function DashboardPage() {
               { key: "buyer", w: 150, label: "Buyer", render: (r) => brand(r.inv.buyer_id) },
               { key: "boxes", w: 78, label: "Boxes", align: "r", strong: true, render: (r) => r.boxes },
               { key: "vol", w: 106, label: "Volume m³", align: "r", render: (r) => num(r.volume, 3) },
-              { key: "container", label: "Container", render: (r) => r.inv.ship?.container ? <Mono>{r.inv.ship.container}</Mono> : <span style={{ color: "var(--faint)" }}>—</span> },
+              { key: "container", label: "Container / AWB", render: (r) => carriageRef(r.inv.ship) ? <Mono>{carriageRef(r.inv.ship)}</Mono> : <span style={{ color: "var(--faint)" }}>—</span> },
               { key: "status", label: "Status", render: (r) => <Pill tone={INV_STATUS_TONE[r.inv.status] || ""}>{r.inv.status}</Pill> },
             ]}
             rows={invRows} rowKey={(r) => r.inv.id}

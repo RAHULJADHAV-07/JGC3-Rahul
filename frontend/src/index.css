@@ -2446,6 +2446,28 @@ textarea {
   font-weight: 650;
   color: var(--ink);
 }
+/* On a phone the three step tiles share the width: the icon and the
+   done / skipped pill give way, and the label may wrap, rather than pushing
+   the dialog sideways. */
+@media (max-width: 640px) {
+  .wiz-steps {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+  }
+  .wiz-step {
+    min-width: 0;
+    padding: 8px 9px;
+    gap: 6px;
+  }
+  .wiz-step .wiz-ic,
+  .wiz-step .pill {
+    display: none;
+  }
+  .wiz-s {
+    font-size: 12px;
+    overflow-wrap: anywhere;
+  }
+}
 .wiz-card {
   border: 1px solid var(--border);
   border-radius: var(--r-md, 10px);
@@ -3932,6 +3954,74 @@ textarea {
   overflow-wrap: anywhere;
   font-weight: 550;
 }
+/* Water / Air / Land beside a port or a term (Setup → Additional settings). */
+.opt-modes {
+  display: inline-flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.mode-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--border-2);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.mode-chip.on {
+  border-color: var(--teal, #0f766e);
+  background: var(--teal-bg, rgba(15, 118, 110, 0.1));
+  color: var(--teal-ink, #0f766e);
+}
+.mode-chip:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+/* The chip being saved stays bright and turns; the others wait, dimmed. */
+.mode-chip.saving,
+.mode-chip.saving:disabled {
+  opacity: 1;
+  cursor: progress;
+}
+/* "Saving…" in a Setup card's head while one of its changes is on its way. */
+.opt-saving {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 550;
+  color: var(--teal-ink);
+}
+@media (prefers-reduced-motion: reduce) {
+  .opt-saving .spin,
+  .mode-chip .spin {
+    animation-duration: 2.4s;
+  }
+}
+.mode-chip:focus-visible {
+  outline: 2px solid var(--teal, #0f766e);
+  outline-offset: 1px;
+}
+.opt-mode-ask {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.opt-unset {
+  color: var(--amber-ink);
+  font-weight: 500;
+  font-size: 12px;
+}
 .opt-empty {
   padding: 14px;
   text-align: center;
@@ -4097,6 +4187,12 @@ textarea {
   overflow-wrap: anywhere;
 }
 @media (max-width: 640px) {
+  .opt-item.has-modes {
+    flex-wrap: wrap;
+  }
+  .opt-item.has-modes .opt-text {
+    flex: 1 1 100%;
+  }
   .opt-add {
     flex-wrap: wrap;
   }
@@ -4205,3 +4301,37 @@ textarea {
 /* The brand keeps the same width folded and unfolded (the wordmark only
    comes back below 900px, where the bar is always folded) — otherwise the
    measurement that decides between the two would chase its own tail. */
+
+/* The papers a shipment of one mode needs (shipment wizard, step 3). */
+.mode-docs-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(210px, 100%), 1fr));
+  gap: 6px;
+}
+.mode-doc {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+.mode-doc:hover {
+  border-color: var(--teal);
+  color: var(--teal-ink);
+}
+.mode-doc:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 1px;
+}
+.mode-doc svg {
+  color: var(--faint);
+  flex-shrink: 0;
+}

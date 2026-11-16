@@ -30,6 +30,8 @@ def all_options(db: Session = Depends(get_db)):
     out["item_sequence"] = options.get_sequence(db)
     out["item_groups"] = options.get_groups(db)
     out["labels"] = {key: label for key, (label, _) in options.LISTS.items()}
+    # Which modes of transport each port / term serves (Setup ticks them).
+    out["modes"] = {key: options.get_modes(db, key) for key in options.MODE_LISTS}
     return out
 
 
@@ -40,13 +42,19 @@ class ListBody(BaseModel):
     # { old spelling: new spelling } — an entry corrected rather than replaced,
     # so what already picked it can follow.
     renames: dict[str, str] = {}
+    # { entry: ["air", "water", "land"] } — the modes each port or term serves.
+    # Left out, every entry keeps the modes it had.
+    modes: dict[str, list[str]] | None = None
 
 
 @router.put("/list/{key}", dependencies=[Depends(_write)])
 def save_list(key: str, body: ListBody, db: Session = Depends(get_db)):
     if key not in options.LISTS:
         raise HTTPException(404, "No such list")
-    return {"key": key, "values": options.save_list(db, key, body.values, body.renames)}
+    if body.modes is not None and key not in options.MODE_LISTS:
+        raise HTTPException(400, "This list has no modes of transport")
+    values = options.save_list(db, key, body.values, body.renames, body.modes)
+    return {"key": key, "values": values, "modes": options.get_modes(db, key)}
 
 
 # ---------- banks ----------

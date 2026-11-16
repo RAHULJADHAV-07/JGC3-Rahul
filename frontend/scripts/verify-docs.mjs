@@ -302,6 +302,89 @@ group("A4 declarations", () => {
 for (const no of ["13", "14", "15", "16"]) check("A4 declarations", `doc ${no} is set as a full A4 page`, /class="(evd|dl just) a4"/.test(html(no)));
 });
 
+// 8 · by air (V-7.5.0) — Docs/JG_Air_Docs
+const AIR = JSON.parse(JSON.stringify(D));
+AIR.invoices[1].ship = {
+  ...AIR.invoices[1].ship, mode: "air", awbNo: "232-19269504", awbDate: "2026-11-09", airline: "Malaysia Airlines",
+  flights: [{ no: "MH195", date: "2026-11-11" }, { no: "MH 127", date: "2026-11-13" }], terms: "CFR PERTH", freight: "352.50",
+  skids: "2", skidWt: "16.6", dims: "40 X 40 X 40 CMS", pol: "SAHAR AIR CARGO, MUMBAI (INDIA)", pod: "PERTH",
+  // Left over from a sea draft of the same invoice: none of it may print by air.
+  container: "OOCU0793142", seal: "SEAL-LEFTOVER", blNo: "BL-LEFTOVER", vessel: "VESSEL-LEFTOVER",
+};
+const airCtx = ctxOf(AIR);
+const M = await server.ssrLoadModule("/src/lib/modes.js");
+group("Air mode", () => {
+  const A = "Air mode";
+  const t = (no) => text(html(no, airCtx));
+  const total = C.L(airCtx).reduce((n, r) => n + r.fobTotal, 0);
+  const gross = C.L(airCtx).reduce((n, r) => n + r.grossTotal, 0);
+  const per = "MALAYSIA AIRLINES MH195 DT 11.11.2026, MH 127 DT 13.11.2026";
+  const leftovers = (x) => !/OOCU0793142|SEAL-LEFTOVER|BL-LEFTOVER|VESSEL-LEFTOVER/.test(x);
+  const t18 = t("18"), t31 = t("31"), t19 = t("19"), t21 = t("21"), t30 = t("30");
+  check(A, "18: AWB No. with its date", t18.includes("AWB No. 232-19269504 DT 09.11.2026") && !t18.includes("BL. NO."));
+  check(A, "18: shipped per the airline and every flight", t18.includes(per));
+  check(A, "18: priced on the terms sold (CFR PERTH), totals named so", t18.includes("CFR PERTH IN US$") && t18.includes("CFR PERTH IN INR") && t18.includes("Total CFR PERTH Value"));
+  check(A, "18: skids on the packages line", t18.includes("(02 SKIDS) CONTAINING"));
+  check(A, "18: skid and total weights in the margin", t18.includes("Skid Wt") && t18.includes("16.600") && t18.includes((gross + 16.6).toFixed(3)), (gross + 16.6).toFixed(3));
+  check(A, "18: approx freight and FOB = CFR − freight", t18.includes("Approx Freight $352.50") && t18.includes(`Approx FOB Value $${(total - 352.5).toFixed(2)}`), `${total}`);
+  check(A, "18: no container, seal, BL or vessel", leftovers(t18) && !t18.includes("Container No.") && !t18.includes("Seal No."));
+  const x18 = cells("18", airCtx);
+  check(A, "18 Excel: AWB No. and the CFR total", x18.includes("AWB No.") && x18.includes("Total CFR PERTH Value :") && x18.includes("Approx Freight") && !x18.includes("Container No."));
+  check(A, "18 annexure: CFR per piece", t18.includes("CFR / PC US$") || t18.includes("CFR / 100 PCS US$"));
+  check(A, "31: AWB, flights, CFR, freight and no container", t31.includes("AWB No. 232-19269504") && t31.includes(per) && t31.includes("CFR PERTH IN US$") && t31.includes("Approx FOB Value") && leftovers(t31) && !t31.includes("Container No."));
+  check(A, "19: AWB NO and shipped per", t19.includes("AWB NO : 232-19269504 DT 09.11.2026") && t19.includes(`Shipped per : ${per}`));
+  check(A, "19: no container or seal box", !t19.includes("CONTAINER NO") && !t19.includes("SEAL NO") && leftovers(t19));
+  check(A, "19: weight of the skids and the total weight", t19.includes("WEIGHT OF 2 SKIDS") && t19.includes(`TOTAL WEIGHT….. ${(gross + 16.6).toFixed(3)}`));
+  const x19 = cells("19", airCtx);
+  check(A, "19 Excel: the skid rows", x19.includes("WEIGHT OF 2 SKIDS") && x19.includes("TOTAL WEIGHT….."));
+  check(A, "21: airline, flights, AWB and its date", t21.includes(`Air Lines MALAYSIA AIRLINES Flight Number MH195 DT 11.11.2026, MH 127 DT 13.11.2026`) && t21.includes("AWB Number 232-19269504 Date 09.11.2026"));
+  check(A, "21: skids are timber, ISPM 15 YES", /Yes Timber X/.test(t21) && /ISPM 15\? YES/.test(t21) && !t21.includes("Vessel Name") && leftovers(t21));
+  check(A, "33: the buyer's copy follows", text(html("33", airCtx)).includes("AWB Number 232-19269504"));
+  check(A, "30: per the airline, its flights; AWB; freight certificate", t30.includes("per Malaysia Airlines Flight No MH195 DT 11.11.2026") && t30.includes("AWB No. 232-19269504 Dt 09.11.2026") && t30.includes("Freight Certificate") && !t30.includes("Container Weight Declaration"));
+  check(A, "30: FOB + freight = CFR", t30.includes(`US$ 352.50 FREIGHT CHARGES = US$ ${C.usd(total).slice(1)} TOTAL CFR PERTH VALUE`));
+  check(A, "14: SCOMET to customs at the air cargo complex", t("14").includes("Export Department, Air Cargo Complex") && t("14").includes("Scomet Declaration"));
+  check(A, "11: delivered to the air forwarder at Saki Naka", t("11").includes("Saki Naka (Door Delivery)") && t("11").includes("Modern Cargo Services") && t("11").includes("DESPATCH DATE: Immediate"));
+  check(A, "10: e-way ships to the air forwarder", t("10").includes("Modern Cargo Services") && !t("10").includes("ALL CARGO TERMINALS"));
+  check(A, "17: air freight prepaid", t("17").includes("AIR FREIGHT PREPAID"));
+  check(A, "22: the letter goes to the air forwarder, airline in place of the vessel", t("22").includes("Modern Cargo Services") && t("22").includes("Airline / Flight") && !t("22").includes("Velji"));
+  check(A, "40: the AWB in the transport document details", t("40").includes("232-19269504"));
+  check(A, "by sea, 22 still goes to Velji Dosabhai", text(html("22")).includes("Velji Dosabhai"));
+  const t26a = t("26A");
+  check(A, "26A: airline and flights, dimensions, skids, freight prepaid", t26a.includes(`AIRLINE NAME AND FLIGHT NUMBER PLACE OF RECEIPT : ${per}`) && t26a.includes("40 X 40 X 40 CMS") && t26a.includes("NO OF SKIDS") && /PREPAID/.test(t26a));
+  check(A, "26A: the HS code table", /HS CODE DESCRIPTION PACKAGES GROSS WEIGHT TOTAL CBM/.test(t26a) && cells("26A", airCtx).includes("Grand Total"));
+  check(A, "16A: origin declared against the invoice", t("16A").includes("Invoice No. DEMO/2 DATED 01-JUNE-2026 are wholly obtained Indian origin"));
+  Object.keys(docs.DOC_META).forEach((no) => {
+    if (docs.isPoDoc(no)) return;
+    try { const h = html(no, airCtx); if (/Preview unavailable/.test(h)) throw new Error(text(h)); parts(no, airCtx); }
+    catch (e) { check(A, `doc ${no} renders by air`, false, e.message); }
+  });
+  check(A, "every invoice paper renders by air", true);
+  // The sea papers are untouched by any of it.
+  const s18 = text(html("18"));
+  check(A, "by sea, 18 still reads BL / vessel / container / FOB MUMBAI", s18.includes("BL. NO.") && s18.includes("FOB MUMBAI IN US$") && s18.includes("Container No.") && s18.includes("Total FOB Mumbai Value"));
+  check(A, "by sea, 19 and 21 keep the container", text(html("19")).includes("CONTAINER NO") && text(html("21")).includes("Vessel Name"));
+  check(A, "by sea, 30 lists the CWD and asks for the remittance date", text(html("30")).includes("Container Weight Declaration") && text(html("30")).includes("Kindly arrange the remittance"));
+  check(A, "an air invoice sold FOB keeps the FOB value box", (() => {
+    const fob = JSON.parse(JSON.stringify(AIR)); fob.invoices[1].ship.terms = "FOB MUMBAI";
+    const f = text(html("18", ctxOf(fob)));
+    return f.includes("FOB VALUE") && f.includes("Payable at") && !f.includes("Approx Freight");
+  })());
+  // Security: whatever is typed on the air shipment prints as text, never as markup.
+  const XSS = JSON.parse(JSON.stringify(AIR));
+  const bad = '<img src=x onerror="alert(1)">';
+  Object.assign(XSS.invoices[1].ship, { airline: bad, awbNo: bad, terms: `CFR ${bad}`, pol: bad, pod: bad, dims: bad, awbType: bad,
+    notify2: bad, deliveryPlace: bad, flights: [{ no: bad, date: "2026-11-11" }], freight: "1e9", skids: "<b>2</b>", skidWt: "x" });
+  const xc = ctxOf(XSS);
+  const leaks = Object.keys(docs.DOC_META).filter((no) => !docs.isPoDoc(no)).filter((no) => {
+    try { return /<img src=x/i.test(html(no, xc)); } catch { return false; }
+  });
+  check(A, "typed markup is escaped on every air paper", leaks.length === 0, leaks.join(", "));
+  check(A, "nonsense numbers do not break the papers", ["18", "19", "26A", "30", "31"].every((no) => !/NaN|undefined/.test(text(html(no, xc)))),
+    ["18", "19", "26A", "30", "31"].filter((no) => /NaN|undefined/.test(text(html(no, xc)))).join(", "));
+  check(A, "the air set leaves out the container papers", M.docsForMode(Object.keys(docs.DOC_META), "air").every((no) => !["24", "26", "27", "34"].includes(no)));
+  check(A, "the air set has the AWB instructions and the origin declaration", ["16A", "26A"].every((no) => docs.DOC_META[no] && M.docInMode(no, "air") && !M.docInMode(no, "water")));
+});
+
 /* ---- write the papers out ---------------------------------------------------- */
 fs.rmSync(OUT, { recursive: true, force: true });
 fs.mkdirSync(OUT, { recursive: true });
@@ -325,19 +408,22 @@ const AUDIT = `<script>addEventListener("load", () => setTimeout(() => {
 }, 300));</script>`;
 
 const NOS = ["7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29"];
+// The air papers, laid out from the air demo (V-7.5.0).
+const AIR_NOS = ["10", "11", "14", "16A", "17", "18", "19", "21", "22", "26A", "30", "31", "33"];
 const written = [];
-for (const no of NOS) {
+for (const [no, c, tag] of [...NOS.map((n) => [n, ctx, ""]), ...AIR_NOS.map((n) => [n, airCtx, "air-"])]) {
+  const key = `${tag}${no}`;
   let ps;
-  try { ps = parts(no); } catch (e) { check("Renders", `doc ${no} renders`, false, e.message); continue; }
-  check("Renders", `doc ${no} renders`, ps.length && ps.every((p) => p.html && p.html.length > 200));
+  try { ps = parts(no, c); } catch (e) { check("Renders", `doc ${key} renders`, false, e.message); continue; }
+  check("Renders", `doc ${key} renders`, ps.length && ps.every((p) => p.html && p.html.length > 200));
   const orient = ps.every((p) => p.page === "portrait") ? "portrait" : "landscape";
-  fs.writeFileSync(path.join(OUT, `preview-${no}.html`), `<!doctype html><html><head><meta charset="utf-8"><title>${no} · ${docs.DOC_META[no]} — preview</title>
+  fs.writeFileSync(path.join(OUT, `preview-${key}.html`), `<!doctype html><html><head><meta charset="utf-8"><title>${key} · ${docs.DOC_META[no]} — preview</title>
     <style>body{margin:0;padding:18px;background:#e8edf2} ${docs.PREVIEW_CSS} ${PAPER}</style></head>
-    <body><div class="docprev docprev-paper">${html(no)}</div>${FIT}${AUDIT}</body></html>`);
-  fs.writeFileSync(path.join(OUT, `print-${no}.html`), `<!doctype html><html><head><meta charset="utf-8"><title>${no} · ${docs.DOC_META[no]} — PDF</title>
+    <body><div class="docprev docprev-paper">${html(no, c)}</div>${FIT}${AUDIT}</body></html>`);
+  fs.writeFileSync(path.join(OUT, `print-${key}.html`), `<!doctype html><html><head><meta charset="utf-8"><title>${key} · ${docs.DOC_META[no]} — PDF</title>
     <style>@page { size: A4 ${orient}; margin: 0; }${PRINT}</style></head>
     <body>${ps.map((p) => `<div class="jg-doc">${p.html}</div>`).join("")}<script>window.__orient="${orient}"</script>${FIT}${AUDIT}</body></html>`);
-  written.push({ no, orient });
+  written.push({ no: key, doc: no, orient });
 }
 
 /* ---- the layout, in a real browser, if there is one --------------------------- */
@@ -361,7 +447,7 @@ if (!chrome) {
     if (fs.existsSync(pdf)) {
       const n = pdfPages(pdf);
       written.find((x) => x.no === no).pages = n;
-      if (["13", "14", "15", "16", "21", "22", "23", "24", "26", "27", "29"].includes(no)) check("Layout · PDF", `doc ${no}: one A4 page`, n === 1, `${n} page(s)`);
+      if (["13", "14", "15", "16", "21", "22", "23", "24", "26", "27", "29", "air-14", "air-16A", "air-21", "air-22", "air-26A"].includes(no)) check("Layout · PDF", `doc ${no}: one A4 page`, n === 1, `${n} page(s)`);
     }
   }
 }
@@ -381,7 +467,7 @@ td,th{border:1px solid #d9e1ea;padding:6px 10px;text-align:left;vertical-align:t
 <table><tr><th>Area</th><th>Check</th><th>Result</th></tr>
 ${[...results].sort((a, b) => [...new Set(results.map((r) => r.area))].indexOf(a.area) - [...new Set(results.map((r) => r.area))].indexOf(b.area)).map((r) => `<tr><td>${esc(r.area)}</td><td>${esc(r.what)}${r.detail ? `<div class="d">${esc(r.detail)}</div>` : ""}</td><td class="${r.ok ? "ok" : "no"}">${r.ok ? "PASS" : "FAIL"}</td></tr>`).join("")}</table>
 <h2>Look through them yourself</h2><div class="docs">
-${written.map((w) => `<a href="preview-${w.no}.html">${w.no} · ${esc(docs.DOC_META[w.no] || "")} — preview</a>
+${written.map((w) => `<a href="preview-${w.no}.html">${w.no} · ${esc(docs.DOC_META[w.doc] || "")} — preview</a>
   ${fs.existsSync(path.join(OUT, `doc-${w.no}.pdf`)) ? `<a href="doc-${w.no}.pdf">${w.no} · PDF (${w.pages} page${w.pages === 1 ? "" : "s"})</a>` : `<a href="print-${w.no}.html">${w.no} · print layout</a>`}`).join("")}
 </div></body></html>`);
 

@@ -14,6 +14,7 @@
 import { ADDR_ASPECT, LOGO_SRC, imgTag, logoImage, primeLogo } from "../logo.js";
 import { colLetter } from "../xlsx.js";
 import { boreMm } from "../sequence.js";
+import { shipMode, flightLegs } from "../modes.js";
 
 // The supplier order prints on the letterhead, so the mark is fetched up front.
 primeLogo();
@@ -114,6 +115,72 @@ export function fobPerPiece(it) {
 
 /* ---- shared derived data ---- */
 export function exRate(ctx) { return Number(ctx.inv.ship?.exRate) || 92.5; }
+
+/* ---- by air ----------------------------------------------------------------
+   An air consignment (ship.mode "air", Docs/JG_Air_Docs) prints on the same
+   papers as a sea one, with the air waybill where the bill of lading was, the
+   airline and its flights where the vessel was, no container or seal, the skids
+   it is strapped to, and — when it is sold CFR rather than FOB — the freight
+   that comes off the invoice value to leave the FOB. `airOf` is null for a sea
+   (or land) shipment, so every paper keeps its sea wording untouched there. */
+export function airOf(ctx) {
+  const s = ctx?.inv?.ship || {};
+  if (shipMode(s) !== "air") return null;
+  const legs = flightLegs(s).map((f) => ({ no: String(f.no).trim().toUpperCase(), date: f.date || "" }));
+  const flights = legs.map((f) => `${f.no}${f.date ? ` DT ${ddmm(f.date)}` : ""}`).join(", ");
+  const airline = String(s.airline || "").trim().toUpperCase();
+  const terms = String(s.terms || "").trim().toUpperCase() || "FOB MUMBAI";
+  const skids = Math.max(0, Math.round(Number(s.skids) || 0));
+  return {
+    awbNo: String(s.awbNo || "").trim(), awbDate: s.awbDate || "",
+    awb: s.awbNo ? `${String(s.awbNo).trim()}${s.awbDate ? ` DT ${ddmm(s.awbDate)}` : ""}` : "",
+    airline, legs, flights,
+    flightNos: legs.map((f) => f.no).join(", "),
+    // "MALAYSIA AIRLINES MH195 DT 11.11.2026, MH 127 DT 13.11.2026"
+    shippedPer: [airline, flights].filter(Boolean).join(" "),
+    terms,
+    incoterm: terms.split(/\s+/)[0] || "FOB",
+    fob: /^FOB\b/.test(terms),
+    skids,
+    skidsText: skids ? `(${String(skids).padStart(2, "0")} SKID${skids === 1 ? "" : "S"})` : "",
+    skidWt: Number(s.skidWt) || 0,
+    freight: Number(s.freight) || 0,
+    freightTerms: String(s.freightTerms || "PREPAID").toUpperCase(),
+    dims: String(s.dims || "").toUpperCase(),
+    deliveryPlace: String(s.deliveryPlace || "").toUpperCase(),
+  };
+}
+
+/* What an air invoice states down the margin of its second page (18, 31), each
+   as [line of the frame, value, kind]: the weights with the skids added, then
+   either the approximate freight and the FOB that leaves (CFR / CIF terms) or
+   the sea copy's "freight payable at destination" (FOB terms). `inr` adds the
+   rupee figures under the dollars, as the customs copy prints them. */
+export function airMargin(ctx, rows, totalUsd, { inr: withInr = true } = {}) {
+  const a = airOf(ctx);
+  if (!a) return [];
+  const s = ctx.inv.ship || {};
+  const net = Number(s.netWt) || sum(rows, "netTotal");
+  const gross = Number(s.grossWt) || sum(rows, "grossTotal");
+  const out = [
+    [5, "Nett Wt.", "lbl"], [6, net, "wt"], [7, "KGS", "txt"],
+    [12, "Gross Wt", "lbl"], [13, gross, "wt"], [14, "KGS", "txt"],
+  ];
+  if (a.skidWt) {
+    out.push([19, "Skid Wt", "lbl"], [20, a.skidWt, "wt"], [21, "KGS", "txt"],
+      [26, "Total Wt", "lbl"], [27, gross + a.skidWt, "wt"], [28, "KGS", "txt"]);
+  }
+  if (a.fob) {
+    out.push([33, "Freight", "lbl"], [34, "Payable at", "lbl"], [35, "Destination", "lbl"]);
+  } else if (a.freight) {
+    const ex = exRate(ctx);
+    out.push([33, "Approx Freight", "lbl"], [34, a.freight, "usd"]);
+    if (withInr) out.push([35, a.freight * ex, "inr"]);
+    out.push([40, "Approx FOB Value", "lbl"], [41, totalUsd - a.freight, "usd"]);
+    if (withInr) out.push([42, (totalUsd - a.freight) * ex, "inr"]);
+  }
+  return out;
+}
 
 export function marksStart(ctx) { const m = (ctx.inv.ship?.marks || "").match(/(\d{3,})/); return m ? Number(m[1]) : 2001; }
 
@@ -315,9 +382,15 @@ export function masthead(ctx, docTitle, opts = {}) {
     ["Buyer's Order No.", `${b.orderNo || "—"}`],
     opts.po ? ["PO No(s).", poHeaderList(ctx)] : null,
     ["IEC", ctx.EXPORTER.iec],
-    s.blNo ? ["BL No.", `${s.blNo} DT ${ddmm(s.blDate)}`] : null,
-    s.sbNo ? ["S/B No.", `${s.sbNo} DT ${ddmm(s.sbDate)}`] : null,
-    s.vessel ? ["Shipped per", s.vessel] : null,
+    ...(airOf(ctx) ? [
+      airOf(ctx).awb ? ["AWB No.", airOf(ctx).awb] : null,
+      s.sbNo ? ["S/B No.", `${s.sbNo} DT ${ddmm(s.sbDate)}`] : null,
+      airOf(ctx).shippedPer ? ["Shipped per", airOf(ctx).shippedPer] : null,
+    ] : [
+      s.blNo ? ["BL No.", `${s.blNo} DT ${ddmm(s.blDate)}`] : null,
+      s.sbNo ? ["S/B No.", `${s.sbNo} DT ${ddmm(s.sbDate)}`] : null,
+      s.vessel ? ["Shipped per", s.vessel] : null,
+    ]),
     ["Country of Origin", ctx.EXPORTER.origin],
     ["Final Destination", s.finalDest || b.country],
   ].filter(Boolean);
@@ -1234,6 +1307,14 @@ export const EW_SHIP_TO = {
   place: "Village Khopta", pin: "410206", state: "MAHARASHTRA",
 };
 
+/* By air the goods go to the air forwarder's warehouse at Andheri instead of
+   the CFS at JNPT (Docs/JG_Air_Docs/E Way Bill - Format.pdf). */
+export const AIR_EW_SHIP_TO = {
+  name: "M/s. Modern Cargo Services Pvt Ltd", addr: "Bapa House, 14, Samhita Warehousing Complex",
+  place: "Andheri Kurla Road, Andheri East, Mumbai", pin: "400072", state: "MAHARASHTRA",
+};
+export const ewShipTo = (ctx) => (airOf(ctx) ? AIR_EW_SHIP_TO : EW_SHIP_TO);
+
 /* The value that turns up most often in a set of lines — what a paper that
    describes a whole consignment in one line has to print for it. */
 export const commonOf = (arr, pick) => {
@@ -1306,7 +1387,7 @@ export function eway10Block(ctx, sid, arr) {
     sAddr1, sAddr2, sp.place, sp.pin, sp.state || "DAMAN AND DIU")}
       <tr class="gap"><td colspan="5"></td></tr>
       ${party("Bill To", "Ship To", ctx.EXPORTER.name, ctx.EXPORTER.gstin, "MAHARASHTRA",
-    EW_SHIP_TO.name, EW_SHIP_TO.addr, EW_SHIP_TO.place, EW_SHIP_TO.pin, EW_SHIP_TO.state)}
+    ewShipTo(ctx).name, ewShipTo(ctx).addr, ewShipTo(ctx).place, ewShipTo(ctx).pin, ewShipTo(ctx).state)}
     </table>
 
     <div class="lbl">Item Details</div>
@@ -1415,8 +1496,8 @@ export function eway10Sheet(ctx, sid, arr) {
   gap(9);
   party("Bill To", "Ship To", {
     name: ctx.EXPORTER.name, gstin: ctx.EXPORTER.gstin, state: "MAHARASHTRA",
-    addr1: EW_SHIP_TO.name, addr2: EW_SHIP_TO.addr, place: EW_SHIP_TO.place,
-    pin: EW_SHIP_TO.pin, pinState: EW_SHIP_TO.state,
+    addr1: ewShipTo(ctx).name, addr2: ewShipTo(ctx).addr, place: ewShipTo(ctx).place,
+    pin: ewShipTo(ctx).pin, pinState: ewShipTo(ctx).state,
   });
   gap();
 
@@ -1500,6 +1581,32 @@ export const CFS = {
   contacts: "Mr Ganpat Shinde Mobile: 9867873029 / Mr Gorakh Mobile: 9321349118 / Mr. Khandu Mobile : 7498802940",
 };
 
+/* By air (Docs/JG_Air_Docs/Despatch Instruction.pdf) the goods go to the air
+   forwarder's warehouse at Andheri, booked door to door with the transporter
+   named for the supplier, freight to pay, the original invoice to us. */
+export const AIR_CFS = {
+  agent: "Modern Cargo Services Pvt Ltd",
+  delivery: "Saki Naka",
+  lines: ["Bapa House,", "14, Samhita Warehousing Complex,", "Andheri Kurla Road, Andheri East,",
+    "Mumbai-400 072", "State : Maharashtra", "Tel : 09869879138", "Contact Person : Mr Borhade"],
+};
+
+export function airDespatchSteps(ctx, sid) {
+  const E = ctx.EXPORTER;
+  const named = String(transportInfo(ctx, sid)?.name || "").trim();
+  const carrier = named === "—" ? "" : named;
+  return [
+    `Cargo to be booked through ${carrier || "the transporter advised by us"} only`,
+    `Book the consignment for delivery at ${AIR_CFS.delivery} (Door Delivery)`,
+    "Freight will be on TO PAY BASIS (PLEASE SEND US COPY OF LR SHOWING THE TOTAL FREIGHT BY E-MAIL ENABLING US TO ARRANGE THE PAYMENT TO TRANSPORT)",
+    `Lorry receipt to be made In the name of ${E.name} a/c. M/s. ${AIR_CFS.agent} Mumbai.`,
+    "L/R to show goods for export",
+    ["Goods to be delivered at:", `Messrs ${AIR_CFS.agent},`, ...AIR_CFS.lines],
+    "ORIGINAL INVOICE TO BE FORWARDED TO US. DUPLICATE INVOICE TO BE SENT WITH THE TRANSPORTER.",
+  ];
+}
+export const AIR_DESPATCH_CLOSE = "We hope the matter is clear and awaiting your early response. Upon dispatch of the goods send us your Invoice; Packing List & Lorry receipt photo copy to us through courier.";
+
 export const LETTER_DAY = (s) => {
   if (!s) return "";
   const d = new Date(s);
@@ -1556,6 +1663,7 @@ export function letterSignRows(G, ctx, E) {
 }
 
 export function despatch11Block(ctx, sid, arr) {
+  if (airOf(ctx)) return despatch11AirBlock(ctx, sid);
   const sp = supFor(ctx, sid);
   const E = ctx.EXPORTER;
   const [addr1, addr2] = ewAddr(sp.addr);
@@ -1662,7 +1770,75 @@ export function letterSheet(name, G, widths) {
   }, { widen: false });
 }
 
+/* The addressee block both forms of the letter open with. */
+function despatchTo(sp) {
+  const [addr1, addr2] = ewAddr(sp.addr);
+  const place = String(sp.place || "");
+  const named = place && addr2.toLowerCase().includes(place.toLowerCase());
+  return [`Messrs. ${sp.name || ""},`, addr1,
+    [addr2, named ? "" : place, sp.pin].filter(Boolean).join(" ").replace(/\s+/g, " ")].filter(Boolean);
+}
+
+export function despatch11AirBlock(ctx, sid) {
+  const E = ctx.EXPORTER;
+  const step = (n, body) => `<tr><td class="n">${n}.</td><td>${body}</td></tr>`;
+  return `<div class="dl">
+    ${letterheadBlock(E)}
+    <div class="ref">${esc(letterRef(ctx))}<br>${esc(LETTER_DATE(ctx.inv.date))}</div>
+    <p class="to">${despatchTo(supFor(ctx, sid)).map(esc).join("<br>")}</p>
+    <p class="refline"><span class="k">Ref:</span>&nbsp;&nbsp;&nbsp;Urgent Requirement PO NO. ${esc(poBannerList(ctx))}</p>
+    <p>Dear Sir,</p>
+    <p class="b">DESPATCH DATE: Immediate</p>
+    <p>With reference to the above, we give hereunder the dispatch instructions:</p>
+    <table class="ins">
+      ${airDespatchSteps(ctx, sid).map((t, i) => step(i + 1, Array.isArray(t) ? t.map(esc).join("<br>") : esc(t))).join("")}
+    </table>
+    <p>${esc(AIR_DESPATCH_CLOSE)}</p>
+    <p>Thanking you,</p>
+    <p>Yours faithfully,<br>For ${esc(E.name)},</p>
+    <p class="sign">${esc(SIGNATORY.replace(/^Mr\s+/, "").replace(/\s+M\s+/, " "))}</p>
+    ${letterFootBlock(E)}
+  </div>`;
+}
+
+export function despatch11AirSheet(ctx, sid) {
+  const E = ctx.EXPORTER;
+  const G = formGrid(6);
+  const { row, gap } = G;
+  const line = (text, st = DL.body) => row([[6, { v: text, s: st }]]);
+  letterheadRows(G, E);
+  line(letterRef(ctx));
+  line(LETTER_DATE(ctx.inv.date));
+  gap();
+  despatchTo(supFor(ctx, sid)).forEach((l) => line(l));
+  gap();
+  row([[1, { v: "Ref:", s: DL.key }], [5, { v: `Urgent Requirement PO NO. ${poBannerList(ctx)}`, s: DL.body }]]);
+  gap();
+  line("Dear Sir,");
+  gap();
+  line("DESPATCH DATE: Immediate", DL.b);
+  gap();
+  line("With reference to the above, we give hereunder the dispatch instructions:");
+  gap();
+  airDespatchSteps(ctx, sid).forEach((t, i) => row([[1, { v: `${i + 1}.`, s: DL.n }],
+    [5, { v: Array.isArray(t) ? t.join("\n") : t, s: DL.body }]]));
+  gap();
+  line(AIR_DESPATCH_CLOSE);
+  gap();
+  line("Thanking you,");
+  gap();
+  line("Yours faithfully,");
+  line(`For ${E.name},`);
+  gap(18);
+  gap(18);
+  line(SIGNATORY.replace(/^Mr\s+/, "").replace(/\s+M\s+/, " "));
+  gap();
+  letterFootRows(G, E);
+  return letterSheet("Despatch", G);
+}
+
 export function despatch11Sheet(ctx, sid, arr) {
+  if (airOf(ctx)) return despatch11AirSheet(ctx, sid);
   const sp = supFor(ctx, sid);
   const E = ctx.EXPORTER;
   const [addr1, addr2] = ewAddr(sp.addr);
@@ -1873,6 +2049,37 @@ export const SCOMET_TERMS = [
 ];
 
 export const scometRef = (ctx) => `${ctx.inv.invoiceNo} Dt ${ddmm(ctx.inv.date)}`;
+
+/* By air the declaration is a letter to customs at the air cargo complex
+   (Docs/JG_Air_Docs/Scomet Declaration.pdf) rather than the undertaking. */
+export const AIR_CUSTOMS = ["The Deputy Commissioner of Customs,", "Export Department, Air Cargo Complex",
+  "Andheri, Mumbai–400099."];
+export function scometAirText(ctx) {
+  const E = ctx.EXPORTER, b = ctx.buyer;
+  const goods = packingGoods(packingBands(ctx)) || "the goods";
+  const use = String(b.tagline || "").trim() || "Plumbing & Irrigation";
+  const who = [b.name, b.brand && `T/A ${b.brand}`].filter(Boolean).join(" ");
+  return {
+    lead: `We ${E.name} are exporting ${goods} against Invoice No ${scometRef(ctx)} which is going to be used in ${use}${b.country ? ` in ${b.country}` : ""} to our customer M/s ${who}.`,
+    declare: "We hereby declare that these contents do not fall under Scomet List (SPECIAL CHEMICALS, ORGANISMS, MATERIALS, EQUIPMENT AND TECHNOLOGIES).",
+    endUse: "The product is part of Plastic Industry for Irrigation & Construction use.",
+  };
+}
+
+/* 16A · Declaration of origin — what an Australian buyer's customs asks of an
+   Indian-origin consignment (Docs/JG_Air_Docs/Australia Declaration.pdf). */
+export const ORIGIN_TERMS = [
+  "There Are no imported / undetermined origin raw material / non – originating materials used in the production of the good used in the manufacture of the product.",
+  "All costs shall be recorded and maintained in accordance with the generally Accepted Accounting Principles applicable in the party where the goods are produced.",
+  "We undertake to make available any supporting documents to The DGFT to confirm the origin status of the product whenever required.",
+];
+const MONTHS = ["JANUARY", "FEBRUARY", "MARCH", "APRIL", "MAY", "JUNE", "JULY", "AUGUST", "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER"];
+export const longDate = (v) => {
+  if (!v) return "";
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? "" : `${String(d.getDate()).padStart(2, "0")}-${MONTHS[d.getMonth()]}-${d.getFullYear()}`;
+};
+export const originLead = (ctx) => `We hereby declare that goods covered under our Invoice No. ${ctx.inv.invoiceNo || ""} DATED ${longDate(ctx.inv.date)} are wholly obtained Indian origin manufactured using indigenous raw material / components only.`;
 
 /* Doc 15 · SDF declaration — against 15-SDF Declaration.pdf. The customs SDF,
    on the letterhead: what is declared, what is enclosed and against which of
@@ -2943,10 +3150,13 @@ export function packagesMade(rows) {
    typed does not itself say cartons or bundles, the split is added after it. */
 export function packagesText(ctx, rows) {
   const typed = String(ctx.inv.ship?.pkgs || "").trim();
-  if (!typed) return packagesMade(rows);
-  if (/carton|ctn|bundle|bdl/i.test(typed)) return typed;
+  // By air the cartons travel strapped to skids, and the papers say how many.
+  const skids = airOf(ctx)?.skidsText || "";
+  const withSkids = (t) => (skids && !/skid|pallet/i.test(t) ? `${t} ${skids}` : t);
+  if (!typed) return withSkids(packagesMade(rows));
+  if (/carton|ctn|bundle|bdl/i.test(typed)) return withSkids(typed);
   const split = packageSplit(rows);
-  return split ? `${typed} ${split}` : typed;
+  return withSkids(split ? `${typed} ${split}` : typed);
 }
 
 /* The mark alone, as those same two forms name it: their marks read
@@ -2959,7 +3169,8 @@ export function marksNos(ctx, rows) {
 }
 
 export function pkdPackages(ctx, rows) {
-  return `${marksNos(ctx, rows)} - ${packagesMade(rows)} CONTAINING `;
+  const skids = airOf(ctx)?.skidsText;
+  return `${marksNos(ctx, rows)} - ${packagesMade(rows)}${skids ? ` ${skids}` : ""} CONTAINING `;
 }
 
 /* The declaration, and the buyer's copy of it (33). Their two files are the
@@ -2969,6 +3180,11 @@ export function pkd21Rows(ctx, { buyer = false } = {}) {
   const E = ctx.EXPORTER, s = ctx.inv.ship || {};
   const rows = L(ctx);
   const [vessel, voyage] = vesselVoyage(s.vessel);
+  /* By air (Docs/JG_Air_Docs/Packaging Declaration.xlsx) the head names the
+     airline, its flights and the waybill, and the skids the cartons travel on
+     are timber — declared under Q2a and treated to ISPM 15. Null by sea. */
+  const air = airOf(ctx);
+  const timber = !!(air && air.skids);
   const R = (...cells) => ({ cells });
   const BLANK = { cells: [[10, "", "n"]] };
   // Cells left singly rather than merged, so a long label beside them runs on.
@@ -2985,11 +3201,19 @@ export function pkd21Rows(ctx, { buyer = false } = {}) {
     /* The title stands on a slightly deeper row in the buyer's copy than in the
        customs one — their two files differ by that much. */
     { cells: [[10, "Packing Declaration", "ttl"]], h: buyer ? 18 : 17.35 },
-    R([2, "Vessel Name", "n"], [2, vessel, "n"], [2, "Voyage Number", "n"], [4, voyage, "n"]),
-    R([2, "BL Number", "n"], [2, s.blNo || "", "n"], [2, "Date", "n"],
-      [4, s.blDate ? ddmm(s.blDate) : "", "n"]),
-    BLANK,
-    R([10, `Consignment Identifier (s) or Numerical link(s) - CONTAINER NO : ${s.container || ""}`, "n"]),
+    ...(air ? [
+      R([2, "Air Lines", "n"], [2, air.airline, "n"], [2, "Flight Number", "n"], [4, air.flights, "n"]),
+      R([2, "AWB Number", "n"], [2, air.awbNo, "n"], [2, "Date", "n"],
+        [4, air.awbDate ? ddmm(air.awbDate) : "", "n"]),
+      BLANK,
+      R([10, "Consignment Identifier (s) or Numerical link(s)", "n"]),
+    ] : [
+      R([2, "Vessel Name", "n"], [2, vessel, "n"], [2, "Voyage Number", "n"], [4, voyage, "n"]),
+      R([2, "BL Number", "n"], [2, s.blNo || "", "n"], [2, "Date", "n"],
+        [4, s.blDate ? ddmm(s.blDate) : "", "n"]),
+      BLANK,
+      R([10, `Consignment Identifier (s) or Numerical link(s) - CONTAINER NO : ${s.container || ""}`, "n"]),
+    ]),
     R([10, pkdPackages(ctx, rows), "n"]),
     R([10, (buyer ? buyerGoods : packingGoods)(packingBands(ctx)), "n"]),
     BLANK,
@@ -3007,15 +3231,15 @@ export function pkd21Rows(ctx, { buyer = false } = {}) {
     R([10, "used as a shipping aid)", "n"]),
     BLANK,
     R([1, "Q2a.", "n"], [9, "Has timber / bamboo packaging / dunnage been used in consignments covered by this document?", "n"]),
-    R([1, "A2a.", "n"], [2, "Yes Timber", "n"], tick(false), [1, "", "n"],
-      [2, "Yes Bamboo", "n"], tick(false), [1, "No", "n"], tick(true)),
+    R([1, "A2a.", "n"], [2, "Yes Timber", "n"], tick(timber), [1, "", "n"],
+      [2, "Yes Bamboo", "n"], tick(false), [1, "No", "n"], tick(!timber)),
     R([8, "", "n"], [2, "(nil timber / bamboo)", "n"]),
     BLANK,
     R([10, "Treatment Certification (Only if Timber / Bamboo  Packaging / Dunnage is declared in Question2)", "n"]),
     BLANK,
     R([1, "Q3", "n"], [9, "All timber / bamboo packaging / dunnage used in the consignment has been (Please indicate below)", "n"]),
     BLANK,
-    R([1, "", "n"], [7, "Treated and marked in complaince with ISPM 15?", "lead"], [1, "NA", "box"], [1, "", "n"]),
+    R([1, "", "n"], [7, "Treated and marked in complaince with ISPM 15?", "lead"], [1, timber ? "YES" : "NA", "box"], [1, "", "n"]),
     R([1, "", "n"], [9, "(Note : ISPM 15 is only applicable to timber packaging)", "n"]),
     R([1, "", "n"], [9, "Or", "n"]),
     BLANK,
@@ -3122,6 +3346,12 @@ export const CHA_AGENT = ["M/s. Velji Dosabhai & Sons P Ltd,",
   "Godrej Collseum,5th Floor, Behind Everard Nagar,",
   "Off Eastern Express Highway, Sion (E) Mumbai 400 022"];
 
+/* By air the shipping bill is filed by the air forwarder, the same agent the
+   goods are delivered to (Docs/JG_Air_Docs/Despatch Instruction.pdf). */
+export const AIR_CHA_AGENT = ["M/s. Modern Cargo Services Pvt Ltd,",
+  "Bapa House, 14, Samhita Warehousing Complex,",
+  "Andheri Kurla Road, Andheri East, Mumbai 400 072"];
+
 /* The standing instructions at the foot of it — theirs verbatim, and the same
    on every letter but for the carting date. That is the carting date entered
    on record packing or the shipment details; an invoice without one is dated
@@ -3208,9 +3438,9 @@ export function cha22Rows(ctx) {
        lines run down beside it. Both rows are given the height their sheet
        gives them — left to size themselves to the 18pt the pair would grow to
        a third again as deep, and the form would no longer come off one page. */
-    H(12.75, [5, E.name, "lr x r", 1], [6, CHA_AGENT[0], "lr"]),
-    H(15, [6, CHA_AGENT[1], "lr"]),
-    R([5, eAddr[0], "lr r"], [6, CHA_AGENT[2], "lr"]),
+    H(12.75, [5, E.name, "lr x r", 1], [6, (airOf(ctx) ? AIR_CHA_AGENT : CHA_AGENT)[0], "lr"]),
+    H(15, [6, (airOf(ctx) ? AIR_CHA_AGENT : CHA_AGENT)[1], "lr"]),
+    R([5, eAddr[0], "lr r"], [6, (airOf(ctx) ? AIR_CHA_AGENT : CHA_AGENT)[2], "lr"]),
     R([5, eAddr[1], "lr r"], [2, "Invoice No", "lt b"], [4, ctx.inv.invoiceNo || "", "rt"]),
     R([5, eAddr[2], "lb r"], [2, "Date", "lb b"], [4, invDt, "rb"]),
     R([5, "Consignee", "lrt b"], [2, "Notify", "lt b"], [4, "", "rt"]),
@@ -3221,20 +3451,23 @@ export function cha22Rows(ctx) {
     R([3, s.receiptPlace || "", "lr"], [2, s.pod || b.shipTo || "", "lr"],
       [6, "(GST REFUND WILL BE CLAIMED)", "lr b"]),
     R([3, "", "lrb"], [2, "", "lrb"], [6, "", "lrb"]),
-    R([3, "Vessel", "lrt b"], [2, "Port of Loading:", "lrt b"],
+    R([3, airOf(ctx) ? "Airline / Flight" : "Vessel", "lrt b"], [2, "Port of Loading:", "lrt b"],
       [3, "Marks & Nos.", "lrt b"], [3, "No & Kind of Pkgs", "lrt b"]),
-    R([3, s.vessel || "", "lrb"], [2, s.pol || "", "lrb b"], [3, mk1, "lr"], [3, pk1, "lr l"]),
+    // The box is a vessel's width: the airline and its flight numbers, no dates.
+    R([3, airOf(ctx) ? [airOf(ctx).airline, airOf(ctx).flightNos].filter(Boolean).join(" ") : s.vessel || "", "lrb"], [2, s.pol || "", "lrb b"], [3, mk1, "lr"], [3, pk1, "lr l"]),
     R([3, "Port of Discharge:", "lrt b"], [2, "Final Destination:", "lrt b"],
       [3, mk2, "lr"], [3, pk2, "lr"]),
     R([3, s.pod || "", "lr"], [2, s.finalDest || b.country || "", "lr"], [3, "", "lr"], [3, "", "lr"]),
     R([3, "", "lrb"], [2, "", "lrb"], [3, "", "lrb"], [3, "", "lr"]),
-    R([3, "Container No", "lrt b"], [2, "Seal No", "lrt b"],
+    /* By air there is no container: the skids the cartons travel on instead. */
+    R([3, airOf(ctx) ? "No of Skids" : "Container No", "lrt b"], [2, airOf(ctx) ? "Skid Wt (KGS)" : "Seal No", "lrt b"],
       [3, "Nett Weight (KGS)", "l b"], [3, "Gross Weight (KGS)", "lrt b"]),
-    R([3, s.container || "", "lr"], [2, s.seal || "", "lr b"],
+    R([3, airOf(ctx) ? String(airOf(ctx).skids || "") : s.container || "", "lr"],
+      [2, airOf(ctx) ? (airOf(ctx).skidWt ? airOf(ctx).skidWt.toFixed(3) : "") : s.seal || "", "lr b"],
       [3, wt(s.netWt, "netTotal"), "l l"], [3, wt(s.grossWt, "grossTotal"), "lr l"]),
     R([3, "", "lrb"], [2, "", "lrb"], [3, "", "lb"], [3, "", "lrb l"]),
-    R([3, "Freight.", "lrt b"], [2, "Number of Original BL", "lrt b"], [6, "Delivery of Goods", "lrt b"]),
-    R([3, "Payable at Destination", "lr"], [2, "SEAWAY", "lr"],
+    R([3, "Freight.", "lrt b"], [2, airOf(ctx) ? "Air Waybill" : "Number of Original BL", "lrt b"], [6, "Delivery of Goods", "lrt b"]),
+    R([3, airOf(ctx) && !airOf(ctx).fob ? "Prepaid" : "Payable at Destination", "lr"], [2, airOf(ctx) ? airOf(ctx).awbNo : "SEAWAY", "lr"],
       [3, "Party", "lrtb b"], [1, "Pkgs", "lrtb b c"], [2, "Through", "lrtb b c"]),
     /* The left of this block carries where and when the bill of lading is
        issued; the right carries a ruled line per supplier beside it. */
@@ -3769,6 +4002,96 @@ export function si26Rows(ctx) {
 }
 
 /* ============================================================================
+   26A · AWB instructions — the air counterpart of the shipping instructions:
+   what the forwarder drafts the air waybill from (Docs/JG_Air_Docs/AWB
+   Format.xls). The same four-column booking form as 26, with the airline and
+   its flights where the vessel was, the carton dimensions and skids where the
+   container and seal were, and the freight prepaid. */
+export function awbCargo(ctx, rows) {
+  const s = ctx.inv.ship || {};
+  const hsn = [...new Set(rows.map((r) => String(r.it.hsn || "").replace(/\D/g, "")).filter(Boolean))];
+  const items = rows.map((r) => `${r.it.code || r.it.gd} - ${r.pieces} PCS`);
+  const sb = s.sbNo ? `S/BILL NO. : ${s.sbNo}${s.sbDate ? ` DT ${ddmm(s.sbDate)}` : ""}` : "S/BILL NO. : _______ DT __________";
+  return [
+    `${packagesText(ctx, rows)} CONTAINING`,
+    packingGoods(packingBands(ctx)),
+    ...(items.length <= 4 ? items : ["DESCRIPTION AS PER ATTACHED SHEET"]),
+    "",
+    sb,
+    hsn.length ? `SHIPPERS HSN CODE : ${hsn.join(", ")}` : "",
+  ].filter((l, i, a) => l !== "" || a[i + 1]).join("\n");
+}
+
+export function awb26aRows(ctx) {
+  const E = ctx.EXPORTER, b = ctx.buyer, s = ctx.inv.ship || {};
+  // Built from whatever is on the invoice, even before its mode says air.
+  const a = airOf({ ...ctx, inv: { ...ctx.inv, ship: { ...s, mode: "air" } } });
+  const rows = L(ctx);
+  const R = (...cells) => ({ cells });
+  const H = (h, ...cells) => ({ cells, h });
+  const shipper = [`${E.name || ""},`, ...wrapTo(E.addr, 34, 3)].filter(Boolean).join("\n").toUpperCase();
+  const party = siParty("MESSRS", b);
+  const gross = Number(s.grossWt) || sum(rows, "grossTotal");
+  const net = Number(s.netWt) || sum(rows, "netTotal");
+  const vol = sum(rows, "volTotal");
+  const hs = siHsnTable(rows);
+  const side = (cells, h) => ({ cells: [[1, "", "lr g"], ...cells, [1, "", "lr c g"]], ...(h ? { h } : {}), wide: true });
+  const table = [
+    side([[1, "HS CODE", "lrtb b c g w"], [1, "DESCRIPTION", "lrtb b c g w"], [1, "PACKAGES", "lrtb b c g w"],
+      [1, "GROSS WEIGHT", "lrtb b c g w"], [1, "TOTAL CBM", "lrtb b c g w"]], 25.5),
+    ...hs.map((x) => side([[1, x.hsn, "lrtb c"], [1, x.what, "lrtb c"], [1, String(x.packages), "lrtb c"],
+      [1, x.gross.toFixed(3), "lrtb c"], [1, x.cbm.toFixed(2), "lrtb c"]])),
+    side([[2, "Grand Total", "lrtb b c"], [1, String(sum(hs, "packages")), "lrtb b c"],
+      [1, sum(hs, "gross").toFixed(3), "lrtb b c"], [1, sum(hs, "cbm").toFixed(2), "lrtb b c"]]),
+    side([[5, "", "lr"]]),
+  ];
+  const filler = Array.from({ length: Math.max(0, 8 - table.length) },
+    () => R([1, "", "lr g"], [2, "", "lr g"], [1, "", "lr c g"]));
+  const pod = String(s.pod || b.shipTo || "").toUpperCase();
+  const country = String(b.country || "").toUpperCase();
+
+  const form = [
+    R([2, "SHIPPER (MAX 5 LINES)", "lrt b g"], [2, "BOOKING NO :", "lrt b g"]),
+    H(50.25, [2, shipper, "lrb w g"], [2, s.bookingNo || "", "lrb w g"]),
+    R([2, "CONSIGNEE (MAX 5 LINES)", "lrt b g"], [2, "AWB TYPE :", "lrt b g"]),
+    H(52.5, [2, party, "lrb w g"], [2, String(s.awbType || "").toUpperCase(), "lrb w g"]),
+    R([2, "NOTIFY PARTY 1 (MAX 5 LINES)", "lrt b g"], [2, "NOTIFY PARTY 2 (MAX 5 LINES)", "lrt b g"]),
+    H(54, [2, party, "lrb w g"], [2, String(s.notify2 || "").toUpperCase(), "lrb w g"]),
+    R([2, "AIRLINE NAME AND FLIGHT NUMBER", "lrt b g"], [2, "PLACE OF RECEIPT :", "lrt b g"]),
+    R([2, a.shippedPer, "lrb g"], [2, s.receiptPlace || "", "lrb g"]),
+    R([1, "PORT OF LOADING :", "lrt b g"], [1, "PORT OF DISCHARGE :", "lrt b g"],
+      [2, "PLACE OF DELIVERY :", "lrt b g"]),
+    R([1, s.pol || "", "lrb g"], [1, [pod, country].filter(Boolean).join(", "), "lrb g"],
+      [2, a.deliveryPlace || pod, "lrb g"]),
+    R([1, "MARKS &\nNUMBERS", "lrt b w g"], [2, "CARGO DESCRIPTION", "lrtb b c g"],
+      [1, "CARGO WEIGHTS", "lrtb b c g"]),
+    R([1, marksNos(ctx, rows), "lr w", 4], [2, awbCargo(ctx, rows), "lrt w", 9],
+      [1, "TOTAL WEIGHT", "lrt b c g"]),
+    ...[[(gross + a.skidWt).toFixed(3), "lr c"], ["KGS", "lr b c g"], ["SKID WEIGHT", "lrt b c g"],
+      [a.skidWt ? a.skidWt.toFixed(3) : "", "lr c"]]
+      .map(([v, k]) => R([1, "", CHA_HELD], [2, "", CHA_HELD], [1, v, k])),
+    R([1, "DIMENSION OF CTN :", "lr b g"], [2, "", CHA_HELD], [1, "KGS", "lrb b c g"]),
+    R([1, a.dims, "lr"], [2, "", CHA_HELD], [1, "NET WEIGHT", "lrt b c g"]),
+    R([1, "", "lr g"], [2, "", CHA_HELD], [1, net.toFixed(3), "lr c"]),
+    R([1, "NO OF SKIDS :", "lr b g"], [2, "", CHA_HELD], [1, "KGS", "lr b c g"]),
+    R([1, a.skids ? String(a.skids) : "", "lr"], [2, "", CHA_HELD], [1, "", "lr c g"]),
+    R([1, "", "lr g"], [2, "", "lr"], [1, "", "lr c g"]),
+    "table",
+    R([1, "", "lr g"], [2, "", "lr"], [1, "", "lrb c g"]),
+    R([1, "", "lr g"], [2, "", "lr"], [1, "VOLUME", "lrt b c g"]),
+    R([1, "", "lr g"], [2, "", "lr"], [1, `${num(vol, 2)} cubic Mtr`, "lrt c"]),
+    ...filler,
+    H(24.75, [1, "", "lrb g"], [2, "", "lrb g"], [1, "", "lrb c g"]),
+    R([1, "TOTAL NO OF PACKAGES", "lr b g"], [2, "SOB STAMPED AND DATE", "lrt b c g"],
+      [1, "FREIGHT", "lr b c g"]),
+    R([1, String(sum(rows, "boxes")), "lr c"], [2, "", "lr g"], [1, a.freightTerms, "lr c g"]),
+    R([1, "", "lrb g"], [2, "", "lrb g"], [1, "", "lrb g"]),
+  ];
+  return form.flatMap((r) => (r === "table" ? table : [{ ...r, cells: siSpread(r.cells) }]))
+    .map(({ wide, ...r }) => r);
+}
+
+/* ============================================================================
    27 · Declaration of verified gross mass — what the exporter signs to say what
    the loaded container weighs (Docs/Jaikvin Process/Numbering/27-VGM.pdf).
 
@@ -3902,8 +4225,8 @@ export function ewx29Rows(ctx) {
   const dispatch = from
     ? [from.name || "", from.addr || "", [from.place, from.state, from.pin].filter(Boolean).join(", ")]
     : [E.name || "", ...wrapTo(E.addr, 44, 2)];
-  const ship = [EW_SHIP_TO.name, EW_SHIP_TO.addr,
-    `${EW_SHIP_TO.place},${EW_SHIP_TO.state}-${EW_SHIP_TO.pin}`.toUpperCase()];
+  const to = ewShipTo(ctx);
+  const ship = [to.name, to.addr, `${to.place},${to.state}-${to.pin}`.toUpperCase()];
   const band = (t) => R([12, t, "lrtb b"]);
   const money = (n) => num(n, 2);
 
@@ -4157,6 +4480,14 @@ export const LTB_BANK = {
 export const LTB_ENCLOSURES = ["Packing List", "Packaging Declaration",
   "Container Weight Declaration (CWD)", "Certificate of Origin"];
 
+/* By air there is no container to declare; the forwarder's freight
+   certificate goes in its place (Docs/JG_Air_Docs/Original Documents Letter.xlsx). */
+export const LTB_ENCLOSURES_AIR = ["Packing List", "Packaging Declaration",
+  "Freight Certificate", "Certificate of Origin"];
+
+/* "Malaysia Airlines" — the airline as a letter names it, not in capitals. */
+const titleCase = (t) => String(t || "").toLowerCase().replace(/\b([a-z])/g, (m) => m.toUpperCase());
+
 const LTB_ALIGN = { c: "center", r: "right", l: "left" };
 
 export function ltbStyle(spec) {
@@ -4193,6 +4524,11 @@ export function ltb30Rows(ctx) {
   const bAddr = addrLines({ addr: b.addr });
   const due = ltbDue(ctx);
   const goods = packingGoods(packingBands(ctx));
+  const air = airOf(ctx);
+  const total = sum(rows, "fobTotal");
+  // Sold CFR by air, the invoice line splits into the FOB and the freight.
+  const split = air && !air.fob && air.freight ? air.freight : 0;
+  const money = (n) => usd(n).replace(/^\$\s*/, "");
 
   return [
     ...Array.from({ length: LTB_HEAD }, () => ({ cells: [[17, "", "-"]], lh: 1 })),
@@ -4212,9 +4548,12 @@ export function ltb30Rows(ctx) {
       [3, "Packages", "-"], [9, [packageSplit(rows), goods].filter(Boolean).join(" "), "b"]),
     /* The line the container sails with is not kept here either, so that box is
        ruled and left the way their own copy rules it. */
-    R([1, "", "-"], [2, "per", "-"], [7, s.vessel || "", "b"], [1, "Ship of", "t"],
-      [1, "", "tb"], [2, "Ship Sailed on ", "t"],
-      [2, s.blDate ? ddmm(s.blDate) : "", "tb l"], [1, "", "-"]),
+    air
+      ? R([1, "", "-"], [2, "per", "-"],
+        [14, [titleCase(air.airline), air.flights ? `Flight No ${air.flights}` : ""].filter(Boolean).join(" "), "b"])
+      : R([1, "", "-"], [2, "per", "-"], [7, s.vessel || "", "b"], [1, "Ship of", "t"],
+        [1, "", "tb"], [2, "Ship Sailed on ", "t"],
+        [2, s.blDate ? ddmm(s.blDate) : "", "tb l"], [1, "", "-"]),
     R([4, "Your PO Nos", "-"], [13, poHeaderList(ctx), "b"]),
     GAP,
     R([17, "With reference to the above, hope you must have received our E-mail of this date, giving full shipment details.", "- l"]),
@@ -4223,15 +4562,21 @@ export function ltb30Rows(ctx) {
     GAP,
     R([1, "1", "-"], [7, `Our Invoice No : ${ctx.inv.invoiceNo || ""}`, "-"],
       [1, "Dt", "-"], [2, ddmm(ctx.inv.date), "b l"], [2, "for US$", "-"],
-      [4, usd(sum(rows, "fobTotal")).replace(/^\$\s*/, ""), "b l"]),
-    R([1, "2", "-"], [2, "B/L No. ", "-"], [5, s.blNo || "", "b l"], [1, "Dt", "-"],
-      [2, s.blDate ? ddmm(s.blDate) : "", "b l"], [6, "", "-"]),
-    ...LTB_ENCLOSURES.map((t, i) => R([1, String(i + 3), "-"], [16, t, "-"])),
+      [4, money(total - split), "b l"]),
+    ...(split ? [R([1, "", "-"], [16, `FOB MUMBAI + US$ ${money(split)} FREIGHT CHARGES = US$ ${money(total)} TOTAL ${air.terms} VALUE.`, "b"])] : []),
+    air
+      ? R([1, "2", "-"], [2, "AWB No. ", "-"], [5, air.awbNo, "b l"], [1, "Dt", "-"],
+        [2, air.awbDate ? ddmm(air.awbDate) : "", "b l"], [6, "", "-"])
+      : R([1, "2", "-"], [2, "B/L No. ", "-"], [5, s.blNo || "", "b l"], [1, "Dt", "-"],
+        [2, s.blDate ? ddmm(s.blDate) : "", "b l"], [6, "", "-"]),
+    ...(air ? LTB_ENCLOSURES_AIR : LTB_ENCLOSURES).map((t, i) => R([1, String(i + 3), "-"], [16, t, "-"])),
     GAP,
     R([17, "We hope you will find the above in order.", "-"]),
     GAP,
-    R([17, `Kindly arrange the remittance on ${due.day} ${due.date} (Shipment Date + ${LTB_CREDIT_DAYS} Days).`, "-"]),
-    GAP,
+    // Their air letter asks for no dated remittance — the draft is at sight.
+    ...(air ? [] : [
+      R([17, `Kindly arrange the remittance on ${due.day} ${due.date} (Shipment Date + ${LTB_CREDIT_DAYS} Days).`, "-"]),
+      GAP]),
     R([17, `Remittance to ${LTB_BANK.line1}`, "-"]),
     R([17, LTB_BANK.line2, "- b"]),
     GAP,
@@ -4429,7 +4774,9 @@ export function ebr40Rows(ctx) {
     H(BLOCK, [2, "Balance in FIRC", "lrtb b w"], [3, "", "lrtb c"], [5, "", "lrtb"]),
     GAPB,
     head("TRANSPORT DOCUMENT DETAILS"),
-    pair("Shipped on Board Date", dated(s.blDate), "BL / Airway Bill No", s.blNo || ""),
+    airOf(ctx)
+      ? pair("Shipped on Board Date", dated(s.awbDate), "BL / Airway Bill No", s.awbNo || "")
+      : pair("Shipped on Board Date", dated(s.blDate), "BL / Airway Bill No", s.blNo || ""),
     pair("PORT OF LOADING\n(COUNTRY)", s.pol || "", "PORT OF DISCHARGE\n(COUNTRY)",
       (s.finalDest || b.country || "").toUpperCase()),
     GAP,

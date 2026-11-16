@@ -7,6 +7,20 @@
 
 export const RELEASES = [
   {
+    version: "7.5.0",
+    date: "2026-11-16",
+    notes: [
+      "Setup → Additional settings: every Terms of delivery, Port of loading and Ship to port entry now says which mode of transport it serves — Water, Air, Land. A new entry asks for its mode before it can be added.",
+      "Entries added before this release count as Water and are flagged — tick Air or Land on any that also serve those, or “Confirm all as Water”.",
+      "Shipment step 2: pick the mode first (Water, Air, Land); only the ports of loading and ship-to ports ticked for that mode are offered. Record packing has the same mode choice.",
+      "By air, step 2 asks for the airports, marks, packages, skids and weights instead of the container and seal; step 3 asks for the AWB number and date, the airline, each flight and the freight instead of the BL and vessel.",
+      "Air shipments print the air papers: AWB number, airline and flights on the invoices (18, 31), packing list (19) and packaging declaration (21, 33), skid and total weights, and on CFR terms the approximate freight and FOB.",
+      "New for air: AWB instructions (26A) and the declaration of origin (16A). The SCOMET declaration, despatch instruction, e-way bill, letter to the buyer and buyer's order follow the air wording.",
+      "Container-only papers (BL annexure, shipping instructions, VGM, CWD) are left out of an air shipment's documents; the shipment's step 3 lists every paper it needs, each opening in Documents.",
+      "Sea shipments work exactly as before.",
+    ],
+  },
+  {
     version: "7.4.1",
     date: "2026-11-07",
     notes: [

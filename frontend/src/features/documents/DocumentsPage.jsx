@@ -27,6 +27,7 @@ import { dmy, dmyNum } from "../../lib/format.js";
 import { INV_STATUS_TONE } from "../../lib/constants.js";
 import ShipmentWizard from "../shipments/ShipmentWizard.jsx";
 import { portsFor } from "../../lib/ports.js";
+import { docInMode, listFor, modeLabel, shipComplete, shipMode } from "../../lib/modes.js";
 
 /* Documents — the export papers, generated live.
 
@@ -41,7 +42,6 @@ import { portsFor } from "../../lib/ports.js";
    `group` (a DOC_GROUPS key) narrows the page to one menu head, which is how
    the PO / Suppliers' / Pre- / Post-Shipment Reports entries reuse it. */
 
-const shipComplete = (s) => !!(s && s.blNo && s.vessel && s.container && s.pod);
 
 /* Editable shipment details above the Pre-Shipment set. Saving writes to the
    invoice, so every document built from it changes with the same click. */
@@ -53,18 +53,30 @@ function PreShipPanel({ inv, onWizard }) {
   const buyer = (useBuyers().data || []).find((b) => b.id === inv.buyer_id);
   /* Terms and the discharge port come off the lists in Setup → Additional
      settings, as they do on the shipment details. */
-  const LISTED = {
-    terms: opts.terms_delivery || [],
-    pod: portsFor(buyer, opts),
-  };
   const [f, setF] = useState({ ...(inv.ship || {}) });
+  /* Offered for the shipment's own mode, as on the shipment details. */
+  const mode = shipMode(f);
+  const LISTED = {
+    terms: listFor(opts, "terms_delivery", mode),
+    pol: listFor(opts, "ports_loading", mode),
+    pod: portsFor(buyer, { ports_ship_to: listFor(opts, "ports_ship_to", mode) }),
+  };
   /* Follows the invoice, not just which invoice this is: details saved through
      the 3-step wizard, or a correction carried over from Setup, must show here —
      or the next Save writes the old values back over them. */
   const saved = JSON.stringify(inv.ship || {});
   useEffect(() => { setF(JSON.parse(saved)); }, [inv.id, saved]);
 
-  const F = [
+  /* By air the waybill, the airline and the skids take the bill of lading's,
+     the vessel's and the container's places; the flights are kept in the
+     3-step shipment, where each leg has its own date. */
+  const F = mode === "air" ? [
+    ["awbNo", "AWB No.", "text"], ["awbDate", "AWB Date", "date"], ["airline", "Airline", "text"],
+    ["pol", "Port of loading", "text"], ["pod", "Ship to port (discharge)", "text"], ["terms", "Terms of delivery", "text"],
+    ["marks", "Marks & Nos", "text"], ["pkgs", "No & kinds of pkgs", "text"], ["skids", "No. of skids", "number"],
+    ["netWt", "Nett wt (kg)", "number"], ["grossWt", "Gross wt (kg)", "number"], ["skidWt", "Skid wt (kg)", "number"],
+    ["freight", "Approx freight (US$)", "number"], ["exRate", "Exchange rate ₹/$", "number"],
+  ] : [
     ["blNo", "BL No.", "text"], ["blDate", "BL Date", "date"], ["vessel", "Vessel / voyage", "text"],
     ["container", "Container No.", "text"], ["seal", "Seal No.", "text"], ["pod", "Ship to port (discharge)", "text"],
     ["marks", "Marks & Nos", "text"], ["pkgs", "No & kinds of pkgs", "text"], ["terms", "Terms of delivery", "text"],
@@ -77,13 +89,13 @@ function PreShipPanel({ inv, onWizard }) {
         <div className="row" style={{ gap: 10 }}>
           <span className="stat-i" style={{ width: 30, height: 30 }}><Ship size={15} /></span>
           <div>
-            <div style={{ fontSize: 13, fontWeight: 650, color: "var(--ink)" }}>Shipment details · {inv.invoice_no}</div>
+            <div style={{ fontSize: 13, fontWeight: 650, color: "var(--ink)" }}>Shipment details · {inv.invoice_no} · {modeLabel(mode)}</div>
             <div style={{ fontSize: 12, color: "var(--muted)" }}>Editable here — changes reflect in the invoice and every document below.</div>
           </div>
         </div>
         <div className="row" style={{ gap: 8 }}>
           <Pill tone={INV_STATUS_TONE[inv.status] || ""}>{inv.status}</Pill>
-          <Btn variant="ghost" size="sm" icon={Truck} onClick={onWizard}>3-step shipment</Btn>
+          <Btn variant="ghost" size="sm" icon={Truck} onClick={onWizard} title="Change the mode, the flights and everything else">3-step shipment</Btn>
         </div>
       </div>
       {/* Twelve fields four-across is right on a desktop and unusable at 390px,
@@ -157,7 +169,7 @@ export default function DocumentsPage({ group }) {
   const heading = groupMeta ? groupMeta.t : "Documents";
   /* Every document on this screen, once each — a paper filed under two menu
      heads (23) would otherwise be built twice in the whole-library bundle. */
-  const allDocs = [...new Set(catalogue.flatMap((g) => g.docs))];
+  const allDocsAnyMode = [...new Set(catalogue.flatMap((g) => g.docs))];
 
   const [invId, setInvId] = useState("");
   const [poNo, setPoNo] = useState("");
@@ -165,12 +177,17 @@ export default function DocumentsPage({ group }) {
   const [q, setQ] = useState("");
   const [wizOpen, setWizOpen] = useState(false);
 
-  // ⌘K can deep-link straight to a document.
+  // ⌘K can deep-link straight to a document; the shipment checklist names the
+  // invoice too (?doc=18&inv=…).
   useEffect(() => {
     const doc = params.get("doc");
-    if (!doc) return;
-    if (DOC_META[doc]) { setOpen(doc); setQ(""); }
-    else toast(`There is no document ${doc} — pick one from the list.`, { tone: "error" });
+    const want = params.get("inv");
+    if (!doc && !want) return;
+    if (doc) {
+      if (DOC_META[doc]) { setOpen(doc); setQ(""); }
+      else toast(`There is no document ${doc} — pick one from the list.`, { tone: "error" });
+    }
+    if (want) setInvId(want);
     setParams({}, { replace: true });
   }, [params, setParams]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -184,16 +201,34 @@ export default function DocumentsPage({ group }) {
 
   const inv = invoices.find((i) => i.id === invId) || invoices[0];
   const po = pos.find((p) => p.po === poNo) || pos[0];
+  /* An invoice-stage paper is offered for the invoice's mode of transport only:
+     no container papers by air, no AWB papers by sea (lib/modes.js). The PO
+     papers come before any mode exists. */
+  const invMode = shipMode(inv?.ship);
+  const inMode = (no) => isPoDoc(no) || docInMode(no, invMode);
 
   /* Which source this screen is reading. A PO-only menu head is always PO;
      the full library follows whichever document is open. */
   const poMode = groupMeta ? groupMeta.source === "po" : isPoDoc(open);
 
+  const allDocs = allDocsAnyMode.filter(inMode);
   const groups = useMemo(() => {
     const ql = q.trim().toLowerCase();
     const match = (no) => !ql || no.toLowerCase().includes(ql) || (DOC_META[no] || "").toLowerCase().includes(ql);
-    return catalogue.map((g) => ({ ...g, docs: g.docs.filter(match) })).filter((g) => g.docs.length);
-  }, [q, catalogue]);
+    return catalogue.map((g) => ({ ...g, docs: g.docs.filter((no) => inMode(no) && match(no)) })).filter((g) => g.docs.length);
+  }, [q, catalogue, invMode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /* A paper this mode does not use (VGM by air, say) gives way to the first
+     one it does, rather than previewing a container form for a flight. */
+  useEffect(() => {
+    // Not until the invoice is in: with none yet every invoice reads as sea,
+    // and an air paper asked for by link (?doc=26A&inv=…) would be swapped out.
+    if (!inv) return;
+    if (open && !inMode(open)) {
+      const first = groups.flatMap((g) => g.docs)[0];
+      if (first) setOpen(first);
+    }
+  }, [open, invMode, groups, inv?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* The suppliers on whatever the page is reading — the invoice's lines, or
      the order's — so the filter never offers a supplier with nothing to show. */
@@ -307,16 +342,19 @@ export default function DocumentsPage({ group }) {
           </Field>
           {poMode
             ? <Pill tone="teal"><ClipboardList size={11} /> raised from the order — no invoice needed</Pill>
-            : done
-              ? <Pill tone="green"><Check size={11} /> shipment details complete</Pill>
-              : <Pill tone="amber"><AlertTriangle size={11} /> shipment details pending</Pill>}
+            : <>
+              <Pill tone="teal">{modeLabel(invMode)}</Pill>
+              {done
+                ? <Pill tone="green"><Check size={11} /> shipment details complete</Pill>
+                : <Pill tone="amber"><AlertTriangle size={11} /> shipment details pending</Pill>}
+            </>}
           <span className="grow" />
           <div style={{ minWidth: "min(240px, 100%)" }}><SearchInput value={q} onChange={setQ} placeholder="Find a document…" /></div>
         </div>
         {!poMode && !done && (
           <div style={{ marginTop: 12 }}>
             <Note tone="amber" icon={AlertTriangle}>
-              Post-shipment fields (BL, vessel, container, S/B) will print blank until you fill them.{" "}
+              Post-shipment fields ({invMode === "air" ? "AWB, airline, flights, S/B" : "BL, vessel, container, S/B"}) will print blank until you fill them.{" "}
               <button className="btn btn-quiet btn-sm" style={{ height: 22, padding: "0 6px" }} onClick={() => nav("/shipments")}>
                 Add shipment details <ArrowRight size={12} />
               </button>

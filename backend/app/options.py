@@ -137,6 +137,40 @@ def get_list(db: Session, key: str) -> list[str]:
     return clean_list(fallback + _in_use(db, key))
 
 
+# ---------- the mode of transport each entry serves ----------
+# A port of loading, a ship-to port and a term of delivery each serve one or
+# more modes — Sahar Air Cargo is an airport, Nhava Sheva a sea port — so a
+# shipment offers only the entries ticked for its own mode. Stored beside the
+# values as { entry: ["air", "water", …] }. An entry with nothing stored was
+# added before modes existed; it reads as sea (what every shipment until now
+# was) and Setup flags it so its modes can be confirmed.
+MODE_LISTS = ("terms_delivery", "ports_loading", "ports_ship_to")
+
+
+def clean_modes(modes, values: list[str]) -> dict[str, list[str]]:
+    """{entry: [mode, …]} for the entries on the list only, in their own
+    spelling, each a set of known modes in a fixed order. An empty set is
+    dropped — the entry is then unconfirmed, not unusable."""
+    canon = {v.lower(): v for v in values}
+    out: dict[str, list[str]] = {}
+    for k, ms in (modes or {}).items() if isinstance(modes, dict) else []:
+        name = canon.get(re.sub(r"\s+", " ", str(k or "")).strip().lower())
+        if not name or not isinstance(ms, (list, tuple)):
+            continue
+        picked = {str(m or "").strip().lower() for m in ms}
+        kept = [m for m in calc.SHIP_MODES if m in picked]
+        if kept:
+            out[name] = kept
+    return out
+
+
+def get_modes(db: Session, key: str) -> dict[str, list[str]]:
+    if key not in MODE_LISTS:
+        return {}
+    row = _row(db, key)
+    return clean_modes((row.value or {}).get("modes") if row else None, get_list(db, key))
+
+
 # The field of an invoice's `ship` block each list fills in.
 SHIP_FIELDS = {"terms_delivery": "terms", "terms_payment": "payment",
                "ports_loading": "pol", "ports_ship_to": "pod"}
@@ -185,11 +219,20 @@ def _carry(db: Session, key: str, before: list[str], kept: list[str], renames: d
                 inv.ship = {**inv.ship, field: new}
 
 
-def save_list(db: Session, key: str, values, renames: dict | None = None) -> list[str]:
+def save_list(db: Session, key: str, values, renames: dict | None = None, modes: dict | None = None) -> list[str]:
     before = get_list(db, key)
     kept = clean_list(values)
+    value = {"values": kept}
+    if key in MODE_LISTS:
+        if modes is None:
+            # Nothing said about modes: each entry keeps its own, and a
+            # corrected spelling takes the modes the old one had.
+            had = get_modes(db, key)
+            moved = {str(b): had[a] for a, b in (renames or {}).items() if a in had and b}
+            modes = {**had, **moved}
+        value["modes"] = clean_modes(modes, kept)
     _carry(db, key, before, kept, renames or {})
-    _save(db, key, {"values": kept})
+    _save(db, key, value)
     return kept
 
 

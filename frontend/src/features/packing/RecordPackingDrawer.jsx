@@ -14,7 +14,8 @@ import { useDebounced } from "../../lib/useDebounced.js";
 import { transportsFor } from "../../lib/transports.js";
 import { sortBySequence, blockOf, blockHeads } from "../../lib/sequence.js";
 import { placement, toPins } from "../../lib/poAlloc.js";
-import ShipTermsFields from "../shipments/ShipTermsFields.jsx";
+import ShipTermsFields, { ModePicker } from "../shipments/ShipTermsFields.jsx";
+import { shipMode } from "../../lib/modes.js";
 import CustomPoPanel from "./CustomPoPanel.jsx";
 
 /* Record packing — boxes clear the oldest open order first (FIFO), or come off
@@ -281,6 +282,8 @@ export default function RecordPackingDrawer({ onClose }) {
             </Field>
           </div>
           <div className="grid-3" style={{ marginTop: 12 }}>
+            {/* The mode decides which ports and terms are offered beside it. */}
+            <ModePicker value={shipMode(ship)} onChange={(mode) => setShip((p) => ({ ...p, mode }))} />
             <ShipTermsFields ship={ship} onSet={(patch) => setShip((p) => ({ ...p, ...patch }))} buyer={buyer} />
             <Field label="Deduct boxes from" hint="FIFO clears the oldest open order first. Custom PO lets you choose the orders once the boxes are entered.">
               <Select value={allocation} onChange={(e) => setAllocation(e.target.value)} aria-label="Deduct boxes from">

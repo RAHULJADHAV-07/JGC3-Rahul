@@ -1,4 +1,4 @@
-import { CI_HSN_ROWS, CI_P1_BODY, CI_P1_TOP, CI_P2_TOP, CI_PCT, CI_PLAIN, CI_USD, CI_USDT, L, P7, RUPEE, USD, addrLines, amountWords, bundled, ciMarks, ciP2Body, ddmm, esc, exRate, fitSheet, formGrid, formLogo, goodsWrapped, gstFor, hsnRuns, hsnText, inr, invoiceBands, invoiceLayout, num, numOrText, orderBox, packagesText, proformaRefOf, rangeRefs, sum, usd, wbFixed, wbRupee } from "./common.js";
+import { airMargin, airOf, CI_HSN_ROWS, CI_P1_BODY, CI_P1_TOP, CI_P2_TOP, CI_PCT, CI_PLAIN, CI_USD, CI_USDT, L, P7, RUPEE, USD, addrLines, amountWords, bundled, ciMarks, ciP2Body, ddmm, esc, exRate, fitSheet, formGrid, formLogo, goodsWrapped, gstFor, hsnRuns, hsnText, inr, invoiceBands, invoiceLayout, num, numOrText, orderBox, packagesText, proformaRefOf, rangeRefs, sum, usd, wbFixed, wbRupee } from "./common.js";
 import { LOGO_SRC, imgTag } from "../logo.js";
 import { colLetter } from "../xlsx.js";
 
@@ -64,6 +64,14 @@ export function customsInvoiceSheets(ctx) {
   const desc3 = goodsWrapped(bands, 42, 3);
   const desc2 = goodsWrapped(bands, 44, 2);
   const irn = String(s.irn || "");
+  /* By air: the waybill where the bill of lading was, the airline and its
+     flights where the vessel was, and the terms it was sold on over the price
+     columns (Docs/JG_Air_Docs/Custom Invoice.xlsx). Null for a sea shipment. */
+  const air = airOf(ctx);
+  const shippedPer = air ? air.shippedPer : s.vessel || "";
+  const carrier = air ? air.airline : s.vessel || "";
+  const priced = air ? air.terms : "FOB MUMBAI";
+  const destPort = (air?.deliveryPlace || s.finalDest || s.pod || b.shipTo || "").toUpperCase();
 
   function headBlock(grid) {
     const { row } = grid;
@@ -114,12 +122,12 @@ export function customsInvoiceSheets(ctx) {
       [3, { v: (s.finalDest || b.country || "").toUpperCase(), s: { ...C.lblC, border: "rb" } }]], 12.75);
     row([[1, { v: "", s: { ...C.txt, border: "l" } }],
       [4, { v: desc3[2], s: { ...C.txt, align: "left" } }],
-      [1, { v: "BL. NO.", s: { ...C.lbl, border: "l" } }],
-      [5, { v: dated(s.blNo, s.blDate), s: { ...C.txt, border: "r" } }]], 12.75);
+      [1, { v: air ? "AWB No." : "BL. NO.", s: { ...C.lbl, border: "l" } }],
+      [5, { v: air ? air.awb : dated(s.blNo, s.blDate), s: { ...C.txt, border: "r" } }]], 12.75);
     row([[2, { v: "Pre-Carraige by:", s: { ...C.lblC, border: "lt" } }],
       [3, { v: "Place of Receipt by Pre-Carraige", s: { ...C.lblC, border: "lrt" } }],
       [1, { v: "Shipped Per", s: { ...C.lbl, border: "l" } }],
-      [5, { v: s.vessel || "", s: { ...C.txt, border: "r" } }]]);
+      [5, { v: shippedPer, s: { ...C.txt, border: "r" } }]]);
     row([[2, { v: s.preCarriage || "", s: { ...C.ctr, border: "lb" } }],
       [3, { v: s.receiptPlace || "", s: { ...C.ctr, border: "lrb" } }],
       [1, { v: "S/B No:", s: { ...C.lbl, border: "l" } }],
@@ -128,7 +136,7 @@ export function customsInvoiceSheets(ctx) {
       [3, { v: "Port of Loading:", s: { ...C.lblC, border: "lrt" } }],
       [2, { v: "Terms of Delivery:", s: { ...C.lbl, border: "lt" } }],
       [4, { v: (s.terms || "").toUpperCase(), s: { ...C.txt, border: "rt" } }]], 12.75);
-    row([[2, { v: s.vessel || "", s: { ...C.ctr, border: "lb" } }],
+    row([[2, { v: carrier, s: { ...C.ctr, border: "lb" } }],
       // The port it loads at is the one answer in that block typed in bold.
       [3, { v: s.pol || "", s: { ...C.lblC, border: "lrb" } }],
       [2, { v: "Terms of Payment:", s: { ...C.lbl, border: "l" } }],
@@ -139,7 +147,7 @@ export function customsInvoiceSheets(ctx) {
       // The bank the documents go through is typed in bold, both its lines.
       [4, { v: s.bank || "", s: { ...C.lbl, border: "r" } }]], 12.75);
     row([[2, { v: (s.pod || b.shipTo || "").toUpperCase(), s: { ...C.ctr, border: "lb" } }],
-      [3, { v: (s.finalDest || s.pod || b.shipTo || "").toUpperCase(), s: { ...C.ctr, border: "lrb" } }],
+      [3, { v: destPort, s: { ...C.ctr, border: "lrb" } }],
       [2, { v: "", s: { ...C.txt, border: "lb" } }],
       [4, { v: s.bankAddr || "", s: { ...C.lbl, border: "rb" } }]], 12.75);
   }
@@ -158,8 +166,8 @@ export function customsInvoiceSheets(ctx) {
     row([[1, M(`${marks.prefix} NOS :`, "A23")],
       [4, mirror ? { f: "Page1!B23", s: { ...C.txt, border: "lr", align: "left" } }
         : { v: `${packagesText(ctx, rows)} CONTAINING`, s: { ...C.txt, border: "lr", align: "left" } }],
-      [2, { v: "FOB MUMBAI IN US$", s: { ...C.ctr, border: "lr" } }],
-      [2, { v: "FOB MUMBAI IN INR", s: { ...C.ctr, border: "lr" } }],
+      [2, { v: `${priced} IN US$`, s: { ...C.ctr, border: "lr" } }],
+      [2, { v: `${priced} IN INR`, s: { ...C.ctr, border: "lr" } }],
       [2, { v: "", s: { ...C.txt, border: "lr" } }]]);
     row([[1, M(`${marks.start} - ${marks.end}`, "A24")],
       [4, mirror ? { f: "Page1!B24", s: { ...C.txt, border: "lr", align: "left" } }
@@ -285,13 +293,16 @@ export function customsInvoiceSheets(ctx) {
   /* Every line of it is typed centred in the margin — the weights to three
      places and with no separators, as their sheet formats them. */
   const wt3 = { ...C.ctr, fmt: "0.000" };
-  const margin = {
-    5: ["Container No.", C.lblC], 6: [s.container || "", C.ctr],
-    15: ["Seal No.", C.lblC], 16: [s.seal || "", C.ctr],
-    24: ["Nett Wt.", C.lblC], 25: [netWt, wt3], 26: ["KGS", C.ctr],
-    33: ["Gross Wt", C.lblC], 34: [grossWt, wt3], 35: ["KGS", C.ctr],
-    41: ["Freight", C.lblC], 42: ["Payable at", C.lblC], 43: ["Destination", C.lblC],
-  };
+  const AIR_ST = { lbl: C.lblC, txt: C.ctr, wt: wt3, usd: { ...C.ctr, fmt: USD }, inr: { ...C.ctr, fmt: RUPEE } };
+  const margin = air
+    ? Object.fromEntries(airMargin(ctx, rows, fobUsd).map(([i, v, k]) => [i, [v, AIR_ST[k]]]))
+    : {
+      5: ["Container No.", C.lblC], 6: [s.container || "", C.ctr],
+      15: ["Seal No.", C.lblC], 16: [s.seal || "", C.ctr],
+      24: ["Nett Wt.", C.lblC], 25: [netWt, wt3], 26: ["KGS", C.ctr],
+      33: ["Gross Wt", C.lblC], 34: [grossWt, wt3], 35: ["KGS", C.ctr],
+      41: ["Freight", C.lblC], 42: ["Payable at", C.lblC], 43: ["Destination", C.lblC],
+    };
   /* Keyed by how far down the frame each stands rather than by an absolute
      row, so they keep their place however deep the goods run. */
   const setA = (r, cell, st) => {
@@ -305,11 +316,14 @@ export function customsInvoiceSheets(ctx) {
   /* The FOB value box hangs off the totals rather than off a fixed row: the
      label, the dollars under it, and the rupees on the totals line itself. */
   const totRow = p2Last + 1;
-  setA(totRow - 2, { v: "FOB VALUE" }, C.lblC);
-  setA(totRow - 1, { v: undefined, f: `G${totRow}` }, { ...C.lblC, fmt: USD });
+  // An air invoice sold CFR states its FOB in the margin instead.
+  if (!air || air.fob) {
+    setA(totRow - 2, { v: "FOB VALUE" }, C.lblC);
+    setA(totRow - 1, { v: undefined, f: `G${totRow}` }, { ...C.lblC, fmt: USD });
+  }
   const tot = (col) => `SUM(${col}${p2First}:${col}${p2Last})`;
   g2.row([[1, { f: `I${totRow}`, s: { ...C.lblC, border: "lr", fmt: RUPEE } }],
-    [3, { v: "Total FOB Mumbai Value :", s: { ...G.totL, align: "left" } }],
+    [3, { v: air ? `Total ${air.terms} Value :` : "Total FOB Mumbai Value :", s: { ...G.totL, align: "left" } }],
     [2, { v: "", s: G.totV }], [1, { f: tot("G"), s: G.sumU }], [1, { v: "", s: G.totV }],
     [1, { f: tot("I"), s: G.sumR }], [1, { v: "", s: G.totV }], [1, { f: tot("K"), s: G.sumR }]], 12.75);
 
@@ -407,7 +421,8 @@ export function customsInvoiceSheets(ctx) {
 
   bands.forEach((band) => {
     ga.row([[1, { v: "", s: A }]]);
-    const per = band.per100 ? "FOB / 100 PCS US$" : "FOB / PC US$";
+    const term = air ? air.incoterm : "FOB";
+    const per = band.per100 ? `${term} / 100 PCS US$` : `${term} / PC US$`;
     ga.row([[2, abox("ITEM CODE", AB)], [1, abox("QUANTITY", AB, { align: "center" })],
       [2, abox(per, AB, { align: "center" })], [1, abox("NET WT", AB, { align: "center" })],
       [1, abox("RATE / KG", AB)]]);
@@ -479,6 +494,11 @@ export function customsInvoiceHtml(ctx) {
   const [ord1, ord2, ord3, ord4] = ordBox.orders;
   const irn = String(s.irn || "");
   const fobUsd = sum(rows, "fobTotal"), taxTot = fobUsd * ex;
+  const air = airOf(ctx);
+  const shippedPer = air ? air.shippedPer : s.vessel || "";
+  const carrier = air ? air.airline : s.vessel || "";
+  const priced = air ? air.terms : "FOB MUMBAI";
+  const destPort = (air?.deliveryPlace || s.finalDest || s.pod || b.shipTo || "").toUpperCase();
 
   const td = (v, cls = "", span = 1) =>
     `<td${span > 1 ? ` colspan="${span}"` : ""}${cls ? ` class="${cls}"` : ""}>${v == null || v === "" ? "&nbsp;" : v}</td>`;
@@ -524,23 +544,23 @@ export function customsInvoiceHtml(ctx) {
       ${td("Country of Origin", "k lt c", 3)}${td("Country of Final Destination", "k rt c", 3)}</tr>
     <tr>${td("", "lf")}${td(esc(desc3[1]), "", 4)}
       ${td(esc(E.origin || "INDIA"), "k lf bb c", 3)}${td(esc((s.finalDest || b.country || "").toUpperCase()), "k rt0 bb c", 3)}</tr>
-    <tr>${td("", "lf")}${td(esc(desc3[2]), "", 4)}${td("BL. NO.", "k lf")}${td(esc(dated(s.blNo, s.blDate)), "rt0", 5)}</tr>
+    <tr>${td("", "lf")}${td(esc(desc3[2]), "", 4)}${td(air ? "AWB No." : "BL. NO.", "k lf")}${td(esc(air ? air.awb : dated(s.blNo, s.blDate)), "rt0", 5)}</tr>
     <tr>${td("Pre-Carraige by:", "k lt c", 2)}${td("Place of Receipt by Pre-Carraige", "k lrt c", 3)}
-      ${td("Shipped Per", "k lf")}${td(esc(s.vessel || ""), "rt0", 5)}</tr>
+      ${td("Shipped Per", "k lf")}${td(esc(shippedPer), "rt0", 5)}</tr>
     <tr>${td(esc(s.preCarriage || ""), "lf bb c", 2)}${td(esc(s.receiptPlace || ""), "lrb c", 3)}
       ${td("S/B No:", "k lf")}${td(esc(dated(s.sbNo, s.sbDate)), "rt0", 5)}</tr>
     <tr>${td("Shipped per:", "k lt c", 2)}${td("Port of Loading:", "k lrt c", 3)}
       ${td("Terms of Delivery:", "k lt", 2)}${td(esc((s.terms || "").toUpperCase()), "rt", 4)}</tr>
-    <tr>${td(esc(s.vessel || ""), "lf bb c", 2)}${td(esc(s.pol || ""), "k lrb c", 3)}
+    <tr>${td(esc(carrier), "lf bb c", 2)}${td(esc(s.pol || ""), "k lrb c", 3)}
       ${td("Terms of Payment:", "k lf", 2)}${td(esc(s.payment || "D.P.SIGHT DRAFT"), "rt0", 4)}</tr>
     <tr>${td("Port of Discharge:", "k lt c", 2)}${td("Port of destination", "k lrt c", 3)}
       ${td("Through:", "k lf", 2)}${td(esc(s.bank || ""), "k rt0", 4)}</tr>
-    <tr>${td(esc((s.pod || b.shipTo || "").toUpperCase()), "lf bb c", 2)}${td(esc((s.finalDest || s.pod || b.shipTo || "").toUpperCase()), "lrb c", 3)}
+    <tr>${td(esc((s.pod || b.shipTo || "").toUpperCase()), "lf bb c", 2)}${td(esc(destPort), "lrb c", 3)}
       ${td("", "lf bb", 2)}${td(esc(s.bankAddr || ""), "k rt0 bb", 4)}</tr>
     <tr>${td("Marks &amp; Nos.", "h l")}${td("No &amp; Kinds of Pkgs   Description of Goods", "h", 3)}
       ${["Quantity", "Rate", "Amount", "Rate", "Taxable Amount", "GST Rate", "GST Amount"].map((h) => td(h, "h")).join("")}</tr>
     <tr>${vl(`${marks.prefix} NOS :`)}${td(esc(`${packagesText(ctx, rows)} CONTAINING`), "l", 4)}
-      ${td("FOB MUMBAI IN US$", "c", 2)}${td("FOB MUMBAI IN INR", "c", 2)}${td("", "", 2)}</tr>
+      ${td(esc(`${priced} IN US$`), "c", 2)}${td(esc(`${priced} IN INR`), "c", 2)}${td("", "", 2)}</tr>
     <tr>${vl(`${marks.start} - ${marks.end}`)}${td(esc(desc2[0]), "l", 4)}${td("", "", 2)}
       ${td(esc(`EX. RATE @ Rs.${num(ex)}`), "c", 2)}${td("", "", 2)}</tr>
     <tr>${vl(String(marks.end))}${td(esc(desc2[1]), "l", 4)}${td("", "", 6)}</tr>`;
@@ -605,7 +625,12 @@ export function customsInvoiceHtml(ctx) {
   // form as the worksheet puts it — the frame starts at row CI_P2_TOP.
   // Every line of the margin is typed centred in it, the weights to three
   // places and with no separators, as their sheet formats them.
-  const margin = {
+  const AIR_FMT = { lbl: [(v) => v, "k c"], txt: [(v) => v, "c"], wt: [(v) => wbFixed(v, 3), "c"],
+    usd: [(v) => ciUsd(v), "c"], inr: [(v) => ciInr(v), "c"] };
+  const margin = air ? {
+    ...Object.fromEntries(airMargin(ctx, rows, fobUsd).map(([i, v, k]) => [i, [AIR_FMT[k][0](v), AIR_FMT[k][1]]])),
+    ...(air.fob ? { [ciP2Body(p2) - 2]: ["FOB VALUE", "k c"], [ciP2Body(p2) - 1]: [ciUsd(fobUsd), "k c"] } : {}),
+  } : {
     5: ["Container No.", "k c"], 6: [s.container || "", "c"],
     15: ["Seal No.", "k c"], 16: [s.seal || "", "c"],
     24: ["Nett Wt.", "k c"], 25: [wbFixed(netWt, 3), "c"], 26: ["KGS", "c"],
@@ -637,7 +662,7 @@ export function customsInvoiceHtml(ctx) {
     <tr class="ln">${td("")}${td("", "l", 4)}${td("BAL B/F…", "c")}${td(usd(cfUsd), "r")}${td("")}
       ${td(ciInr(cfTax), "r")}${td("")}${td(ciInr(cfGst), "r")}</tr>
     ${body2}
-    <tr class="tt">${td(ciInr(taxTot), "k c")}${td("Total FOB Mumbai Value :", "k l", 3)}${td("", "", 2)}
+    <tr class="tt">${td(ciInr(taxTot), "k c")}${td(esc(air ? `Total ${air.terms} Value :` : "Total FOB Mumbai Value :"), "k l", 3)}${td("", "", 2)}
       ${td(ciUsd(fobUsd), "r dbl")}${td("")}${td(ciInr(taxTot), "r dbl")}${td("")}${td(ciInr(gstAll), "r dbl")}</tr>
     <tr>${td("", "lf bb")}${td("BREAKUP OF GST", "k bx", 2)}${td("UOM", "k bx c")}${td("VALUE (US$)", "k bx c")}
       ${td("TAXABLE VALUE (INR)", "k bx c", 2)}${td("CGST", "k bx c")}${td("SGST", "k bx c")}
@@ -675,7 +700,7 @@ export function customsInvoiceHtml(ctx) {
       ${td("Shipment to")}${td(esc((s.pod || b.shipTo || "").toUpperCase()), "bb", 2)}</tr>
     ${bands.map((band) => `
       <tr class="nb"><td class="nb" colspan="7">&nbsp;</td></tr>
-      <tr>${td("ITEM CODE", "h l", 2)}${td("QUANTITY", "h")}${td(band.per100 ? "FOB / 100 PCS US$" : "FOB / PC US$", "h", 2)}
+      <tr>${td("ITEM CODE", "h l", 2)}${td("QUANTITY", "h")}${td(esc(`${air ? air.incoterm : "FOB"} / ${band.per100 ? "100 PCS" : "PC"} US$`), "h", 2)}
         ${td("NET WT", "h")}${td("RATE / KG", "h l")}</tr>
       <tr>${td(esc(band.label), "h l bnl", 2)}${td("PCS", "h")}${td("Unit", "h")}${td("Total", "h")}
         ${td("KGS", "h")}${td("US$", "h")}</tr>

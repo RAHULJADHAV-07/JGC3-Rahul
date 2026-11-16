@@ -506,10 +506,62 @@ def vehicle_done(inv) -> bool:
     return len(sups) > 0 and all(_vehicle_row_done(v.get(s)) for s in sups)
 
 
+# ---------------- Mode of transport ----------------
+# A shipment goes by sea (the default, and every invoice from before modes
+# existed), by air, or by land. The mode decides what step 2 and step 3 of the
+# shipment ask for and when they count as done: a sea shipment is "Ready to
+# Ship" once its container and seal are in and "Shipped" with its BL; an air
+# shipment once its airports are picked, and "Shipped" with its air waybill and
+# flight. Land runs on the sea rules until a land document set is supplied.
+# Mirrored in frontend/src/lib/modes.js — keep the two in step.
+SHIP_MODES = ("water", "air", "land")
+MAX_FLIGHTS = 6
+MAX_SHIP_KEYS = 150
+MAX_SHIP_TEXT = 2000
+
+
+def ship_mode(ship) -> str:
+    m = str((ship or {}).get("mode") or "").strip().lower()
+    return m if m in SHIP_MODES else "water"
+
+
+def _short(v, n: int) -> str:
+    return re.sub(r"\s+", " ", str(v or "")).strip()[:n]
+
+
+def clean_ship(ship) -> dict:
+    """The `ship` block as it is stored: the mode one of SHIP_MODES (a stray
+    value reads as sea rather than failing the save) and the flight legs a
+    short list of {no, date}. Everything else is kept as typed."""
+    if not isinstance(ship, dict):
+        return {}
+    # Every field is a short line of a paper: a runaway value is cut, not
+    # stored — the documents print a few dozen characters of any of them.
+    out = {}
+    for k, v in list(ship.items())[:MAX_SHIP_KEYS]:
+        out[str(k)[:40]] = v[:MAX_SHIP_TEXT] if isinstance(v, str) else v
+    if "mode" in out:
+        out["mode"] = ship_mode(out)
+    if "flights" in out:
+        legs = out.get("flights") if isinstance(out.get("flights"), list) else []
+        out["flights"] = [
+            {"no": _short(f.get("no"), 24), "date": _short(f.get("date"), 10)}
+            for f in legs[:MAX_FLIGHTS] if isinstance(f, dict)
+        ]
+    return out
+
+
+def has_flight(ship) -> bool:
+    legs = (ship or {}).get("flights")
+    return isinstance(legs, list) and any(isinstance(f, dict) and str(f.get("no") or "").strip() for f in legs)
+
+
 def container_done(inv) -> bool:
     if (inv.step_skip or {}).get("container"):
         return True
     s = inv.ship or {}
+    if ship_mode(s) == "air":
+        return bool(s.get("pol") and s.get("pod"))
     return bool(s.get("container") and s.get("seal"))
 
 
@@ -517,6 +569,8 @@ def ship_step_done(inv) -> bool:
     if (inv.step_skip or {}).get("ship"):
         return True
     s = inv.ship or {}
+    if ship_mode(s) == "air":
+        return bool(s.get("awbNo") and s.get("awbDate") and s.get("airline") and has_flight(s))
     return bool(s.get("blNo") and s.get("blDate") and s.get("vessel"))
 
 

@@ -1,16 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   Truck, Package, Wallet, Anchor, MapPin, Landmark, ListOrdered, Plus, Pencil, Trash2, Check, X,
-  ArrowUp, ArrowDown, ArrowLeft, ArrowRight, RotateCcw, AlertTriangle, Layers,
+  ArrowUp, ArrowDown, ArrowLeft, ArrowRight, RotateCcw, AlertTriangle, Layers, Loader2,
 } from "lucide-react";
 import {
   Card, CardHead, Btn, Field, Input, Pill, Mono, Note, Empty, Spinner, ErrorState, Modal, Seg, Select,
 } from "../../components/ui/index.jsx";
-import { useOptions, useOptionMutations, useItems, useSuppliers } from "../../api/hooks.js";
+import { useOptions, useOptionMutations, useSaveList, useItems, useSuppliers } from "../../api/hooks.js";
 import { useToast } from "../../providers/ToastProvider.jsx";
 import {
   DEFAULT_GROUPS, rangeBlocks, rangeKey, itemCategory, fullSequence, rangeLabel, rangeShort,
 } from "../../lib/sequence.js";
+import { MODES, MODE_LISTS } from "../../lib/modes.js";
 
 /* Setup → Additional settings.
 
@@ -21,88 +22,205 @@ import {
    list in the app is read in, and the groups a range is split into.
 
    Each list works the same way: type an entry, Add, and it joins the list
-   underneath; the pencil corrects one, the bin removes it. */
+   underneath; the pencil corrects one, the bin removes it. Terms of delivery,
+   ports of loading and ship-to ports also say which modes of transport they
+   serve — Water, Air, Land — and a shipment offers only the ones ticked for
+   its own mode. */
 
 const LISTS = [
   { key: "terms_delivery", title: "Terms of delivery", icon: Truck, eg: "e.g. FOB MUMBAI",
-    hint: "Offered on the shipment details and on record packing. A corrected entry follows onto unshipped invoices." },
+    hint: "Offered on the shipment details and on record packing, for the modes ticked. A corrected entry follows onto unshipped invoices." },
   { key: "packaging_types", title: "Packaging types", icon: Package, eg: "e.g. Bundles",
     hint: "What an item travels in — picked on each item. Every existing item is in Cartons." },
   { key: "terms_payment", title: "Terms of payment", icon: Wallet, eg: "e.g. D.P.SIGHT DRAFT",
     hint: "Offered on the shipment details and on record packing." },
   { key: "ports_loading", title: "Port of loading", icon: Anchor, eg: "e.g. NHAVA SHEVA-MUMBAI (INDIA)",
-    hint: "Where the container is loaded." },
+    hint: "Where the goods are loaded — a sea port, an air cargo terminal or a land border. Offered on shipments of the modes ticked." },
   { key: "ports_ship_to", title: "Ship to port", icon: MapPin, eg: "e.g. FREMANTLE",
-    hint: "Offered on every shipment — a buyer's own ports (Setup → Buyers) come first. Removing one takes it off the buyers too." },
+    hint: "Offered on shipments of the modes ticked — a buyer's own ports (Setup → Buyers) come first. Removing one takes it off the buyers too." },
 ];
 
-/* One list: the box that adds to it, and the entries under it. */
-function ListCard({ cfg, values, save, busy }) {
+/* The small turning circle every Setup save shows on whatever it is saving. */
+const Spin = ({ size = 13 }) => <Loader2 size={size} className="spin" aria-hidden="true" />;
+const SpinIcon = (p) => <Loader2 {...p} className="spin" aria-hidden="true" />;
+
+/* The Water / Air / Land toggles beside an entry, or under the box that adds
+   one. `value` is the modes ticked; an unconfirmed entry passes none.
+   `savingKey` is the chip whose click is being saved — it turns while the
+   rest wait. */
+function ModeToggles({ value, onToggle, disabled, label, savingKey }) {
+  return (
+    <span className="opt-modes" role="group" aria-label={label} aria-busy={savingKey ? true : undefined}>
+      {MODES.map((m) => {
+        const on = value.includes(m.k);
+        const turning = savingKey === m.k;
+        return (
+          <button key={m.k} type="button" className={`mode-chip${on ? " on" : ""}${turning ? " saving" : ""}`} aria-pressed={on}
+            disabled={disabled} title={turning ? `Saving ${m.label}…` : `${on ? "Untick" : "Tick"} ${m.label} — ${m.long}`} onClick={() => onToggle(m.k)}>
+            {turning ? <Spin size={11} /> : on && <Check size={11} />}{m.label}
+          </button>
+        );
+      })}
+    </span>
+  );
+}
+
+/* One list: the box that adds to it, and the entries under it. A list that
+   carries modes (`modes` is its { entry: [mode] }) asks for them on every
+   entry, a new one before it can be added.
+
+   While a change is being saved the card says so — "Saving…" in its head, and
+   a turning circle on the very chip or button that was clicked, which already
+   shows the state it is being saved to. The rest of the card waits (each save
+   sends the whole list, so two at once would overwrite each other); the other
+   cards stay free. */
+function ListCard({ cfg, values, modes }) {
   const toast = useToast();
+  const saveList = useSaveList();
+  const withModes = !!modes;
   const [draft, setDraft] = useState("");
+  const [draftModes, setDraftModes] = useState([]);
   const [editAt, setEditAt] = useState(-1);
   const [editText, setEditText] = useState("");
   const [askAt, setAskAt] = useState(-1);
   const [err, setErr] = useState("");
+  // What is being saved right now: { kind: "add" | "mode" | "confirm" | "edit" | "remove", v, k, next, i }.
+  const [saving, setSaving] = useState(null);
+  const busy = !!saving;
 
   const has = (text, except = -1) => values.some((v, i) => i !== except && v.toLowerCase() === text.toLowerCase());
+  const modesOf = (v) => (modes?.[v]?.length ? modes[v] : []);
+  const unset = withModes ? values.filter((v) => !modesOf(v).length) : [];
+  const flip = (list, k) => (list.includes(k) ? list.filter((x) => x !== k) : [...list, k]);
+  const ordered = (list) => MODES.map((m) => m.k).filter((k) => list.includes(k));
+  // An entry's chips as they read now — the state being saved, while it is.
+  const shownModes = (v) => (saving?.kind === "mode" && saving.v === v ? saving.next
+    : saving?.kind === "confirm" && !modesOf(v).length ? ["water"]
+      : modesOf(v).length ? modesOf(v) : ["water"]);
 
-  const commit = (next, done, renames) => save(next, renames, {
-    onSuccess: () => { setErr(""); done?.(); },
-    onError: (e) => setErr(e.message),
-  });
+  // `nextModes` is the whole map as it should be saved; only lists with modes send one.
+  const commit = (what, next, done, renames, nextModes) => {
+    setSaving(what);
+    setErr("");
+    saveList.mutate({ key: cfg.key, values: next, renames, modes: withModes ? (nextModes || modes) : undefined }, {
+      onSuccess: () => done?.(),
+      onError: (e) => setErr(e.message),
+      onSettled: () => setSaving(null),
+    });
+  };
 
   const add = () => {
+    if (busy) return;
     const text = draft.trim().replace(/\s+/g, " ");
     if (!text) return;
     if (has(text)) { setErr(`“${text}” is already on the list.`); return; }
-    commit([...values, text], () => { setDraft(""); toast(`${cfg.title}: “${text}” added`); });
+    if (withModes && !draftModes.length) { setErr(`Tick the mode of transport “${text}” serves — Water, Air or Land.`); return; }
+    commit({ kind: "add" }, [...values, text], () => { setDraft(""); setDraftModes([]); toast(`${cfg.title}: “${text}” added`); }, undefined,
+      withModes ? { ...modes, [text]: ordered(draftModes) } : undefined);
   };
   const saveEdit = (i) => {
+    if (busy) return;
     const text = editText.trim().replace(/\s+/g, " ");
     if (!text) return;
     if (has(text, i)) { setErr(`“${text}” is already on the list.`); return; }
+    // The corrected spelling keeps the modes the old one had.
+    let nextModes;
+    if (withModes) {
+      nextModes = { ...modes };
+      if (nextModes[values[i]]) { nextModes[text] = nextModes[values[i]]; if (text !== values[i]) delete nextModes[values[i]]; }
+    }
     // Named as a rename, so what already picked the old spelling can follow it.
-    commit(values.map((v, j) => (j === i ? text : v)), () => { setEditAt(-1); toast(`${cfg.title} updated`); }, { [values[i]]: text });
+    commit({ kind: "edit", i }, values.map((v, j) => (j === i ? text : v)), () => { setEditAt(-1); toast(`${cfg.title} updated`); }, { [values[i]]: text }, nextModes);
   };
-  const remove = (i) => commit(values.filter((_, j) => j !== i), () => { setAskAt(-1); toast(`${cfg.title}: “${values[i]}” removed`); });
+  const remove = (i) => {
+    if (busy) return;
+    let nextModes;
+    if (withModes) { nextModes = { ...modes }; delete nextModes[values[i]]; }
+    commit({ kind: "remove", i }, values.filter((_, j) => j !== i), () => { setAskAt(-1); toast(`${cfg.title}: “${values[i]}” removed`); }, undefined, nextModes);
+  };
+  /* An entry with nothing confirmed counts as Water, so the first tick on it
+     starts from Water as shown. The last mode cannot be taken off. */
+  const toggle = (v, k) => {
+    if (busy) return;
+    const cur = modesOf(v).length ? modesOf(v) : ["water"];
+    const next = ordered(modesOf(v).length ? flip(cur, k) : (k === "water" ? ["water"] : [...cur, k]));
+    if (!next.length) { setErr(`“${v}” must serve at least one mode of transport.`); return; }
+    commit({ kind: "mode", v, k, next }, values, () => toast(`${v}: ${next.map((x) => MODES.find((m) => m.k === x).label).join(" + ")}`), undefined, { ...modes, [v]: next });
+  };
+  const confirmWater = () => {
+    if (busy) return;
+    commit({ kind: "confirm" }, values, () => toast(`${cfg.title}: ${unset.length} entr${unset.length === 1 ? "y" : "ies"} confirmed as Water`),
+      undefined, { ...modes, ...Object.fromEntries(unset.map((v) => [v, ["water"]])) });
+  };
 
   return (
     <Card className="opt-card">
       <CardHead icon={cfg.icon} title={cfg.title}>
+        {busy && <span className="opt-saving" role="status"><Spin /> Saving…</span>}
         <Pill>{values.length}</Pill>
       </CardHead>
       <div className="opt-body">
         <div className="opt-add">
           <Input value={draft} placeholder={cfg.eg} aria-label={`New ${cfg.title.toLowerCase()}`}
             onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => e.key === "Enter" && add()} />
-          <Btn icon={Plus} disabled={!draft.trim() || busy} onClick={add}>Add</Btn>
+          <Btn icon={saving?.kind === "add" ? SpinIcon : Plus} disabled={!draft.trim() || busy || (withModes && !draftModes.length)} onClick={add}>
+            {saving?.kind === "add" ? "Adding…" : "Add"}
+          </Btn>
         </div>
+        {withModes && (
+          <div className="opt-mode-ask">
+            <span>Mode of transport:</span>
+            <ModeToggles value={draftModes} disabled={busy} label={`Modes for the new ${cfg.title.toLowerCase()}`}
+              onToggle={(k) => setDraftModes((m) => flip(m, k))} />
+          </div>
+        )}
         <div className="opt-hint">{cfg.hint}</div>
+        {unset.length > 0 && (
+          <Note tone="amber" icon={AlertTriangle}>
+            {unset.length === 1 ? "One entry was" : `${unset.length} entries were`} added before modes of transport existed
+            and count as <b>Water</b> until confirmed — tick Air or Land on any that also serve those.{" "}
+            <button type="button" className="btn btn-quiet btn-sm" style={{ height: 22, padding: "0 6px" }} disabled={busy} onClick={confirmWater}>
+              {saving?.kind === "confirm" ? <><Spin size={12} /> Confirming…</> : `Confirm ${unset.length === 1 ? "it" : "all"} as Water`}
+            </button>
+          </Note>
+        )}
         {err && <Note tone="amber" icon={AlertTriangle}>{err}</Note>}
         {values.length ? (
           <ul className="opt-list">
             {values.map((v, i) => (
-              <li key={`${v}:${i}`} className="opt-item">
+              <li key={`${v}:${i}`} className={`opt-item${withModes ? " has-modes" : ""}`}>
                 {editAt === i ? (
                   <>
-                    <Input className="input-sm" value={editText} autoFocus
+                    <Input className="input-sm" value={editText} autoFocus disabled={busy}
                       onChange={(e) => setEditText(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === "Enter") saveEdit(i); if (e.key === "Escape") setEditAt(-1); }} />
-                    <button type="button" className="icon-btn bare" title="Save" onClick={() => saveEdit(i)}><Check size={15} /></button>
-                    <button type="button" className="icon-btn bare" title="Cancel" onClick={() => setEditAt(-1)}><X size={15} /></button>
+                      onKeyDown={(e) => { if (e.key === "Enter") saveEdit(i); if (e.key === "Escape" && !busy) setEditAt(-1); }} />
+                    <button type="button" className="icon-btn bare" title={saving?.kind === "edit" ? "Saving…" : "Save"} disabled={busy} onClick={() => saveEdit(i)}>
+                      {saving?.kind === "edit" && saving.i === i ? <Spin size={15} /> : <Check size={15} />}
+                    </button>
+                    <button type="button" className="icon-btn bare" title="Cancel" disabled={busy} onClick={() => setEditAt(-1)}><X size={15} /></button>
                   </>
                 ) : askAt === i ? (
                   <>
                     <span className="opt-text">Remove “{v}”?</span>
-                    <Btn size="sm" variant="danger" icon={Trash2} disabled={busy} onClick={() => remove(i)}>Remove</Btn>
-                    <Btn size="sm" variant="ghost" onClick={() => setAskAt(-1)}>Keep</Btn>
+                    <Btn size="sm" variant="danger" icon={saving?.kind === "remove" ? SpinIcon : Trash2} disabled={busy} onClick={() => remove(i)}>
+                      {saving?.kind === "remove" ? "Removing…" : "Remove"}
+                    </Btn>
+                    <Btn size="sm" variant="ghost" disabled={busy} onClick={() => setAskAt(-1)}>Keep</Btn>
                   </>
                 ) : (
                   <>
-                    <span className="opt-text">{v}</span>
-                    <button type="button" className="icon-btn bare" title="Edit" onClick={() => { setEditAt(i); setEditText(v); setAskAt(-1); }}><Pencil size={14} /></button>
-                    <button type="button" className="icon-btn bare" title="Remove" onClick={() => { setAskAt(i); setEditAt(-1); }}><Trash2 size={14} /></button>
+                    <span className="opt-text">
+                      {v}
+                      {withModes && !modesOf(v).length && saving?.kind !== "confirm" && !(saving?.kind === "mode" && saving.v === v)
+                        && <span className="opt-unset" title="Added before modes existed — counted as Water until confirmed"> · mode?</span>}
+                    </span>
+                    {withModes && (
+                      <ModeToggles value={shownModes(v)} disabled={busy}
+                        savingKey={saving?.kind === "mode" && saving.v === v ? saving.k : null}
+                        label={`Modes for ${v}`} onToggle={(k) => toggle(v, k)} />
+                    )}
+                    <button type="button" className="icon-btn bare" title="Edit" disabled={busy} onClick={() => { setEditAt(i); setEditText(v); setAskAt(-1); }}><Pencil size={14} /></button>
+                    <button type="button" className="icon-btn bare" title="Remove" disabled={busy} onClick={() => { setAskAt(i); setEditAt(-1); }}><Trash2 size={14} /></button>
                   </>
                 )}
               </li>
@@ -153,7 +271,7 @@ function BankForm({ initial, onClose, busy, onSave }) {
         </span>
         <div className="row" style={{ gap: 8 }}>
           <Btn variant="ghost" size="sm" onClick={onClose}>Cancel</Btn>
-          <Btn size="sm" icon={Check} disabled={busy} onClick={submit}>{busy ? "Saving…" : editing ? "Save bank" : "Add bank"}</Btn>
+          <Btn size="sm" icon={busy ? SpinIcon : Check} disabled={busy} onClick={submit}>{busy ? "Saving…" : editing ? "Save bank" : "Add bank"}</Btn>
         </div>
       </>}>
       <div className="rec-grid" style={{ "--rec-cols": 2 }}>
@@ -203,6 +321,7 @@ function BanksCard({ banks, m }) {
   return (
     <Card className="opt-card opt-wide">
       <CardHead icon={Landmark} title="Banks">
+        {busy && <span className="opt-saving" role="status"><Spin /> Saving…</span>}
         <Pill>{banks.length}</Pill>
         <Btn size="sm" icon={Plus} onClick={() => setForm({})}>Add bank account</Btn>
       </CardHead>
@@ -228,8 +347,10 @@ function BanksCard({ banks, m }) {
                 {askId === b.id && (
                   <div className="row wrap" style={{ gap: 8, marginTop: 8 }}>
                     <span style={{ fontSize: 12.5, color: "var(--amber-ink)" }}>Remove this account?</span>
-                    <Btn size="sm" variant="danger" icon={Trash2} disabled={busy}
-                      onClick={() => m.removeBank.mutate(b.id, { onSuccess: () => { setAskId(null); toast(`Bank ${b.bank_name} removed`); } })}>Remove</Btn>
+                    <Btn size="sm" variant="danger" icon={m.removeBank.isPending ? SpinIcon : Trash2} disabled={busy}
+                      onClick={() => m.removeBank.mutate(b.id, { onSuccess: () => { setAskId(null); toast(`Bank ${b.bank_name} removed`); } })}>
+                      {m.removeBank.isPending ? "Removing…" : "Remove"}
+                    </Btn>
                     <Btn size="sm" variant="ghost" onClick={() => setAskId(null)}>Keep</Btn>
                   </div>
                 )}
@@ -279,8 +400,10 @@ function SequenceCard({ sequence, defaults, suppliers, counts, m }) {
           ))}
         </ol>
         <div className="row wrap" style={{ gap: 8 }}>
-          <Btn size="sm" icon={Check} disabled={!dirty || m.saveSequence.isPending}
-            onClick={() => m.saveSequence.mutate(list, { onSuccess: () => toast("Supplier sequence saved") })}>Save order</Btn>
+          <Btn size="sm" icon={m.saveSequence.isPending ? SpinIcon : Check} disabled={!dirty || m.saveSequence.isPending}
+            onClick={() => m.saveSequence.mutate(list, { onSuccess: () => toast("Supplier sequence saved") })}>
+            {m.saveSequence.isPending ? "Saving…" : "Save order"}
+          </Btn>
           <Btn size="sm" variant="ghost" icon={RotateCcw} disabled={list.join("|") === defaults.join("|")}
             onClick={() => setList(defaults)}>Default order</Btn>
         </div>
@@ -448,7 +571,7 @@ function RangeGroupsModal({ range, short, empty, saved, categories, m, onClose }
         </Btn>
         <div className="row" style={{ gap: 8 }}>
           <Btn size="sm" variant="ghost" onClick={onClose}>Cancel</Btn>
-          <Btn size="sm" icon={Check} disabled={!dirty || incomplete || m.saveGroups.isPending} onClick={save}>
+          <Btn size="sm" icon={m.saveGroups.isPending ? SpinIcon : Check} disabled={!dirty || incomplete || m.saveGroups.isPending} onClick={save}>
             {m.saveGroups.isPending ? "Saving…" : "Save groups"}
           </Btn>
         </div>
@@ -542,8 +665,8 @@ export default function AdditionalSettingsPanel() {
   return (
     <div className="opt-grid">
       {LISTS.map((cfg) => (
-        <ListCard key={cfg.key} cfg={cfg} values={o[cfg.key] || []} busy={m.saveList.isPending}
-          save={(values, renames, cb) => m.saveList.mutate({ key: cfg.key, values, renames }, cb)} />
+        <ListCard key={cfg.key} cfg={cfg} values={o[cfg.key] || []}
+          modes={MODE_LISTS.includes(cfg.key) ? (o.modes?.[cfg.key] || {}) : null} />
       ))}
       <SequenceCard sequence={sequence} defaults={defaults} suppliers={suppliers} counts={counts} m={m} />
       <ItemGroupsCard saved={o.item_groups || DEFAULT_GROUPS} sequence={sequence} suppliers={suppliers}

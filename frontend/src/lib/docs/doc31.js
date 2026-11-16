@@ -1,4 +1,4 @@
-import { CI_BUYER_BANDS, CI_P1_BODY_BUYER, CI_P1_TOP, CI_P2_TOP, CI_PLAIN, CI_USD, CI_USDT, L, USD, addrLines, amountWords, bundled, buyerGoods, ciMarks, ciP2Body, ddmm, esc, fitSheet, formGrid, formLogo, invoiceBands, invoiceLayout, num, numOrText, packagesText, poHeaderList, sum, wrapTo } from "./common.js";
+import { airMargin, airOf, CI_BUYER_BANDS, CI_P1_BODY_BUYER, CI_P1_TOP, CI_P2_TOP, CI_PLAIN, CI_USD, CI_USDT, L, USD, addrLines, amountWords, bundled, buyerGoods, ciMarks, ciP2Body, ddmm, esc, fitSheet, formGrid, formLogo, invoiceBands, invoiceLayout, num, numOrText, packagesText, poHeaderList, sum, wrapTo } from "./common.js";
 import { LOGO_SRC, imgTag } from "../logo.js";
 import { colLetter } from "../xlsx.js";
 
@@ -17,6 +17,13 @@ export function commercialInvoiceSheets(ctx) {
   const bands = invoiceBands(ctx, CI_BUYER_BANDS);
   const { p1, p2 } = invoiceLayout(bands, CI_P1_BODY_BUYER);
   const marks = ciMarks(ctx, rows);
+  /* By air (Docs/JG_Air_Docs/Commercial Invoice.xlsx): the waybill, the
+     airline and its flights, and the terms it was sold on. Null by sea. */
+  const air = airOf(ctx);
+  const shippedPer = air ? air.shippedPer : s.vessel || "";
+  const carrier = air ? air.airline : s.vessel || "";
+  const priced = air ? air.terms : "FOB MUMBAI";
+  const destPort = (air?.deliveryPlace || s.finalDest || s.pod || b.shipTo || "").toUpperCase();
 
   const F = { font: "ref9", border: false, valign: "center", shrink: true };
   const C = {
@@ -83,13 +90,13 @@ export function commercialInvoiceSheets(ctx) {
        shipping bill — what the buyer needs to trace the consignment. */
     row([[2, { v: "On Account & Risks of:", s: { ...C.lbl, border: "lt" } }],
       [3, { v: "", s: { ...C.txt, border: "t" } }],
-      [1, { v: "BL. NO.", s: { ...C.lbl, border: "lt" } }],
-      [5, { v: dated(s.blNo, s.blDate), s: { ...C.txt, border: "t" } }]], 12.75);
+      [1, { v: air ? "AWB No." : "BL. NO.", s: { ...C.lbl, border: "lt" } }],
+      [5, { v: air ? air.awb : dated(s.blNo, s.blDate), s: { ...C.txt, border: "t" } }]], 12.75);
     row([[5, { v: b.name ? `Messrs ${b.name},` : "", s: { ...C.txt, border: "l" } }],
       [1, { v: "", s: { ...C.txt, border: "l" } }], [5, { v: "", s: C.txt }]], 12.75);
     row([[5, { v: b.brand ? `T/A ${b.brand}` : "", s: { ...C.txt, border: "l" } }],
       [1, { v: "Shipped Per", s: { ...C.lbl, border: "l" } }],
-      [5, { v: s.vessel || "", s: C.txt }]], 12.75);
+      [5, { v: shippedPer, s: C.txt }]], 12.75);
     const bAddr = addrLines({ addr: b.addr });
     row([[5, { v: bAddr[0] || "", s: { ...C.txt, border: "l" } }],
       [1, { v: "", s: { ...C.txt, border: "l" } }], [5, { v: "", s: C.txt }]], 12.75);
@@ -118,7 +125,7 @@ export function commercialInvoiceSheets(ctx) {
       [3, { v: "Port of Loading:", s: { ...C.lblC, border: "lrt" } }],
       [2, { v: "Terms of Payment:", s: { ...C.lbl, border: "l" } }],
       [4, { v: s.payment || "D.P.SIGHT DRAFT", s: { ...C.txt, border: "r" } }]], 12.75);
-    row([[2, { v: s.vessel || "", s: { ...C.ctr, border: "lb" } }],
+    row([[2, { v: carrier, s: { ...C.ctr, border: "lb" } }],
       [3, { v: s.pol || "", s: { ...C.lblC, border: "lrb" } }],
       [2, { v: "", s: { ...C.lbl, border: "l" } }], [4, { v: "", s: { ...C.txt, border: "r" } }]], 12.75);
     row([[2, { v: "Port of Discharge:", s: { ...C.lblC, border: "lt" } }],
@@ -126,7 +133,7 @@ export function commercialInvoiceSheets(ctx) {
       [2, { v: "Through:", s: { ...C.lbl, border: "l" } }],
       [4, { v: s.bank || "", s: { ...C.lbl, border: "r" } }]], 12.75);
     row([[2, { v: (s.pod || b.shipTo || "").toUpperCase(), s: { ...C.ctr, border: "lb" } }],
-      [3, { v: (s.finalDest || s.pod || b.shipTo || "").toUpperCase(), s: { ...C.ctr, border: "lrb" } }],
+      [3, { v: destPort, s: { ...C.ctr, border: "lrb" } }],
       [2, { v: "", s: { ...C.txt, border: "lb" } }],
       [4, { v: s.bankAddr || "", s: { ...C.lbl, border: "rb" } }]], 12.75);
   }
@@ -144,7 +151,7 @@ export function commercialInvoiceSheets(ctx) {
       [7, mirror ? { f: "Page1!B23", s: { ...C.txt, border: "lr", align: "left" } }
         : { v: `${packagesText(ctx, rows)} CONTAINING`, s: { ...C.txt, border: "lr", align: "left" } }],
       [1, { v: "", s: { ...C.txt, border: "lr" } }],
-      [2, { v: "FOB MUMBAI IN US$", s: { ...C.ctr, border: "lr" } }]]);
+      [2, { v: `${priced} IN US$`, s: { ...C.ctr, border: "lr" } }]]);
     row([[1, M(`${marks.start} - ${marks.end}`, "A24")],
       [7, mirror ? { f: "Page1!B24", s: { ...C.txt, border: "lr", align: "left" } }
         : { v: desc2[0], s: { ...C.txt, border: "lr", align: "left" } }],
@@ -255,13 +262,17 @@ export function commercialInvoiceSheets(ctx) {
   const netWt = Number(s.netWt) || sum(rows, "netTotal");
   const grossWt = Number(s.grossWt) || sum(rows, "grossTotal");
   const wt3 = { ...C.ctr, fmt: "0.000" };
-  const margin = {
-    5: ["Container No.", C.lblC], 6: [s.container || "", C.ctr],
-    15: ["Seal No.", C.lblC], 16: [s.seal || "", C.ctr],
-    24: ["Nett Wt.", C.lblC], 25: [netWt, wt3], 26: ["KGS", C.ctr],
-    33: ["Gross Wt", C.lblC], 34: [grossWt, wt3], 35: ["KGS", C.ctr],
-    41: ["Freight", C.lblC], 42: ["Payable at", C.lblC], 43: ["Destination", C.lblC],
-  };
+  // The buyer's copy is in dollars only, so its margin carries no rupees.
+  const AIR_ST = { lbl: C.lblC, txt: C.ctr, wt: wt3, usd: { ...C.ctr, fmt: USD }, inr: C.ctr };
+  const margin = air
+    ? Object.fromEntries(airMargin(ctx, rows, sum(rows, "fobTotal"), { inr: false }).map(([i, v, k]) => [i, [v, AIR_ST[k]]]))
+    : {
+      5: ["Container No.", C.lblC], 6: [s.container || "", C.ctr],
+      15: ["Seal No.", C.lblC], 16: [s.seal || "", C.ctr],
+      24: ["Nett Wt.", C.lblC], 25: [netWt, wt3], 26: ["KGS", C.ctr],
+      33: ["Gross Wt", C.lblC], 34: [grossWt, wt3], 35: ["KGS", C.ctr],
+      41: ["Freight", C.lblC], 42: ["Payable at", C.lblC], 43: ["Destination", C.lblC],
+    };
   const setA = (r, cell, st) => {
     const was = g2.rows[r - 1]?.[0];
     if (was) g2.rows[r - 1][0] = { ...was, ...cell, s: { ...st, border: was.s?.border } };
@@ -271,10 +282,12 @@ export function commercialInvoiceSheets(ctx) {
   const p2First = CI_P2_TOP - 1;                 // the brought-forward line
   const p2Last = CI_P2_TOP + p2Body - 1;
   const totRow = p2Last + 1;
-  setA(totRow - 2, { v: "FOB VALUE" }, C.lblC);
-  setA(totRow - 1, { v: undefined, f: `K${totRow}` }, { ...C.lblC, fmt: USD });
+  if (!air || air.fob) {
+    setA(totRow - 2, { v: "FOB VALUE" }, C.lblC);
+    setA(totRow - 1, { v: undefined, f: `K${totRow}` }, { ...C.lblC, fmt: USD });
+  }
   g2.row([[1, { v: "", s: { ...C.txt, border: "lr" } }],
-    [3, { v: "Total FOB Mumbai Value :", s: { ...G.totL, align: "left" } }],
+    [3, { v: air ? `Total ${air.terms} Value :` : "Total FOB Mumbai Value :", s: { ...G.totL, align: "left" } }],
     ...blank(6, G.totV), [1, { f: `SUM(K${p2First}:K${p2Last})`, s: G.sumU }]], 12.75);
   /* The value in words, as the invoice reads it out — the dollars in
      international scale, which is what a buyer's invoice states. */
@@ -298,6 +311,13 @@ export function commercialInvoiceHtml(ctx) {
   const bands = invoiceBands(ctx, CI_BUYER_BANDS);
   const { p1, p2 } = invoiceLayout(bands, CI_P1_BODY_BUYER);
   const marks = ciMarks(ctx, rows);
+  /* By air (Docs/JG_Air_Docs/Commercial Invoice.xlsx): the waybill, the
+     airline and its flights, and the terms it was sold on. Null by sea. */
+  const air = airOf(ctx);
+  const shippedPer = air ? air.shippedPer : s.vessel || "";
+  const carrier = air ? air.airline : s.vessel || "";
+  const priced = air ? air.terms : "FOB MUMBAI";
+  const destPort = (air?.deliveryPlace || s.finalDest || s.pod || b.shipTo || "").toUpperCase();
   const addr = addrLines(E), bAddr = addrLines({ addr: b.addr });
   /* The goods run the width of the seven columns beside the marks, so they
      stand on the one line rather than leaving a word under the last box no. */
@@ -329,9 +349,9 @@ export function commercialInvoiceHtml(ctx) {
     <tr>${td("Date:", "k lf")}${td("", "rt0", 4)}${td(esc(E.iec ? `IEC ${E.iec}` : ""), "k rt0")}</tr>
     <tr>${td(esc("Buyers Order No: "), "k lf", 2)}${td(esc(orders[0]), "rt0", 4)}</tr>
     ${orders.slice(1).map((o) => `<tr>${td("", "lf", 2)}${td(esc(o), "rt0", 4)}</tr>`).join("")}
-    <tr>${td("On Account &amp; Risks of:", "k lt", 2)}${td("", "lt0", 3)}${td("BL. NO.", "k lt")}${td(esc(dated(s.blNo, s.blDate)), "rt", 5)}</tr>
+    <tr>${td("On Account &amp; Risks of:", "k lt", 2)}${td("", "lt0", 3)}${td(air ? "AWB No." : "BL. NO.", "k lt")}${td(esc(air ? air.awb : dated(s.blNo, s.blDate)), "rt", 5)}</tr>
     <tr>${td(esc(b.name ? `Messrs ${b.name},` : ""), "lf", 5)}${td("", "lf")}${td("", "rt0", 5)}</tr>
-    <tr>${td(esc(b.brand ? `T/A ${b.brand}` : ""), "lf", 5)}${td("Shipped Per", "k lf")}${td(esc(s.vessel || ""), "rt0", 5)}</tr>
+    <tr>${td(esc(b.brand ? `T/A ${b.brand}` : ""), "lf", 5)}${td("Shipped Per", "k lf")}${td(esc(shippedPer), "rt0", 5)}</tr>
     <tr>${td(esc(bAddr[0] || ""), "lf", 5)}${td("", "lf")}${td("", "rt0", 5)}</tr>
     <tr>${td(esc([bAddr[1], b.country && `(${b.country})`].filter(Boolean).join(" ")), "lf bb", 5)}
       ${td("S/B No:", "k lf")}${td(esc(dated(s.sbNo, s.sbDate)), "rt0", 5)}</tr>
@@ -346,16 +366,16 @@ export function commercialInvoiceHtml(ctx) {
       ${td("", "k lf", 2)}${td("", "rt0", 4)}</tr>
     <tr>${td("Shipped per:", "k lt c", 2)}${td("Port of Loading:", "k lrt c", 3)}
       ${td("Terms of Payment:", "k lf", 2)}${td(esc(s.payment || "D.P.SIGHT DRAFT"), "rt0", 4)}</tr>
-    <tr>${td(esc(s.vessel || ""), "lf bb c", 2)}${td(esc(s.pol || ""), "k lrb c", 3)}
+    <tr>${td(esc(carrier), "lf bb c", 2)}${td(esc(s.pol || ""), "k lrb c", 3)}
       ${td("", "k lf", 2)}${td("", "rt0", 4)}</tr>
     <tr>${td("Port of Discharge:", "k lt c", 2)}${td("Port of destination", "k lrt c", 3)}
       ${td("Through:", "k lf", 2)}${td(esc(s.bank || ""), "k rt0", 4)}</tr>
-    <tr>${td(esc((s.pod || b.shipTo || "").toUpperCase()), "lf bb c", 2)}${td(esc((s.finalDest || s.pod || b.shipTo || "").toUpperCase()), "lrb c", 3)}
+    <tr>${td(esc((s.pod || b.shipTo || "").toUpperCase()), "lf bb c", 2)}${td(esc(destPort), "lrb c", 3)}
       ${td("", "lf bb", 2)}${td(esc(s.bankAddr || ""), "k rt0 bb", 4)}</tr>
     <tr>${td("Marks &amp; Nos.", "h l")}${td("No &amp; Kinds of Pkgs   Description of Goods", "h", 7)}
       ${["Quantity", "Rate", "Amount"].map((h) => td(h, "h")).join("")}</tr>
     <tr class="gd">${vl(`${marks.prefix} NOS :`)}${td(esc(`${packagesText(ctx, rows)} CONTAINING`), "l", 7)}
-      ${td("")}${td("FOB MUMBAI IN US$", "c", 2)}</tr>
+      ${td("")}${td(esc(`${priced} IN US$`), "c", 2)}</tr>
     <tr class="gd">${vl(`${marks.start} - ${marks.end}`)}${td(esc(desc2[0]), "l", 7)}${td("")}${td("")}
       ${td(second ? ciUsd(cfUsd) : "", "r")}</tr>
     <tr class="gd">${vl(String(marks.end))}${td(esc(desc2[1]), "l", 7)}${td("")}${td("")}${td("")}</tr>`;
@@ -410,12 +430,15 @@ export function commercialInvoiceHtml(ctx) {
      and the value; the rest of it is the same frame continued. */
   const netWt = Number(s.netWt) || sum(rows, "netTotal");
   const grossWt = Number(s.grossWt) || sum(rows, "grossTotal");
-  const margin = {
-    5: "Container No.", 6: s.container || "", 15: "Seal No.", 16: s.seal || "",
-    24: "Nett Wt.", 25: Number(netWt || 0).toFixed(3), 26: "KGS",
-    33: "Gross Wt", 34: Number(grossWt || 0).toFixed(3), 35: "KGS",
-    41: "Freight", 42: "Payable at", 43: "Destination",
-  };
+  const AIR_FMT = { lbl: (v) => v, txt: (v) => v, wt: (v) => Number(v || 0).toFixed(3), usd: (v) => ciUsd(v), inr: (v) => v };
+  const margin = air
+    ? Object.fromEntries(airMargin(ctx, rows, fobAll, { inr: false }).map(([i, v, k]) => [i, AIR_FMT[k](v)]))
+    : {
+      5: "Container No.", 6: s.container || "", 15: "Seal No.", 16: s.seal || "",
+      24: "Nett Wt.", 25: Number(netWt || 0).toFixed(3), 26: "KGS",
+      33: "Gross Wt", 34: Number(grossWt || 0).toFixed(3), 35: "KGS",
+      41: "Freight", 42: "Payable at", 43: "Destination",
+    };
   const p2Body = ciP2Body(p2);
   const body2 = Array.from({ length: p2Body }, (_, i) => {
     const cell = margin[i];
@@ -425,7 +448,7 @@ export function commercialInvoiceHtml(ctx) {
   }).join("");
 
   const page2 = `<table class="wb ci ci31">${colg}<tbody>${head(true)}${body2}
-    <tr class="tt">${td(ciUsd(fobAll), "c k")}${td("Total FOB Mumbai Value :", "k", 3)}${td("", "", 6)}
+    <tr class="tt">${td(ciUsd(fobAll), "c k")}${td(esc(air ? `Total ${air.terms} Value :` : "Total FOB Mumbai Value :"), "k", 3)}${td("", "", 6)}
       ${td(ciUsd(fobAll), "r dbl")}</tr>
     <tr>${td("")}${td(esc(amountWords(fobAll, "US DOLLARS", "CENTS")), "l", 10)}</tr>
     ${foot()}</tbody></table>`;
