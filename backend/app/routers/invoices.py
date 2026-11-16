@@ -240,7 +240,7 @@ def create_invoice(body: schemas.InvoiceCreate, db: Session = Depends(get_db)):
         invoice_no=body.invoice_no, date=body.date, buyer_id=body.buyer_id,
         rbi=body.rbi, serial_start=body.serial_start,
         packing_transports=body.packing_transports or {},
-        vehicles={}, ship=dict(body.ship or {}), step_skip={},
+        vehicles={}, ship=calc.clean_ship(body.ship or {}), step_skip={},
         allocation=body.allocation,
     )
     inv.lines = _freeze_prices(db, _resolve_allocation(db, body.allocation, _in_sequence(db, body.lines)))
@@ -271,6 +271,8 @@ def update_invoice(iid: str, body: schemas.InvoiceUpdate, db: Session = Depends(
     old_base = calc.serial_base(inv)
     old_next = calc.serial_next_of(inv)
     held = {l.item_id: f for l, f in zip(inv.lines, calc.line_serial_froms(inv.lines, old_base))}
+    if "ship" in data:
+        data["ship"] = calc.clean_ship(data["ship"] or {})
     for k, v in data.items():
         setattr(inv, k, v)
     # A new serial start moves every allotted number by the same amount, so

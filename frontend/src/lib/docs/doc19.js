@@ -1,4 +1,4 @@
-import { L, PL_FORMS, bundled, PL_P2_TOP, PL_TOP, PL_WEIGHTS, PL_WT, addrLines, ciMarks, ddmm, esc, familyOf, fitSheet, formGrid, formLogo, lineRuns, numOrText, packingBands, packingDescribe, packingLayout, plOrderBox, plP2Body, proformaRefOf, rangeRefs, sum, wbFixed } from "./common.js";
+import { airOf, L, PL_FORMS, bundled, PL_P2_TOP, PL_TOP, PL_WEIGHTS, PL_WT, addrLines, ciMarks, ddmm, esc, familyOf, fitSheet, formGrid, formLogo, lineRuns, numOrText, packingBands, packingDescribe, packingLayout, plOrderBox, plP2Body, proformaRefOf, rangeRefs, sum, wbFixed } from "./common.js";
 
 /* The break-up of weights by material is printed only when the consignment
    carries corrugated boxes — it exists to separate the cartons' weight from
@@ -57,7 +57,20 @@ export function packingListSheets(ctx, form) {
   /* ---- the head of the list, rows 1-24 ----------------------------------- */
   const invRef = `${ctx.inv.invoiceNo || ""}${ctx.inv.date ? ` DT ${ddmm(ctx.inv.date)}` : ""}`;
   const orderRef = proformaRefOf(ctx);
-  const blLine = s.blNo ? `BL : ${s.blNo}${s.blDate ? `  DT. ${ddmm(s.blDate)}` : ""}` : "";
+  /* By air (Docs/JG_Air_Docs/Packing-List.xlsx) the waybill takes the bill of
+     lading's place, the airline and its flights the vessel's, and there is no
+     container to name. Null by sea. */
+  const air = airOf(ctx);
+  const blLine = air
+    ? (air.awb ? `AWB NO : ${air.awb}` : "")
+    : s.blNo ? `BL : ${s.blNo}${s.blDate ? `  DT. ${ddmm(s.blDate)}` : ""}` : "";
+  const shippedLine = air ? (air.shippedPer ? `Shipped per : ${air.shippedPer}` : "") : s.vessel ? `Shipped per: ${s.vessel}` : "";
+  const carrier = air ? [air.airline, air.flightNos].filter(Boolean).join(" ") : s.vessel || "";
+  const boxLabel = air ? "" : "CONTAINER NO : ";
+  const boxValue = air ? "" : s.container || "";
+  const destPort = (air?.deliveryPlace || s.finalDest || s.pod || b.shipTo || "").toUpperCase();
+  const totalWt = rows.reduce((n, r) => n + (Number(r.grossTotal) || 0), 0) + (air?.skidWt || 0);
+  const skidLabel = air && air.skids ? `WEIGHT OF ${air.skids} SKID${air.skids === 1 ? "" : "S"}` : "WEIGHT OF SKIDS";
   const addr = addrLines(E), bAddr = addrLines({ addr: b.addr });
 
   // Rows 4-7: the letterhead down the left of them, the order box beside it.
@@ -94,7 +107,7 @@ export function packingListSheets(ctx, form) {
     row([[4, { v: b.name ? `Messrs. ${b.name},` : "", s: { ...C.txt, border: "lr" } }],
       [5, { v: "", s: { ...C.txt, border: "lr" } }]]);
     row([[4, { v: b.brand ? `T/A ${b.brand},` : "", s: { ...C.txt, border: "lr" } }],
-      [5, { v: s.vessel ? `Shipped per: ${s.vessel}` : "", s: { ...C.txt, border: "lr" } }]]);
+      [5, { v: shippedLine, s: { ...C.txt, border: "lr" } }]]);
     row([[4, { v: bAddr[0] || "", s: { ...C.txt, border: "lr" } }],
       [5, { v: "", s: { ...C.txt, border: "lr" } }]]);
     row([[4, { v: [bAddr[1], b.country && `(${b.country})`].filter(Boolean).join(" "), s: { ...C.txt, border: "lr" } }],
@@ -107,11 +120,11 @@ export function packingListSheets(ctx, form) {
       [2, { v: (s.finalDest || b.country || "").toUpperCase(), s: { ...C.ans, border: "lrb", align: "center" } }]]);
     row([[4, { v: "", s: { ...C.txt, border: "lr" } }],
       [2, { v: "Shipping Marks ", s: { ...C.lbl, border: "l" } }],
-      [3, { v: "CONTAINER NO : ", s: { ...C.key, border: "lrt" } }]]);
+      [3, { v: boxLabel, s: { ...C.key, border: "lrt" } }]]);
     row([[3, { v: "Pre-Carraige by:", s: { ...C.lbl, border: "lt" } }],
       [1, { v: "Place of Receipt by Pre-Carraige", s: { ...C.lbl, border: "lrt" } }],
       [2, { v: marks.prefix, s: { ...C.key, border: "l" } }],
-      [3, { v: s.container || "", s: { ...C.key, border: "lr" } }]]);
+      [3, { v: boxValue, s: { ...C.key, border: "lr" } }]]);
     /* The marks their form types under the prefix: the range this consignment
        takes out of the running series, over the serial it ends on. */
     row([[3, { v: s.preCarriage || "", s: { ...C.txt, border: "lb" } }],
@@ -121,16 +134,16 @@ export function packingListSheets(ctx, form) {
     row([[3, { v: "Shipped per:", s: { ...C.lbl, border: "lrt" } }],
       [1, { v: "Port of Loading:", s: { ...C.lbl, border: "lrt" } }],
       [2, { v: "", s: { ...C.txt, border: "lr" } }],
-      [3, { v: "SEAL NO : ", s: { ...C.key, border: "lr" } }]]);
-    row([[3, { v: s.vessel || "", s: { ...C.txt, border: "lrb" } }],
+      [3, { v: air ? "" : "SEAL NO : ", s: { ...C.key, border: "lr" } }]]);
+    row([[3, { v: carrier, s: { ...C.txt, border: "lrb" } }],
       [1, { v: s.pol || "", s: { ...C.ans, border: "lrb", align: "center" } }],
       [2, { v: "", s: { ...C.txt, border: "lr" } }],
-      [3, { v: s.seal || "", s: { ...C.key, border: "lr" } }]]);
+      [3, { v: air ? "" : s.seal || "", s: { ...C.key, border: "lr" } }]]);
     row([[3, { v: "Port of Discharge:", s: { ...C.lbl, border: "lrt" } }],
       [1, { v: "Final Destination:", s: { ...C.lbl, border: "lrt" } }],
       [2, { v: "", s: { ...C.txt, border: "lr" } }], [3, { v: "", s: { ...C.txt, border: "lr" } }]]);
     row([[3, { v: (s.pod || b.shipTo || "").toUpperCase(), s: { ...C.txt, border: "lrb", align: "center" } }],
-      [1, { v: (s.finalDest || s.pod || b.shipTo || "").toUpperCase(), s: { ...C.txt, border: "lrb", align: "center" } }],
+      [1, { v: destPort, s: { ...C.txt, border: "lrb", align: "center" } }],
       [2, { v: "", s: { ...C.txt, border: "lrb" } }], [3, { v: "", s: { ...C.txt, border: "lrb" } }]]);
   }
 
@@ -307,6 +320,16 @@ export function packingListSheets(ctx, form) {
   for (let i = 0; i < p2Body; i++) bodyLine(g2, p2[i], PL_P2_TOP + i);
   const totRow = PL_P2_TOP + p2Body;
   totalLine(g2, "TOTAL WEIGHTS……….", totRow - 1);
+  /* An air consignment's skids weigh in on top of the goods. */
+  if (air?.skidWt) {
+    const sumRow = g2.at();
+    const extra = (label, cell) => g2.row([...blank(3, { ...C.txt, border: "l" }),
+      [1, { v: label, s: { ...C.key, border: "r", align: "right" } }],
+      ...blank(3, { ...C.txt, border: "lr" }), [1, { v: "", s: { ...C.txt, border: "lr" } }],
+      [1, { ...cell, s: G.tot }]]);
+    extra(skidLabel, { v: air.skidWt, t: "n" });
+    extra("TOTAL WEIGHT…..", { f: `I${sumRow}+I${sumRow + 1}` });
+  }
 
   /* ---- the break-up of weights, totalled by material ---------------------- */
   if (withBreakup(form, bands)) {
@@ -371,7 +394,20 @@ export function packingListHtml(ctx, form) {
   const addr = addrLines(E), bAddr = addrLines({ addr: b.addr });
   const invRef = `${ctx.inv.invoiceNo || ""}${ctx.inv.date ? ` DT ${ddmm(ctx.inv.date)}` : ""}`;
   const orderRef = proformaRefOf(ctx);
-  const blLine = s.blNo ? `BL : ${s.blNo}${s.blDate ? `  DT. ${ddmm(s.blDate)}` : ""}` : "";
+  /* By air (Docs/JG_Air_Docs/Packing-List.xlsx) the waybill takes the bill of
+     lading's place, the airline and its flights the vessel's, and there is no
+     container to name. Null by sea. */
+  const air = airOf(ctx);
+  const blLine = air
+    ? (air.awb ? `AWB NO : ${air.awb}` : "")
+    : s.blNo ? `BL : ${s.blNo}${s.blDate ? `  DT. ${ddmm(s.blDate)}` : ""}` : "";
+  const shippedLine = air ? (air.shippedPer ? `Shipped per : ${air.shippedPer}` : "") : s.vessel ? `Shipped per: ${s.vessel}` : "";
+  const carrier = air ? [air.airline, air.flightNos].filter(Boolean).join(" ") : s.vessel || "";
+  const boxLabel = air ? "" : "CONTAINER NO : ";
+  const boxValue = air ? "" : s.container || "";
+  const destPort = (air?.deliveryPlace || s.finalDest || s.pod || b.shipTo || "").toUpperCase();
+  const totalWt = rows.reduce((n, r) => n + (Number(r.grossTotal) || 0), 0) + (air?.skidWt || 0);
+  const skidLabel = air && air.skids ? `WEIGHT OF ${air.skids} SKID${air.skids === 1 ? "" : "S"}` : "WEIGHT OF SKIDS";
 
   const td = (v, cls = "", span = 1) =>
     `<td${span > 1 ? ` colspan="${span}"` : ""}${cls ? ` class="${cls}"` : ""}>${v == null || v === "" ? "&nbsp;" : v}</td>`;
@@ -406,25 +442,25 @@ export function packingListHtml(ctx, form) {
     ${orderBox}
     <tr>${vl("On Account & risks of", "k lb lt", 3)}${td("", "rt")}${vl(blLine, "k lb lrt", 5)}</tr>
     <tr>${vl(b.name ? `Messrs. ${b.name},` : "", "lf rt0", 4)}${td("", "lf rt0", 5)}</tr>
-    <tr>${vl(b.brand ? `T/A ${b.brand},` : "", "lf rt0", 4)}${vl(s.vessel ? `Shipped per: ${s.vessel}` : "", "lf rt0", 5)}</tr>
+    <tr>${vl(b.brand ? `T/A ${b.brand},` : "", "lf rt0", 4)}${vl(shippedLine, "lf rt0", 5)}</tr>
     <tr>${vl(bAddr[0] || "", "lf rt0", 4)}${td("", "lf rt0", 5)}</tr>
     <tr>${vl([bAddr[1], b.country && `(${b.country})`].filter(Boolean).join(" "), "lf rt0", 4)}${td("", "lrb", 5)}</tr>
     <tr>${td("", "lf rt0", 4)}${vl("Country of Origin", "k lb lrt c", 3)}${vl("Country of Final Destination", "k lb lrt c", 2)}</tr>
     <tr>${td("", "lf rt0", 4)}${vl(E.origin || "INDIA", "k rd lrb c", 3)}
       ${vl((s.finalDest || b.country || "").toUpperCase(), "k rd lrb c", 2)}</tr>
-    <tr>${td("", "lf rt0", 4)}${vl("Shipping Marks ", "k lb lf", 2)}${vl("CONTAINER NO : ", "k lrt", 3)}</tr>
+    <tr>${td("", "lf rt0", 4)}${vl("Shipping Marks ", "k lb lf", 2)}${vl(boxLabel, "k lrt", 3)}</tr>
     <tr>${vl("Pre-Carraige by:", "k lb lt", 3)}${vl("Place of Receipt by Pre-Carraige", "k lb lrt")}
-      ${vl(marks.prefix, "k lf", 2)}${vl(s.container || "", "k lf rt0", 3)}</tr>
+      ${vl(marks.prefix, "k lf", 2)}${vl(boxValue, "k lf rt0", 3)}</tr>
     <tr>${vl(s.preCarriage || "", "lf bb", 3)}${vl(s.receiptPlace || "", "lrb")}
       ${vl(`${marks.start} - ${marks.end} / ${marks.end}`, "lf", 2)}${td("", "k lrb", 3)}</tr>
     <tr>${vl("Shipped per:", "k lb lrt", 3)}${vl("Port of Loading:", "k lb lrt")}${td("", "lf rt0", 2)}
-      ${vl("SEAL NO : ", "k lf rt0", 3)}</tr>
-    <tr>${vl(s.vessel || "", "lrb", 3)}${vl(s.pol || "", "k rd lrb c")}${td("", "lf rt0", 2)}
-      ${vl(s.seal || "", "k lf rt0", 3)}</tr>
+      ${vl(air ? "" : "SEAL NO : ", "k lf rt0", 3)}</tr>
+    <tr>${vl(carrier, "lrb", 3)}${vl(s.pol || "", "k rd lrb c")}${td("", "lf rt0", 2)}
+      ${vl(air ? "" : s.seal || "", "k lf rt0", 3)}</tr>
     <tr>${vl("Port of Discharge:", "k lb lrt", 3)}${vl("Final Destination:", "k lb lrt")}${td("", "lf rt0", 2)}
       ${td("", "lf rt0", 3)}</tr>
     <tr>${vl((s.pod || b.shipTo || "").toUpperCase(), "lrb c", 3)}
-      ${vl((s.finalDest || s.pod || b.shipTo || "").toUpperCase(), "lrb c")}${td("", "lrb", 2)}${td("", "lrb", 3)}</tr>
+      ${vl(destPort, "lrb c")}${td("", "lrb", 2)}${td("", "lrb", 3)}</tr>
     <tr>${vl("Sr.Nos.", "k lf colh")}${vl("No. & Kind of Pkgs   Description of Goods", "k lrt l colh", 5)}
       ${vl("Quantity", "k lrt c colh")}${vl("WEIGHT", "k rt c colh", 2)}</tr>
     <tr>${td("", "lf")}${vl(desc[0], "lf rt0 l", 5)}${td("", "lf rt0")}
@@ -515,6 +551,8 @@ export function packingListHtml(ctx, form) {
     ${bf}
     ${Array.from({ length: plP2Body(p2, form) }, (_, i) => line(p2[i])).join("")}
     ${totalRow("TOTAL WEIGHTS……….", rows)}
+    ${air?.skidWt ? `<tr class="tt">${td("", "lf", 3)}${vl(skidLabel, "k rt0 r")}${td("", "lf rt0", 3)}${td("", "lf rt0")}${nm(air.skidWt, 3, "bx c")}</tr>
+    <tr class="tt">${td("", "lf bb", 3)}${vl("TOTAL WEIGHT…..", "k rt0 bb r")}${td("", "lrb", 3)}${td("", "lrb")}${nm(totalWt, 3, "bx c")}</tr>` : ""}
     ${foot}</tbody></table>`;
 
   return `${page1}<div class="pgbrk"></div>${page2}`;

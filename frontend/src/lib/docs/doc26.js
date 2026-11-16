@@ -4,8 +4,8 @@ import { CHA_HELD, SI_W, esc, fitSheet, formGrid, si26Rows, siClass, siStyle } f
    (common.js) laid out three ways, so what the line is sent is what was on
    screen. */
 
-export function si26Sheet(ctx, name) {
-  const rows = si26Rows(ctx);
+export function si26Sheet(ctx, name, rowsOf = si26Rows) {
+  const rows = rowsOf(ctx);
   const G = formGrid(SI_W.length);
   rows.forEach((r) => G.row(
     r.cells.map(([span, v, spec, down = 0]) => [span, { v, s: siStyle(spec) }, down]), r.h,
@@ -31,8 +31,8 @@ export function si26Sheet(ctx, name) {
   }, { widen: false });
 }
 
-export function shippingInstructions(ctx) {
-  const all = si26Rows(ctx);
+export function shippingInstructions(ctx, rowsOf = si26Rows) {
+  const all = rowsOf(ctx);
   const total = SI_W.reduce((a, x) => a + x, 0);
   const colg = SI_W.map((x) => `<col style="width:${((x / total) * 100).toFixed(3)}%">`).join("");
   /* The marks stand five rows deep and the cargo description ten. The cells the

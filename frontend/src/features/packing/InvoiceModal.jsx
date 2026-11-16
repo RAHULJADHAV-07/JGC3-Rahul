@@ -11,8 +11,7 @@ import { buildDocument, DOC_META } from "../../lib/docs.js";
 import { INV_STATUS_TONE } from "../../lib/constants.js";
 import { serialBase, savedFroms } from "../../lib/serials.js";
 import { sortBySequence, blockOf, blockHeads } from "../../lib/sequence.js";
-
-const shipComplete = (s) => !!(s && s.blNo && s.vessel && s.container && s.pod);
+import { shipComplete, shipMode, modeLabel } from "../../lib/modes.js";
 
 const legsCol = {
   key: "legs", label: "Purchase orders",
@@ -121,6 +120,7 @@ export default function InvoiceModal({ inv, onEditShip, onClose }) {
           {dmy(inv.date)} · {buyer?.name || "—"} · {t.boxes} boxes · {num(t.volume, 3)} m³
           {inv.serial_start ? <> · serials from <Mono>{inv.serial_start}</Mono></> : null} ·
           <Pill tone={INV_STATUS_TONE[inv.status] || ""}>{inv.status}</Pill>
+          <Pill tone="teal">{modeLabel(shipMode(inv.ship))}</Pill>
           {inv.allocation === "custom" && <Pill tone="teal">Custom PO</Pill>}
         </span>
         <div className="row wrap" style={{ gap: 8 }}>
@@ -143,7 +143,9 @@ export default function InvoiceModal({ inv, onEditShip, onClose }) {
       <div style={{ marginBottom: 12 }}>
         {done
           ? <Note tone="teal" icon={CheckCircle2}>Shipment details complete.</Note>
-          : <Note tone="amber" icon={AlertTriangle}>The <b>customs invoice (18)</b> needs the BL number, vessel, container and port of discharge — use <b>Edit shipment details</b> below.</Note>}
+          : <Note tone="amber" icon={AlertTriangle}>The <b>customs invoice (18)</b> needs {shipMode(inv.ship) === "air"
+            ? "the AWB number, airline, a flight and the port of discharge"
+            : "the BL number, vessel, container and port of discharge"} — use <b>Edit shipment details</b> below.</Note>}
       </div>
 
       {/* The lines name their items by id — nothing to show until the master

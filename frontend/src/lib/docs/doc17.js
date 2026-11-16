@@ -1,4 +1,4 @@
-import { FOOT_PT, L, PROFORMA_FAMILIES, PROFORMA_ROWS, SIGN_PT, USD, buyerLogoImage, commonOf, ddmm, deliveryMonth, esc, familyOf, fitSheet, fobModeOf, formGrid, num, perLabel, proformaDateOf, proformaNoOf, proformaRate, sum, usd } from "./common.js";
+import { FOOT_PT, L, airOf, PROFORMA_FAMILIES, PROFORMA_ROWS, SIGN_PT, USD, buyerLogoImage, commonOf, ddmm, deliveryMonth, esc, familyOf, fitSheet, fobModeOf, formGrid, num, perLabel, proformaDateOf, proformaNoOf, proformaRate, sum, usd } from "./common.js";
 
 /* A band per item group, in the order the invoice runs. A band whose goods have
    no length loses that column, as their moulded-fitting pages do. */
@@ -23,6 +23,14 @@ export function proformaBands(ctx) {
     };
   });
 }
+
+/* The buyer's air order reads "AIR FREIGHT PREPAID" (Docs/JG_Air_Docs/
+   Proforma Invoice.pdf); a sea order's freight is collected at destination. */
+export const freightTerm = (ctx) => {
+  const a = airOf(ctx);
+  if (!a) return "TO COLLECT / PAYABLE AT DESTINATION";
+  return a.fob ? "TO COLLECT / PAYABLE AT DESTINATION" : a.freightTerms;
+};
 
 export function proforma17Sheet(ctx, bands) {
   const E = ctx.EXPORTER;
@@ -138,7 +146,7 @@ export function proforma17Sheet(ctx, bands) {
      name that stood over it is off at the client's request, as it is on the
      printed form, so the sheet and the paper stay the same sheet. The space
      below stays clear: that is where the stamp and the signature go. */
-  row([[1, { v: "FREIGHT", s: P.frLbl }], [3, { v: "TO COLLECT / PAYABLE AT DESTINATION", s: P.frVal }],
+  row([[1, { v: airOf(ctx) ? "AIR FREIGHT" : "FREIGHT", s: P.frLbl }], [3, { v: freightTerm(ctx), s: P.frVal }],
     [4, { v: "", s: P.signTop }]]);
   row([[1, { v: "DELIVERY", s: P.frLblB }], [3, { v: deliveryMonth(ctx), s: P.frValB }],
     [4, { v: "", s: P.plain }]]);
@@ -356,7 +364,7 @@ export const B_17 = (ctx) => {
      it is printed. The contact strip ends every sheet, as it does on theirs. */
   const foot = `${SPACE}
         <tr class="sig"><td class="bx" colspan="4">${bpoBox([
-          [[25, "c b", "FREIGHT"], [75, null, "TO COLLECT / PAYABLE AT DESTINATION"]],
+          [[25, "c b", airOf(ctx) ? "AIR FREIGHT" : "FREIGHT"], [75, null, esc(freightTerm(ctx))]],
           [[25, "c b", "DELIVERY"], [75, null, esc(deliveryMonth(ctx))]],
         ])}</td>
           <td class="nb c sign" colspan="4"></td></tr>

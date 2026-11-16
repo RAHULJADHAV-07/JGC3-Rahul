@@ -17,6 +17,7 @@ import { B_13 } from "./doc13.js";
 import { B_14 } from "./doc14.js";
 import { B_15 } from "./doc15.js";
 import { B_16 } from "./doc16.js";
+import { B_16A } from "./doc16A.js";
 import { B_17 } from "./doc17.js";
 import { B_18 } from "./doc18.js";
 import { B_19 } from "./doc19.js";
@@ -27,6 +28,7 @@ import { B_23 } from "./doc23.js";
 import { B_24 } from "./doc24.js";
 import { B_25 } from "./doc25.js";
 import { B_26 } from "./doc26.js";
+import { B_26A } from "./doc26A.js";
 import { B_27 } from "./doc27.js";
 import { B_28 } from "./doc28.js";
 import { B_29 } from "./doc29.js";
@@ -111,6 +113,7 @@ const B = {
   "14": B_14,
   "15": B_15,
   "16": B_16,
+  "16A": B_16A,
   "17": B_17,
   "18": B_18,
   "19": B_19,
@@ -121,6 +124,7 @@ const B = {
   "24": B_24,
   "25": B_25,
   "26": B_26,
+  "26A": B_26A,
   "27": B_27,
   "28": B_28,
   "29": B_29,
@@ -139,7 +143,7 @@ const B = {
 
 /* ---- catalogue + public API ---- */
 
-/* The 40 papers grouped under the client's own menu heads
+/* The papers grouped under the client's own menu heads
    (Docs/Jaikvin Process/Menu Bar.xlsx) — each key `k` matches a navigation
    entry, so every document lives under the menu it belongs to. */
 export const DOC_GROUPS = [
@@ -151,7 +155,7 @@ export const DOC_GROUPS = [
      menu, but it also travels with the pre-shipment set, so it is listed under
      both heads. A paper may belong to more than one head: the command palette
      and the whole-library bundle each count a shared document once. */
-  { k: "PRE", t: "Pre-Shipment Reports", hint: "Everything customs needs before loading", docs: ["12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29"] },
+  { k: "PRE", t: "Pre-Shipment Reports", hint: "Everything customs needs before loading", docs: ["12", "13", "14", "15", "16", "16A", "17", "18", "19", "20", "21", "22", "23", "24", "25", "26", "26A", "27", "28", "29"] },
   { k: "POST", t: "Post Shipment Reports", hint: "Sent after the container sails, incl. bill regularisation for the bank", docs: ["30", "31", "32", "33", "34", "40"] },
   { k: "OTH", t: "Other Reports", hint: "Costing, supplier details and balance registers", docs: ["35", "23", "38", "36", "37", "39"] },
 ];
@@ -159,9 +163,9 @@ export const DOC_GROUPS = [
 export const DOC_META = {
   "1": "Buyers Order", "2A": "Master", "2": "Barcode", "3": "Packing", "4": "Purchase", "5": "Sales", "6": "Suppliers’ PO",
   "7A": "Master (7A)", "7": "Packing", "8": "Purchase", "9": "Sales", "10": "E-way (inward)", "11A": "Delivery order", "11": "Delivery instr.",
-  "12": "Boxes & volume", "13": "Export value decl.", "14": "SCOMET", "15": "SDF", "16": "RoDTEP", "17": "Proforma", "18": "Custom invoice",
+  "12": "Boxes & volume", "13": "Export value decl.", "14": "SCOMET", "15": "SDF", "16": "RoDTEP", "16A": "Origin decl. (air)", "17": "Proforma", "18": "Custom invoice",
   "19": "Packing list", "20": "Packing itemwise", "21": "Packaging decl.", "22": "Letter to CHA", "23": "Supplier details", "24": "BL annexure",
-  "25": "E-invoice", "26": "Shipping instr.", "27": "VGM", "28": "Cost sheets", "29": "E-way (export)", "30": "Letter to buyer",
+  "25": "E-invoice", "26": "Shipping instr.", "26A": "AWB instr. (air)", "27": "VGM", "28": "Cost sheets", "29": "E-way (export)", "30": "Letter to buyer",
   "31": "Commercial invoice", "32": "Packing", "33": "Packaging decl.", "34": "CWD", "35": "Costing", "36": "Balance, supplier",
   "37": "Balance, item", "38": "Supply details", "39": "Balance boxes/vol", "40": "Bill regularisation",
 };

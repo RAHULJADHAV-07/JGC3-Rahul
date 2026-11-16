@@ -11,6 +11,7 @@ import { INV_STATUS_TONE } from "../../lib/constants.js";
 import InvoiceModal from "../packing/InvoiceModal.jsx";
 import InvoiceEditModal from "../packing/InvoiceEditModal.jsx";
 import ShipmentWizard from "./ShipmentWizard.jsx";
+import { shipMode, modeLabel, carriageRef } from "../../lib/modes.js";
 
 /* Shipment details — an invoice moves through three gated steps
    (vehicle → container → BL). The status column tracks it:
@@ -87,7 +88,8 @@ export default function ShipmentsPage() {
               { key: "buyer", w: 150, label: "Buyer", render: (r) => <span style={{ color: "var(--ink)", fontWeight: 500 }}>{brand(r.inv.buyer_id)}</span> },
               { key: "boxes", w: 78, label: "Boxes", align: "r", strong: true, render: (r) => r.boxes },
               { key: "vol", w: 106, label: "Volume m³", align: "r", render: (r) => num(r.volume, 3) },
-              { key: "container", label: "Container", render: (r) => r.inv.ship?.container ? <Mono>{r.inv.ship.container}</Mono> : <span style={{ color: "var(--faint)" }}>—</span> },
+              { key: "mode", label: "Mode", render: (r) => <Pill>{modeLabel(shipMode(r.inv.ship))}</Pill> },
+              { key: "container", label: "Container / AWB", render: (r) => carriageRef(r.inv.ship) ? <Mono>{carriageRef(r.inv.ship)}</Mono> : <span style={{ color: "var(--faint)" }}>—</span> },
               { key: "status", label: "Status", render: (r) => <Pill tone={INV_STATUS_TONE[r.inv.status] || ""}>{r.inv.status}</Pill> },
               {
                 key: "act", label: "", align: "r", render: (r) => (

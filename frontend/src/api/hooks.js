@@ -4,6 +4,7 @@
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import * as api from "./endpoints.js";
 import { notifyError } from "../lib/errorBus.js";
+import { MODE_LISTS } from "../lib/modes.js";
 
 /* A save with no form of its own to show a failure in says so in a toast. */
 const loud = { onError: notifyError };
@@ -241,6 +242,26 @@ export function useApplyPrices() {
 export const useOptions = () =>
   useQuery({ queryKey: ["options"], queryFn: api.options.all, staleTime: 5_000, ...LIVE });
 
+/* Saving one list. The API answers with the list as saved, and that answer is
+   written into the cached lists at once — the screen shows the change the
+   moment the save lands, instead of a round trip later when the refetch the
+   invalidation starts comes back. Each caller gets a mutation of its own, so
+   two lists saved at once do not wait on each other. */
+export function useSaveList() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ key, values, renames, modes }) => api.options.saveList(key, values, renames, modes),
+    onSuccess: (out, { key }) => {
+      qc.setQueryData(["options"], (old) => (old ? {
+        ...old,
+        [key]: Array.isArray(out?.values) ? out.values : old[key],
+        ...(MODE_LISTS.includes(key) && out?.modes ? { modes: { ...(old.modes || {}), [key]: out.modes } } : {}),
+      } : old));
+      ["options", "buyers", "items", "invoices"].forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
+    },
+  });
+}
+
 export function useOptionMutations() {
   const qc = useQueryClient();
   /* A list entry corrected or removed is carried by the API onto the buyers,
@@ -251,7 +272,7 @@ export function useOptionMutations() {
   const resequence = () => ["options", "items", "items-grouped", "po-list", "item-detail", "balance", "supply-details",
     "master-2a", "master-7a", "order-lines", "derive"].forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
   return {
-    saveList: useMutation({ mutationFn: ({ key, values, renames }) => api.options.saveList(key, values, renames), onSuccess: invalidate }),
+    saveList: useSaveList(),
     addBank: useMutation({ mutationFn: api.options.addBank, onSuccess: invalidate }),
     updateBank: useMutation({ mutationFn: ({ id, body }) => api.options.updateBank(id, body), onSuccess: invalidate }),
     removeBank: useMutation({ mutationFn: (id) => api.options.removeBank(id), onSuccess: invalidate }),

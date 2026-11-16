@@ -145,3 +145,103 @@ test("no buyer, or a buyer with no ports, is offered the whole list", () => {
 test("a port removed from the list is not offered, even if a buyer holds it", () => {
   assert.deepEqual(portsFor({ ports: ["GONE", "A"] }, { ports_ship_to: ["A"] }), ["A"]);
 });
+
+/* ---- mode of transport (V-7.5.0) ------------------------------------------ */
+import {
+  shipMode, entryModes, listFor, unconfirmed, containerDone, shipStepDone, shipComplete,
+  docsForMode, docInMode, carriageRef, flightLegs, MODE_CHECKLIST, SEA_ONLY_DOCS, AIR_ONLY_DOCS,
+} from "../src/lib/modes.js";
+
+const OPTS = {
+  ports_loading: ["NHAVA SHEVA", "SAHAR AIR CARGO", "PETRAPOLE", "OLD PORT"],
+  ports_ship_to: ["FREMANTLE", "PERTH"],
+  terms_delivery: ["FOB MUMBAI", "CFR PERTH"],
+  terms_payment: ["D.P.SIGHT DRAFT"],
+  modes: {
+    ports_loading: { "NHAVA SHEVA": ["water"], "SAHAR AIR CARGO": ["air"], PETRAPOLE: ["land"] },
+    ports_ship_to: { FREMANTLE: ["water"], PERTH: ["water", "air"] },
+    terms_delivery: { "FOB MUMBAI": ["water", "air"], "CFR PERTH": ["air"] },
+  },
+};
+
+test("an invoice with no mode, or a stray one, is a sea shipment", () => {
+  assert.equal(shipMode(undefined), "water");
+  assert.equal(shipMode({}), "water");
+  assert.equal(shipMode({ mode: "AIR" }), "air");
+  assert.equal(shipMode({ mode: "rocket" }), "water");
+  assert.equal(shipMode({ mode: "land" }), "land");
+});
+
+test("each mode is offered only the ports ticked for it", () => {
+  assert.deepEqual(listFor(OPTS, "ports_loading", "air"), ["SAHAR AIR CARGO"]);
+  assert.deepEqual(listFor(OPTS, "ports_loading", "land"), ["PETRAPOLE"]);
+  assert.deepEqual(listFor(OPTS, "ports_ship_to", "air"), ["PERTH"]);
+  assert.deepEqual(listFor(OPTS, "terms_delivery", "air"), ["FOB MUMBAI", "CFR PERTH"]);
+});
+
+test("an entry saved before modes existed counts as sea, and is flagged", () => {
+  assert.deepEqual(entryModes(OPTS, "ports_loading", "OLD PORT"), ["water"]);
+  assert.ok(listFor(OPTS, "ports_loading", "water").includes("OLD PORT"));
+  assert.ok(!listFor(OPTS, "ports_loading", "air").includes("OLD PORT"));
+  assert.deepEqual(unconfirmed(OPTS, "ports_loading"), ["OLD PORT"]);
+  assert.deepEqual(unconfirmed(OPTS, "terms_payment"), []);
+});
+
+test("a list without modes is offered whole whatever the mode", () => {
+  assert.deepEqual(listFor(OPTS, "terms_payment", "air"), ["D.P.SIGHT DRAFT"]);
+  assert.deepEqual(listFor({}, "ports_loading", "air"), []);
+});
+
+test("sea step 2 needs container and seal; air step 2 needs both airports", () => {
+  assert.equal(containerDone({ container: "C", seal: "S" }), true);
+  assert.equal(containerDone({ container: "C" }), false);
+  assert.equal(containerDone({ mode: "air", container: "C", seal: "S" }), false);
+  assert.equal(containerDone({ mode: "air", pol: "SAHAR", pod: "PERTH" }), true);
+  assert.equal(containerDone({ mode: "air", pol: "SAHAR" }), false);
+  assert.equal(containerDone({}, { container: true }), true);
+});
+
+test("sea step 3 needs the BL; air step 3 needs the AWB, airline and a flight", () => {
+  assert.equal(shipStepDone({ blNo: "B", blDate: "2026-01-01", vessel: "V" }), true);
+  const air = { mode: "air", awbNo: "232-1", awbDate: "2026-11-09", airline: "MH" };
+  assert.equal(shipStepDone(air), false);
+  assert.equal(shipStepDone({ ...air, flights: [{ no: " ", date: "" }] }), false);
+  assert.equal(shipStepDone({ ...air, flights: [{ no: "MH195", date: "" }] }), true);
+  assert.equal(shipStepDone({ mode: "air", blNo: "B", blDate: "2026-01-01", vessel: "V" }), false);
+  assert.equal(shipStepDone({}, { ship: true }), true);
+});
+
+test("the land rules are the sea rules", () => {
+  assert.equal(containerDone({ mode: "land", container: "C", seal: "S" }), true);
+  assert.equal(shipStepDone({ mode: "land", blNo: "B", blDate: "d", vessel: "V" }), true);
+});
+
+test("complete shipment details follow the mode", () => {
+  assert.equal(shipComplete({ blNo: "B", vessel: "V", container: "C", pod: "P" }), true);
+  assert.equal(shipComplete({ mode: "air", awbNo: "1", airline: "MH", flights: [{ no: "MH1" }], pod: "PERTH" }), true);
+  assert.equal(shipComplete({ mode: "air", awbNo: "1", airline: "MH", pod: "PERTH" }), false);
+});
+
+test("the papers offered follow the mode", () => {
+  const all = ["14", "16", "16A", "18", "24", "26", "26A", "27", "34"];
+  assert.deepEqual(docsForMode(all, "air"), ["14", "16", "16A", "18", "26A"]);
+  assert.deepEqual(docsForMode(all, "water"), ["14", "16", "18", "24", "26", "27", "34"]);
+  assert.deepEqual(docsForMode(all, "land"), docsForMode(all, "water"));
+  SEA_ONLY_DOCS.forEach((no) => assert.equal(docInMode(no, "air"), false));
+  AIR_ONLY_DOCS.forEach((no) => assert.equal(docInMode(no, "water"), false));
+});
+
+test("the air checklist lists no container paper and every air-only paper", () => {
+  const g = MODE_CHECKLIST.air.generated;
+  SEA_ONLY_DOCS.forEach((no) => assert.ok(!g.includes(no), no));
+  AIR_ONLY_DOCS.forEach((no) => assert.ok(g.includes(no), no));
+  AIR_ONLY_DOCS.forEach((no) => assert.ok(!MODE_CHECKLIST.water.generated.includes(no), no));
+});
+
+test("the consignment is named by its container by sea, its AWB by air", () => {
+  assert.equal(carriageRef({ container: "OOCU1" }), "OOCU1");
+  assert.equal(carriageRef({ mode: "air", awbNo: "232-1", container: "OOCU1" }), "AWB 232-1");
+  assert.equal(carriageRef({ mode: "air" }), "");
+  assert.deepEqual(flightLegs({ flights: [{ no: "" }, null, { no: "MH1" }] }), [{ no: "MH1" }]);
+  assert.deepEqual(flightLegs({ flights: "junk" }), []);
+});
