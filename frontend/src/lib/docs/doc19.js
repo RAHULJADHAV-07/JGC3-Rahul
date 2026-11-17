@@ -1,9 +1,18 @@
-import { airOf, L, PL_FORMS, bundled, PL_P2_TOP, PL_TOP, PL_WEIGHTS, PL_WT, addrLines, ciMarks, ddmm, esc, familyOf, fitSheet, formGrid, formLogo, lineRuns, numOrText, packingBands, packingDescribe, packingLayout, plOrderBox, plP2Body, proformaRefOf, rangeRefs, sum, wbFixed } from "./common.js";
+import { PL_ONE_BODY, airOf, fitsOnePage, L, PL_FORMS, bundled, PL_P2_TOP, PL_TOP, PL_WEIGHTS, PL_WT, addrLines, ciMarks, ddmm, esc, familyOf, fitSheet, formGrid, formLogo, lineRuns, numOrText, packingBands, packingDescribe, packingLayout, plOrderBox, plP2Body, proformaRefOf, rangeRefs, sum, wbFixed } from "./common.js";
 
 /* The break-up of weights by material is printed only when the consignment
    carries corrugated boxes — it exists to separate the cartons' weight from
    the goods'. Without them the foot carries the signature alone. */
 const withBreakup = (form, bands) => form.breakup && bands.some((b) => b.key === "box");
+
+/* By air the list is the one page their file is whenever the goods fit — and
+   there is no break-up of weights to carry, which only corrugated boxes need.
+   Otherwise the two pages of the sea form. */
+export function plLayout(ctx, bands, form) {
+  const one = !!airOf(ctx) && !withBreakup(form, bands)
+    && fitsOnePage(packingLayout(bands, { ...form, p1Body: Infinity }).p1.length, PL_ONE_BODY);
+  return { one, ...packingLayout(bands, one ? { ...form, p1Body: PL_ONE_BODY } : form) };
+}
 import { LOGO_SRC, SIGN_SRC, STAMP_SRC, imgTag, signImage, stampImage } from "../logo.js";
 import { colLetter } from "../xlsx.js";
 
@@ -11,7 +20,7 @@ export function packingListSheets(ctx, form) {
   const E = ctx.EXPORTER, b = ctx.buyer, s = ctx.inv.ship || {};
   const rows = L(ctx);
   const bands = packingBands(ctx, form.buyer);
-  const { p1, carry, p2 } = packingLayout(bands, form);
+  const { p1, carry, p2, one } = plLayout(ctx, bands, form);
   const marks = ciMarks(ctx, rows);
   const desc = packingDescribe(ctx, bands, rows, form.buyer);
 
@@ -245,16 +254,28 @@ export function packingListSheets(ctx, form) {
      file rules it, with the space it is signed in against the right margin. The
      two lines of it point back at page 1 rather than being typed again, so the
      two pages cannot sign for different names. */
-  function signBlock2(grid, forRef, propRef) {
+  function signBlock2(grid, forCell, propCell) {
     const { row } = grid;
     signRows.push(grid.at());
     const box = () => blank(5, { ...C.txt, border: "box", align: "center" });
     row([[5, { v: "", s: { ...C.txt, border: "box" } }, 5],
-      [4, signed ? { v: "", s: { ...C.sign, border: "lrt" } } : { f: forRef, s: { ...C.sign, border: "lrt", align: "right" } }]], 12.75);
+      [4, signed ? { v: "", s: { ...C.sign, border: "lrt" } } : { ...forCell, s: { ...C.sign, border: "lrt", align: "right" } }]], 12.75);
     row([...box(), [4, { v: "", s: { ...C.txt, border: "lr" } }, 3]], 12.75);
     for (let i = 0; i < 3; i++) row(box(), 12.75);
     row([...box(), [2, { v: "", s: { ...C.txt, border: "lb" } }],
-      [2, signed ? { v: "", s: { ...C.txt, border: "rb" } } : { f: propRef, s: { ...C.txt, border: "rb", align: "right" } }]], 12.75);
+      [2, signed ? { v: "", s: { ...C.txt, border: "rb" } } : { ...propCell, s: { ...C.txt, border: "rb", align: "right" } }]], 12.75);
+  }
+
+  /* An air consignment's skids weigh in on top of the goods, under the total. */
+  function skidLines(grid) {
+    if (!air?.skidWt) return;
+    const sumRow = grid.at();
+    const extra = (label, cell) => grid.row([...blank(3, { ...C.txt, border: "l" }),
+      [1, { v: label, s: { ...C.key, border: "r", align: "right" } }],
+      ...blank(3, { ...C.txt, border: "lr" }), [1, { v: "", s: { ...C.txt, border: "lr" } }],
+      [1, { ...cell, s: G.tot }]]);
+    extra(skidLabel, { v: air.skidWt, t: "n" });
+    extra("TOTAL WEIGHT…..", { f: `I${sumRow}+I${sumRow + 1}` });
   }
 
   const SHEET = {
@@ -285,6 +306,15 @@ export function packingListSheets(ctx, form) {
   const g1 = formGrid(9);
   headBlock(g1);
   goodsHead(g1, false);
+  if (one) {
+    /* ---- the one-page air list: the totals, the skids and the signature
+       straight under the goods ------------------------------------------- */
+    for (let i = 0; i < PL_ONE_BODY; i++) bodyLine(g1, p1[i], PL_TOP + i);
+    totalLine(g1, "TOTAL WEIGHTS……….", PL_TOP + PL_ONE_BODY - 1);
+    skidLines(g1);
+    signBlock2(g1, { v: `FOR ${E.name}`.toUpperCase() }, { v: "PROPRIETOR" });
+    return [fitSheet({ name: "Page1", rows: g1.rows, merges: g1.merges, heights: g1.heights, images: [formLogo({ colOff: 57150, rowOff: 85726, cy: 704850 }), ...scans(signRows[0])].filter(Boolean), ...SHEET }, { widen: false })];
+  }
   for (let i = 0; i < form.p1Body; i++) bodyLine(g1, p1[i], PL_TOP + i);
   const cfRow = PL_TOP + form.p1Body;                    // the carried-forward line
   totalLine(g1, "BALANCE C/F….", cfRow - 1);
@@ -320,16 +350,7 @@ export function packingListSheets(ctx, form) {
   for (let i = 0; i < p2Body; i++) bodyLine(g2, p2[i], PL_P2_TOP + i);
   const totRow = PL_P2_TOP + p2Body;
   totalLine(g2, "TOTAL WEIGHTS……….", totRow - 1);
-  /* An air consignment's skids weigh in on top of the goods. */
-  if (air?.skidWt) {
-    const sumRow = g2.at();
-    const extra = (label, cell) => g2.row([...blank(3, { ...C.txt, border: "l" }),
-      [1, { v: label, s: { ...C.key, border: "r", align: "right" } }],
-      ...blank(3, { ...C.txt, border: "lr" }), [1, { v: "", s: { ...C.txt, border: "lr" } }],
-      [1, { ...cell, s: G.tot }]]);
-    extra(skidLabel, { v: air.skidWt, t: "n" });
-    extra("TOTAL WEIGHT…..", { f: `I${sumRow}+I${sumRow + 1}` });
-  }
+  skidLines(g2);
 
   /* ---- the break-up of weights, totalled by material ---------------------- */
   if (withBreakup(form, bands)) {
@@ -365,7 +386,7 @@ export function packingListSheets(ctx, form) {
   } else {
     // The make-up of the consignment is on the four tabs behind this page, so
     // its foot carries the signature alone.
-    signBlock2(g2, `Page1!F${forRow}`, `Page1!H${propRow}`);
+    signBlock2(g2, { f: `Page1!F${forRow}` }, { f: `Page1!H${propRow}` });
   }
 
   // The letterhead mark, on both sheets as their file has it.
@@ -388,7 +409,7 @@ export function packingListHtml(ctx, form) {
   const E = ctx.EXPORTER, b = ctx.buyer, s = ctx.inv.ship || {};
   const rows = L(ctx);
   const bands = packingBands(ctx, form.buyer);
-  const { p1, carry, p2 } = packingLayout(bands, form);
+  const { p1, carry, p2, one } = plLayout(ctx, bands, form);
   const marks = ciMarks(ctx, rows);
   const desc = packingDescribe(ctx, bands, rows, form.buyer);
   const addr = addrLines(E), bAddr = addrLines({ addr: b.addr });
@@ -515,6 +536,25 @@ export function packingListHtml(ctx, form) {
     <tr>${td("", "lf bb")}${td("", "bb", 3)}${td("", "rt0 bb")}${td("", "lf bb", 2)}
       ${vl("PROPRIETOR", "rt0 bb r", 2)}</tr>`);
 
+  const skidRows = air?.skidWt ? `<tr class="tt">${td("", "lf", 3)}${vl(skidLabel, "k rt0 r")}${td("", "lf rt0", 3)}${td("", "lf rt0")}${nm(air.skidWt, 3, "bx c")}</tr>
+    <tr class="tt">${td("", "lf bb", 3)}${vl("TOTAL WEIGHT…..", "k rt0 bb r")}${td("", "lrb", 3)}${td("", "lrb")}${nm(totalWt, 3, "bx c")}</tr>` : "";
+  /* The signature beside an empty box six lines deep, as the foot of a list
+     with no break-up of weights is ruled. */
+  const boxSign = (forLine, propLine) => (signed
+    ? `<tr>${td("", "bx", 4)}${scanCells("bx")}</tr>
+        ${Array.from({ length: 4 }, () => `<tr>${td("", "bx", 4)}</tr>`).join("")}`
+    : `<tr>${td("", "bx", 5)}${vl(forLine, "sg lrt r", 4)}</tr>
+        ${Array.from({ length: 4 }, () => `<tr>${td("", "bx", 5)}${td("", "lf rt0", 4)}</tr>`).join("")}
+        <tr>${td("", "bx", 5)}${td("", "lf bb", 2)}${vl(propLine, "rt0 bb r", 2)}</tr>`);
+
+  if (one) {
+    return `<table class="wb ci pl">${colg}<tbody>${head(false)}
+    ${Array.from({ length: PL_ONE_BODY }, (_, i) => line(p1[i])).join("")}
+    ${totalRow("TOTAL WEIGHTS……….", rows)}
+    ${skidRows}
+    ${boxSign(`FOR ${E.name}`.toUpperCase(), "PROPRIETOR")}</tbody></table>`;
+  }
+
   const page1 = `<table class="wb ci pl">${colg}<tbody>${head(false)}
     ${Array.from({ length: form.p1Body }, (_, i) => line(p1[i])).join("")}
     ${totalRow("BALANCE C/F….", p1Rows)}
@@ -540,19 +580,13 @@ export function packingListHtml(ctx, form) {
       ${breakup}
       <tr>${vl("TOTAL WEIGHTS", "bx", 3)}${nm(sum(rows, "netTotal"), 3, "bx dbl c")}
         ${nm(sum(rows, "grossTotal"), 3, "bx dbl c")}${td("", "lf bb", 2)}${vl(propLine, "rt0 bb r", 2)}</tr>`
-    : signed
-      ? `<tr>${td("", "bx", 4)}${scanCells("bx")}</tr>
-        ${Array.from({ length: 4 }, () => `<tr>${td("", "bx", 4)}</tr>`).join("")}`
-      : `<tr>${td("", "bx", 5)}${vl(forLine, "sg lrt r", 4)}</tr>
-        ${Array.from({ length: 4 }, () => `<tr>${td("", "bx", 5)}${td("", "lf rt0", 4)}</tr>`).join("")}
-        <tr>${td("", "bx", 5)}${td("", "lf bb", 2)}${vl(propLine, "rt0 bb r", 2)}</tr>`;
+    : boxSign(forLine, propLine);
 
   const page2 = `<table class="wb ci pl">${colg}<tbody>${head(true)}
     ${bf}
     ${Array.from({ length: plP2Body(p2, form) }, (_, i) => line(p2[i])).join("")}
     ${totalRow("TOTAL WEIGHTS……….", rows)}
-    ${air?.skidWt ? `<tr class="tt">${td("", "lf", 3)}${vl(skidLabel, "k rt0 r")}${td("", "lf rt0", 3)}${td("", "lf rt0")}${nm(air.skidWt, 3, "bx c")}</tr>
-    <tr class="tt">${td("", "lf bb", 3)}${vl("TOTAL WEIGHT…..", "k rt0 bb r")}${td("", "lrb", 3)}${td("", "lrb")}${nm(totalWt, 3, "bx c")}</tr>` : ""}
+    ${skidRows}
     ${foot}</tbody></table>`;
 
   return `${page1}<div class="pgbrk"></div>${page2}`;

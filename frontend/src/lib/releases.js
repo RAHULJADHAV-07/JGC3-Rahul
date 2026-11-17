@@ -7,6 +7,22 @@
 
 export const RELEASES = [
   {
+    version: "7.6.0",
+    date: "2026-11-17",
+    notes: [
+      "An air shipment's Documents show only the air set: 10, 11, 12, 13, 14, 15, 16A, 17, 18, 19, 21, 23, 26A, 30, 31, 33.",
+      "Air invoices (18, 31) and packing list (19) print on one page when the goods fit, with the weights, skids, freight and FOB in the margin — as the client's air files do.",
+      "Air papers show the LEN (MM) column for pipes (2\" | 300); sea papers stay without it.",
+      "Air customs invoice (18): GSTIN with “w.e.f 20.01.2021”, no RoDTEP line, marks read “GDW / PERTH  NOS : 1 - 10  / 10”.",
+      "Air packing list (19): pipes counted as “Qty/Box-Pcs” and “BOXES”.",
+      "Air proforma (17): LEN column, “TOTAL C&F PERTH VALUE” and “SHIPMENT” month.",
+      "Air packaging declaration (21, 33) and letter to buyer (30): “10 CARTONS (02 SKIDS)” / “10 Cartons PP Extruded Pipes”.",
+      "AWB instructions (26A) show the gross weight above the net weight.",
+      "Air despatch letter (11): reference and date left blank to write in; EVD (13) states FOB MUMBAI.",
+      "E-way bill (10): GST rounded to the whole rupee, as on the portal format.",
+    ],
+  },
+  {
     version: "7.5.0",
     date: "2026-11-16",
     notes: [

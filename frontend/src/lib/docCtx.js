@@ -15,6 +15,7 @@ export const EXPORTER = {
   email: "aalok.shah@jaikvinglobal.com",
   iec: "AVIPS4808H",
   gstin: "27AVIPS4808H1Z8",
+  gstinSince: "20.01.2021",
   pan: "AVIPS4808H",
   origin: "INDIA",
 };
