@@ -68,6 +68,12 @@ services:
     # the frontend reaches it over the internal network (backend:8000).
     ports:
       - "${BACKEND_PORT:-8001}:8000"
+    # Public resolvers for the Neon host. Some home routers / ISPs answer
+    # REFUSED for *.neon.tech, and the container then restart-loops on
+    # "could not translate host name ... Temporary failure in name resolution".
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
     # Nothing in this container should ever gain privileges it did not start
     # with, and it has no reason to write outside its temporary directory.
     read_only: true
