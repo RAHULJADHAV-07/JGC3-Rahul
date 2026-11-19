@@ -350,7 +350,7 @@ group("Air mode", () => {
   check(A, "40: the AWB in the transport document details", t("40").includes("232-19269504"));
   check(A, "by sea, 22 still goes to Velji Dosabhai", text(html("22")).includes("Velji Dosabhai"));
   const t26a = t("26A");
-  check(A, "26A: airline and flights, dimensions, skids, freight prepaid", t26a.includes(`AIRLINE NAME AND FLIGHT NUMBER PLACE OF RECEIPT : ${per}`) && t26a.includes("40 X 40 X 40 CMS") && t26a.includes("NO OF SKIDS") && /PREPAID/.test(t26a));
+  check(A, "26A: airline and flights, dimensions, skids, freight prepaid", t26a.includes(`AIRLINE NAME AND FLIGHT NUMBER PLACE OF RECEIPT : ${per}`) && t26a.includes("40 X 40 X 40 CMS") && t26a.includes("DIMENSION OF CTN") && t26a.includes("MUMBAI, INDIA") && /PREPAID/.test(t26a));
   check(A, "26A: the HS code table", /HS CODE DESCRIPTION PACKAGES GROSS WEIGHT TOTAL CBM/.test(t26a) && cells("26A", airCtx).includes("Grand Total"));
   check(A, "16A: origin declared against the invoice", t("16A").includes("Invoice No. DEMO/2 DATED 01-JUNE-2026 are wholly obtained Indian origin"));
   Object.keys(docs.DOC_META).forEach((no) => {

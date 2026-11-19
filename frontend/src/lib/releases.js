@@ -7,6 +7,21 @@
 
 export const RELEASES = [
   {
+    version: "7.7.0",
+    date: "2026-11-19",
+    notes: [
+      "Air declarations go out signed and stamped: export value declaration (13), SCOMET (14), SDF (15) and declaration of origin (16A).",
+      "Despatch instruction (11) prints portrait again when a shipment has more than one supplier.",
+      "Shipment step 3 (air): new boxes for the despatch letter No. and date (11) and the letter to buyer No. and date (30) — printed at the head of each letter, or left blank to write in.",
+      "Air custom invoice (18), packing list (19) and commercial invoice (31) keep the “Other Reference(s):” line.",
+      "AWB instructions (26A): dimension of carton under the net weight in the weights column, port of loading as “MUMBAI, INDIA”.",
+      "Air SCOMET (14): subject, ref and end use set plain, not bold.",
+      "Air proforma (17): ends on the buyer's name and address lines only.",
+      "Other Reports: “By item” opens first; “By purchase order” (Report 37) moved to the last tab.",
+      "Number boxes no longer show the up / down arrows.",
+    ],
+  },
+  {
     version: "7.6.0",
     date: "2026-11-17",
     notes: [

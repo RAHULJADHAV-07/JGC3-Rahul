@@ -1,6 +1,8 @@
-import { DL, SDF_ENCLOSURES, SDF_FEMA, SIGNATORY, ddmm, esc, formGrid, letterFootBlock, letterFootRows, letterSheet, letterSignRows, letterheadBlock, letterheadRows, sdfParticulars } from "./common.js";
+import { DL, SDF_ENCLOSURES, SDF_FEMA, SIGNATORY, airOf, ddmm, esc, signedHtml, formGrid, letterFootBlock, letterFootRows, letterSheet, letterSignRows, letterheadBlock, letterheadRows, sdfParticulars } from "./common.js";
 
-export const letterSignBlock = (ctx, E) => `<p class="sign">For M/s. ${esc(E.name)}<br>Proprietor- ${esc(SIGNATORY)}</p>
+/* By air the declaration goes out stamped and signed (Docs/JG_Air_Docs/SDF
+   Declaration.pdf): the stamp, then the signature block, over the date line. */
+export const letterSignBlock = (ctx, E) => `${(airOf(ctx) && signedHtml("stamp-sign")) || `<p class="sign">For M/s. ${esc(E.name)}<br>Proprietor- ${esc(SIGNATORY)}</p>`}
     <p>Date &nbsp; : &nbsp; ${ddmm(ctx.inv.date)} &nbsp;&nbsp;&nbsp;&nbsp; Signature &nbsp; :</p>`;
 
 export function sdf15Sheet(ctx) {
@@ -34,9 +36,9 @@ export function sdf15Sheet(ctx) {
   row([[6, { v: "* To be submitted with the exports goods in the warehouse.", s: DL.body }]]);
   gap();
 
-  letterSignRows(G, ctx, E);
+  const sg = letterSignRows(G, ctx, E, { signed: !!airOf(ctx) });
   letterFootRows(G, E);
-  return letterSheet("SDF", G);
+  return letterSheet("SDF", G, undefined, sg && sg.map((im) => ({ ...im, col: im.name === "Stamp" ? 2 : 4 })));
 }
 
 export const B_15 = (ctx) => {

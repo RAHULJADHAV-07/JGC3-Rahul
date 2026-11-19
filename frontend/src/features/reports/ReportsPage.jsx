@@ -20,7 +20,9 @@ export default function ReportsPage() {
   const { has } = useAuth();
   const canBalance = has("reports.balance");
   const canCosting = has("reports.costing");
-  const [tab, setTab] = useState(canBalance ? "po" : "costing");
+  /* By item (Report 38) leads: it already carries what the PO-wise register
+     shows, so that one sits last and is opened only when asked for. */
+  const [tab, setTab] = useState(canBalance ? "item" : "costing");
   const [remarks, setRemarks] = useState({});
   const [sup, setSup] = useState("");          // one supplier, or all of them in the item sequence
   const hidden = useHiddenFields();
@@ -96,8 +98,9 @@ export default function ReportsPage() {
   const exportOpts = { title: exportTitle, subtitle: `${sup ? supCode(sup) : "All suppliers · in supplier sequence"} · as on ${todayISO()}` };
 
   const segOptions = [
-    ...(canBalance ? [["po", "By purchase order", ClipboardList], ["item", "By item", Layers]] : []),
+    ...(canBalance ? [["item", "By item", Layers]] : []),
     ...(canCosting ? [["costing", "Costing", Calculator]] : []),
+    ...(canBalance ? [["po", "By purchase order", ClipboardList]] : []),
   ];
 
   return (

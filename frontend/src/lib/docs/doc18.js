@@ -70,7 +70,7 @@ export function customsInvoiceSheets(ctx) {
   const invRef = `${ctx.inv.invoiceNo || ""}${ctx.inv.date ? ` DT ${ddmm(ctx.inv.date)}` : ""}`;
   const orderRef = proformaRefOf(ctx);
   // A run of several orders goes over the lines their form gives it.
-  const ordBox = orderBox(orderRef, s.otherRef, 50);
+  const ordBox = orderBox(orderRef, s.otherRef, 50, !!airOf(ctx));
   const [ord1, ord2, ord3, ord4] = ordBox.orders;
   const dated = (no, d) => (no ? `${no}${d ? ` DT. ${ddmm(d)}` : ""}` : "");
   const desc3 = goodsWrapped(bands, 42, 3);
@@ -534,7 +534,7 @@ export function customsInvoiceHtml(ctx) {
   const dated = (no, d) => (no ? `${no}${d ? ` DT. ${ddmm(d)}` : ""}` : "");
   const invRef = `${ctx.inv.invoiceNo || ""}${ctx.inv.date ? ` DT ${ddmm(ctx.inv.date)}` : ""}`;
   const orderRef = proformaRefOf(ctx);
-  const ordBox = orderBox(orderRef, s.otherRef, 50);
+  const ordBox = orderBox(orderRef, s.otherRef, 50, !!airOf(ctx));
   const [ord1, ord2, ord3, ord4] = ordBox.orders;
   const irn = String(s.irn || "");
   const fobUsd = sum(rows, "fobTotal"), taxTot = fobUsd * ex;

@@ -77,7 +77,10 @@ export function commercialInvoiceSheets(ctx) {
   const desc3 = wrapTo(buyerGoods(bands), 42, 3);
   /* The buyer's own order numbers, broken over the four lines their form gives
      them — the customs copy prints the exporter's single reference instead. */
-  const orders = wrapTo(poHeaderList(ctx), 44, 4);
+  /* By air their copy keeps a line for "Other Reference(s):" under the order
+     numbers, filled or not (Docs/JG_Air_Docs/Commercial Invoice.xlsx). */
+  const orders = airOf(ctx) ? [...wrapTo(poHeaderList(ctx), 44, 2), s.otherRef || "", ""] : wrapTo(poHeaderList(ctx), 44, 4);
+  const otherLbl = airOf(ctx) ? "Other Reference(s):" : "";
 
   function headBlock(grid) {
     const { row } = grid;
@@ -96,7 +99,7 @@ export function commercialInvoiceSheets(ctx) {
     row([[5, { v: addr[0] || "", s: { ...C.rgt, border: "l" } }],
       [2, { v: "", s: { ...C.txt, border: "l" } }], [4, { v: orders[1], s: C.txt }]]);
     row([[5, { v: addr[1] || "", s: { ...C.rgt, border: "l" } }],
-      [2, { v: "", s: { ...C.lbl, border: "l" } }], [4, { v: orders[2], s: C.txt }]]);
+      [2, { v: otherLbl, s: { ...C.lbl, border: "l" } }], [4, { v: orders[2], s: C.txt }]]);
     row([[5, { v: [E.tel && `Tel: ${E.tel}`, E.email && `E-Mail: ${E.email}`].filter(Boolean).join(" "), s: { ...C.rgt, border: "lb" } }],
       [2, { v: "", s: { ...C.txt, border: "lb" } }], [4, { v: orders[3], s: { ...C.txt, border: "b" } }]]);
     /* Where the customs copy carries the e-invoice reference and its
@@ -358,7 +361,10 @@ export function commercialInvoiceHtml(ctx) {
   const destPort = (air?.deliveryPlace || s.finalDest || s.pod || b.shipTo || "").toUpperCase();
   const addr = addrLines(E), bAddr = addrLines({ addr: b.addr });
   const desc3 = wrapTo(buyerGoods(bands), 42, 3);
-  const orders = wrapTo(poHeaderList(ctx), 44, 4);
+  /* By air their copy keeps a line for "Other Reference(s):" under the order
+     numbers, filled or not (Docs/JG_Air_Docs/Commercial Invoice.xlsx). */
+  const orders = airOf(ctx) ? [...wrapTo(poHeaderList(ctx), 44, 2), s.otherRef || "", ""] : wrapTo(poHeaderList(ctx), 44, 4);
+  const otherLbl = airOf(ctx) ? "Other Reference(s):" : "";
   const dated = (no, d) => (no ? `${no}${d ? ` DT. ${ddmm(d)}` : ""}` : "");
   const invRef = `${ctx.inv.invoiceNo || ""}${ctx.inv.date ? ` DT ${ddmm(ctx.inv.date)}` : ""}`;
 
@@ -383,7 +389,7 @@ export function commercialInvoiceHtml(ctx) {
       ${td(esc("Invoice No. "), "k lt")}${td(esc(invRef), "rt", 4)}${td(esc("Exporter's Ref."), "k rt")}</tr>
     <tr>${td("Date:", "k lf")}${td("", "rt0", 4)}${td(esc(E.iec ? `IEC ${E.iec}` : ""), "k rt0")}</tr>
     <tr>${td(esc("Buyers Order No: "), "k lf", 2)}${td(esc(orders[0]), "rt0", 4)}</tr>
-    ${orders.slice(1).map((o) => `<tr>${td("", "lf", 2)}${td(esc(o), "rt0", 4)}</tr>`).join("")}
+    ${orders.slice(1).map((o, i) => `<tr>${td(i === 1 ? esc(otherLbl) : "", i === 1 ? "k lf" : "lf", 2)}${td(esc(o), "rt0", 4)}</tr>`).join("")}
     <tr>${td("On Account &amp; Risks of:", "k lt", 2)}${td("", "lt0", 3)}${td(air ? "AWB No." : "BL. NO.", "k lt")}${td(esc(air ? air.awb : dated(s.blNo, s.blDate)), "rt", 5)}</tr>
     <tr>${td(esc(b.name ? `Messrs ${b.name},` : ""), "lf", 5)}${td("", "lf")}${td("", "rt0", 5)}</tr>
     <tr>${td(esc(b.brand ? `T/A ${b.brand}` : ""), "lf", 5)}${td("Shipped Per", "k lf")}${td(esc(shippedPer), "rt0", 5)}</tr>

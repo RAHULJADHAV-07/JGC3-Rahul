@@ -163,7 +163,7 @@ export function proforma17Sheet(ctx, bands) {
   row([[1, { v: shipLabel(ctx), s: P.frLblB }], [3, { v: deliveryMonth(ctx), s: P.frValB }],
     [4, { v: "", s: P.plain }]]);
   gap(SIGN_PT);
-  FOOTER.forEach((l) => {
+  footerOf(ctx).forEach((l) => {
     if (l.spaced) gap(FOOT_PT);
     row([[8, { v: l.text, s: P.foot }]], FOOT_PT);
   });
@@ -210,6 +210,9 @@ const FOOTER = [
   { text: "Tel : 61 8 1300 800 961 * Fax : 61 8 1300 800 962" },
   { text: "Web : www.gdwatermark.com.au * Email : sales@gdwatermark.com.au", spaced: true },
 ];
+/* Their air order ends on the first two lines only — the name and the address
+   (Docs/JG_Air_Docs/Proforma Invoice.pdf). */
+const footerOf = (ctx) => (airOf(ctx) ? FOOTER.slice(0, 2) : FOOTER);
 
 /* Several runs of their form are one ruled box with the text set at fixed
    points inside it rather than a row of cells — the account-code strip, the
@@ -381,7 +384,7 @@ export const B_17 = (ctx) => {
         ])}</td>
           <td class="nb c sign" colspan="4"></td></tr>
         ${SIGN_SPACE}
-        ${FOOTER.map((l) => `${l.spaced ? FOOT_SPACE : ""}<tr class="ft"><td class="nb c foot" colspan="8">${esc(l.text)}</td></tr>`).join("")}`;
+        ${footerOf(ctx).map((l) => `${l.spaced ? FOOT_SPACE : ""}<tr class="ft"><td class="nb c foot" colspan="8">${esc(l.text)}</td></tr>`).join("")}`;
 
   let carried = 0;
   const html = pages.map((page, i) => {

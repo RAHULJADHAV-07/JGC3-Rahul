@@ -717,6 +717,12 @@ const PRINT_CSS = `
   .dl .k { background: none !important; color: #000 !important; font-weight: 400; }
   .dl .b { font-weight: 700; }
   .dl .sign { margin-top: 38px; }
+  /* The scanned signature block and the stamp, as the client's air copies
+     carry them (13–16A): the block about 1¾", the stamp about ¾" round. */
+  .dl .sgrow, .evd .sgrow { display: flex; align-items: center; gap: 48px; margin: 18px 0 8px; }
+  .dl .sgrow img.sgsig, .evd img.sgsig { width: 44mm; height: auto; }
+  .dl .sgrow img.sgstp, .evd img.sgstp { width: 19mm; height: auto; }
+  .evd tr.sgr td { height: 52pt; vertical-align: middle; text-align: center; }
   .dl .ins { margin: 0 0 10px; width: auto; }
   .dl .ins td { padding: 0 0 3px; }
   .dl .ins .n { width: 50px; padding-left: 22px; }
