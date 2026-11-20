@@ -201,7 +201,8 @@ function buildOne(no, ctx, report) {
  *  entry form. */
 export function documentParts(no, ctx, report) {
   const split = supplierSplitDocs(no, ctx);
-  if (split.length > 1) return split.map((d) => ({ name: `${d.code}`, html: d.html, sheets: d.sheets, docName: d.docName }));
+  // Each supplier's copy keeps its paper's orientation — the despatch letter (11) is portrait.
+  if (split.length > 1) return split.map((d) => ({ name: `${d.code}`, html: d.html, sheets: d.sheets, docName: d.docName, page: d.page }));
   const out = buildOne(no, ctx, report);
   return out ? [{ name: DOC_META[no] || out.name, html: out.html, sheet: out.sheet, sheets: out.sheets, page: out.page, docName: out.name }] : [];
 }

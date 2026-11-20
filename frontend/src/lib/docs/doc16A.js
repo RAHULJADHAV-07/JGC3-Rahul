@@ -1,5 +1,4 @@
-import { DL, LETTER_DATE, ORIGIN_TERMS, esc, formGrid, letterFootBlock, letterFootRows, letterSheet, letterSignRows, letterheadBlock, letterheadRows, originLead } from "./common.js";
-import { letterSignBlock } from "./doc15.js";
+import { DL, LETTER_DATE, ORIGIN_TERMS, SIGNATORY, esc, signedHtml, formGrid, letterFootBlock, letterFootRows, letterSheet, letterSignRows, letterheadBlock, letterheadRows, originLead } from "./common.js";
 
 /* 16A · Declaration of origin — that the goods are wholly of Indian origin,
    made from Indian materials, as an Australian buyer's customs asks of an air
@@ -19,9 +18,10 @@ export function origin16aSheet(ctx) {
   gap();
   ORIGIN_TERMS.forEach((t) => { row([[6, { v: t, s: DL.just }]]); gap(6); });
   gap();
-  letterSignRows(G, ctx, E);
+  // Dated at its head, the declaration is signed without a second date line.
+  const sg = letterSignRows(G, ctx, E, { dated: false, signed: true });
   letterFootRows(G, E);
-  return letterSheet("Origin", G);
+  return letterSheet("Origin", G, undefined, sg);
 }
 
 export const B_16A = (ctx) => {
@@ -32,7 +32,7 @@ export const B_16A = (ctx) => {
     <p class="mid"><b>DECLARATION</b><br><b>TO WHOMSOEVER IT MAY CONCERN</b></p>
     <p>${esc(originLead(ctx))}</p>
     ${ORIGIN_TERMS.map((t) => `<p>${esc(t)}</p>`).join("")}
-    ${letterSignBlock(ctx, E)}
+    ${signedHtml() || `<p class="sign">For M/s. ${esc(E.name)}<br>Proprietor- ${esc(SIGNATORY)}</p>`}
     ${letterFootBlock(E)}
   </div>`;
   return { name: "Origin_Declaration_16A", html, sheet: origin16aSheet(ctx), page: "portrait" };

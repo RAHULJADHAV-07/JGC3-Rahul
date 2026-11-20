@@ -279,6 +279,17 @@ export default function ShipmentWizard({ inv, onClose }) {
                   <Input value={ship.awbType || ""} onChange={(e) => setSh("awbType", e.target.value)} placeholder="optional" />
                 </Field>
               </div>
+              {/* The two letters carry the client's own letter number and date at their head. */}
+              <div className="grid-2">
+                <Field label="Despatch letter No. (11)" hint="Printed at the head of the despatch instructions.">
+                  <Input value={ship.diRef || ""} onChange={(e) => setSh("diRef", e.target.value)} placeholder="e.g. JG/2026/1151" />
+                </Field>
+                <Field label="Despatch letter date"><Input type="date" value={ship.diDate || ""} onChange={(e) => setSh("diDate", e.target.value)} /></Field>
+                <Field label="Letter to buyer No. (30)" hint="Printed at the head of the letter sending the originals.">
+                  <Input value={ship.ltbRef || ""} onChange={(e) => setSh("ltbRef", e.target.value)} placeholder="e.g. JG/2026/1155" />
+                </Field>
+                <Field label="Letter to buyer date"><Input type="date" value={ship.ltbDate || ""} onChange={(e) => setSh("ltbDate", e.target.value)} /></Field>
+              </div>
               <div className="wiz-card">
                 <div className="row" style={{ justifyContent: "space-between", marginBottom: 8 }}>
                   <span style={{ fontWeight: 650, color: "var(--ink)", fontSize: 13 }}>Flights</span>

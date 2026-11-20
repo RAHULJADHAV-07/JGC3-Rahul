@@ -1,7 +1,7 @@
-import { AIR_CUSTOMS, DL, LETTER_DATE, SCOMET_TERMS, SIGNATORY, airOf, ddmm, scometAirText, esc, formGrid, letterFootBlock, letterFootRows, letterSheet, letterheadBlock, letterheadRows, scometRef } from "./common.js";
+import { AIR_CUSTOMS, DL, LETTER_DATE, SCOMET_TERMS, SIGNATORY, airOf, ddmm, scometAirText, esc, formGrid, letterFootBlock, letterFootRows, letterSheet, letterSignImages, letterheadBlock, letterheadRows, scometRef, signedHtml } from "./common.js";
 
-export const letterFieldBlock = (label, value) => `<table class="fld"><tr>
-      <td class="lbl">${esc(label)}</td><td class="b">${esc(value)}</td></tr></table>`;
+export const letterFieldBlock = (label, value, bold = true) => `<table class="fld"><tr>
+      <td class="lbl">${esc(label)}</td><td${bold ? ' class="b"' : ""}>${esc(value)}</td></tr></table>`;
 
 export function scomet14Sheet(ctx) {
   const E = ctx.EXPORTER;
@@ -45,8 +45,9 @@ export function scomet14AirSheet(ctx) {
   row([[6, { v: "To,", s: DL.body }]]);
   AIR_CUSTOMS.forEach((l) => row([[6, { v: l, s: DL.body }]]));
   gap();
-  row([[1, { v: "Subject", s: DL.key }], [5, { v: "Scomet Declaration", s: DL.b }]]);
-  row([[1, { v: "Ref", s: DL.key }], [5, { v: `Invoice No ${scometRef(ctx)}`, s: DL.b }]]);
+  // Their air letter sets the subject, the reference and the end use plain.
+  row([[1, { v: "Subject", s: DL.key }], [5, { v: "Scomet Declaration", s: DL.body }]]);
+  row([[1, { v: "Ref", s: DL.key }], [5, { v: `Invoice No ${scometRef(ctx)}`, s: DL.body }]]);
   gap();
   row([[6, { v: "Dear Sir,", s: DL.body }]]);
   gap();
@@ -58,13 +59,17 @@ export function scomet14AirSheet(ctx) {
   gap();
   row([[6, { v: "Thanking you", s: DL.body }]]);
   row([[6, { v: "Yours Faithfully", s: DL.body }]]);
-  gap(18);
-  gap(18);
-  row([[3, { v: `For M/s. ${E.name}`, s: DL.body }]]);
-  row([[3, { v: `Proprietor- ${SIGNATORY}`, s: DL.body }]]);
+  // Signed and stamped, as their copy goes out.
+  const sg = letterSignImages(G, { signCol: 0, stampCol: 3 });
+  if (!sg) {
+    gap(18);
+    gap(18);
+    row([[3, { v: `For M/s. ${E.name}`, s: DL.body }]]);
+    row([[3, { v: `Proprietor- ${SIGNATORY}`, s: DL.body }]]);
+  }
   gap();
   letterFootRows(G, E);
-  return letterSheet("SCOMET", G);
+  return letterSheet("SCOMET", G, undefined, sg);
 }
 
 function scometAirHtml(ctx) {
@@ -74,14 +79,14 @@ function scometAirHtml(ctx) {
     ${letterheadBlock(E)}
     <p>${esc(LETTER_DATE(ctx.inv.date))}</p>
     <p class="to">To,<br>${AIR_CUSTOMS.map(esc).join("<br>")}</p>
-    ${letterFieldBlock("Subject", "Scomet Declaration")}
-    ${letterFieldBlock("Ref", `Invoice No ${scometRef(ctx)}`)}
+    ${letterFieldBlock("Subject", "Scomet Declaration", false)}
+    ${letterFieldBlock("Ref", `Invoice No ${scometRef(ctx)}`, false)}
     <p>Dear Sir,</p>
     <p>${esc(t.lead)}</p>
     <p>${esc(t.declare)}</p>
-    ${letterFieldBlock("End Use", t.endUse)}
+    ${letterFieldBlock("End Use", t.endUse, false)}
     <p>Thanking you<br>Yours Faithfully</p>
-    <p class="sign">For M/s. ${esc(E.name)}<br>Proprietor- ${esc(SIGNATORY)}</p>
+    ${signedHtml() || `<p class="sign">For M/s. ${esc(E.name)}<br>Proprietor- ${esc(SIGNATORY)}</p>`}
     ${letterFootBlock(E)}
   </div>`;
 }

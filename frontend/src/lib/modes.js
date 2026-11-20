@@ -95,8 +95,11 @@ export const STEP_LABELS = {
 export const SEA_ONLY_DOCS = ["24", "26", "27", "34"];
 export const AIR_ONLY_DOCS = ["16A", "26A"];
 
+/* An air shipment is papered with the client's air set and nothing else
+   (Docs/JG_Air_Docs) — the sixteen documents its checklist names below. A sea
+   (or land) shipment has the whole library less the air-only papers. */
 export const docInMode = (no, mode) => (mode === "air"
-  ? !SEA_ONLY_DOCS.includes(String(no))
+  ? MODE_CHECKLIST.air.generated.includes(String(no))
   : !AIR_ONLY_DOCS.includes(String(no)));
 
 export const docsForMode = (nos, mode) => (nos || []).filter((no) => docInMode(no, mode));

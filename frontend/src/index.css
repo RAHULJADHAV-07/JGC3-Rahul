@@ -888,17 +888,15 @@ textarea {
 .num-in {
   text-align: right;
 }
-/* No steppers on a quantity box. The figures run to five digits, so the
-   arrows were never how one gets typed — and they eat a third of the field.
-   Kept as a rule of its own for any `type="number"` box still carrying the
-   class; the order and packing forms type into plain text boxes. */
-.num-in::-webkit-outer-spin-button,
-.num-in::-webkit-inner-spin-button {
+/* No steppers on any number box. Prices, rates and quantities are typed,
+   never nudged by one — and the arrows eat a third of the field. */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
   -webkit-appearance: none;
   appearance: none;
   margin: 0;
 }
-.num-in[type="number"] {
+input[type="number"] {
   -moz-appearance: textfield;
   appearance: textfield;
 }

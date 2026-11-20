@@ -1,4 +1,4 @@
-import { FOOT_PT, L, airOf, PROFORMA_FAMILIES, PROFORMA_ROWS, SIGN_PT, USD, buyerLogoImage, commonOf, ddmm, deliveryMonth, esc, familyOf, fitSheet, fobModeOf, formGrid, num, perLabel, proformaDateOf, proformaNoOf, proformaRate, sum, usd } from "./common.js";
+import { FOOT_PT, L, airOf, lenFamilies, PROFORMA_FAMILIES, PROFORMA_ROWS, SIGN_PT, USD, buyerLogoImage, commonOf, ddmm, deliveryMonth, esc, familyOf, fitSheet, fobModeOf, formGrid, num, perLabel, proformaDateOf, proformaNoOf, proformaRate, sum, usd } from "./common.js";
 
 /* A band per item group, in the order the invoice runs. A band whose goods have
    no length loses that column, as their moulded-fitting pages do. */
@@ -11,14 +11,17 @@ export function proformaBands(ctx) {
   });
   // Families in the order their form prints them, whatever order they were
   // packed in; anything unrecognised follows, under its own heading.
+  const air = airOf(ctx);
   return PROFORMA_FAMILIES.filter(([k]) => bands.has(k)).map(([k, head]) => {
     const rows = bands.get(k);
     return {
       head,
       rows,
       boxes: k === "box",
-      // No range prints a length (LEN_FAMILIES): the size takes its column.
-      lengths: false,
+      /* By sea no range prints a length (LEN_FAMILIES) and the size takes its
+         column; the air order gives the pipes theirs (Docs/JG_Air_Docs/
+         Proforma Invoice.pdf: 2" | 300). */
+      lengths: !!air && lenFamilies(ctx).includes(k) && rows.some((r) => String(r.it.length || "").trim()),
       per: commonOf(rows, (r) => fobModeOf(r.it)) === "piece" ? "Per Piece" : "Per 100 Pieces",
     };
   });
@@ -26,6 +29,15 @@ export function proformaBands(ctx) {
 
 /* The buyer's air order reads "AIR FREIGHT PREPAID" (Docs/JG_Air_Docs/
    Proforma Invoice.pdf); a sea order's freight is collected at destination. */
+/* The air order dates the consignment as its "SHIPMENT" and closes on the
+   value it was sold at — "TOTAL C&F PERTH VALUE"; the sea order keeps its
+   "DELIVERY" and plain "Total". */
+export const shipLabel = (ctx) => (airOf(ctx) ? "SHIPMENT" : "DELIVERY");
+export const proformaTotalLabel = (ctx) => {
+  const a = airOf(ctx);
+  return a ? `TOTAL ${a.terms.replace(/^CFR\b/, "C&F")} VALUE` : "Total";
+};
+
 export const freightTerm = (ctx) => {
   const a = airOf(ctx);
   if (!a) return "TO COLLECT / PAYABLE AT DESTINATION";
@@ -137,7 +149,7 @@ export function proforma17Sheet(ctx, bands) {
   const fillShape = bands.length ? shapeOf(bands[bands.length - 1]) : [8];
   for (let i = lines; i < PROFORMA_ROWS; i++) row(fillShape.map((n) => [n, { v: "", s: P.blank }]));
   const last = G.at();
-  row([[5, { v: "", s: { border: "lt" } }], [2, { v: "Total", s: P.totLbl }],
+  row([[5, { v: "", s: { border: "lt" } }], [2, { v: proformaTotalLabel(ctx), s: P.totLbl }],
     [1, { f: first <= last ? `SUM(H${first}:H${last})` : "0", s: P.tot }]]);
   row([[5, { v: "", s: { border: "lb" } }], [2, { v: "", s: P.boxB }], [1, { v: "", s: P.boxBR }]]);
   gap();
@@ -148,10 +160,10 @@ export function proforma17Sheet(ctx, bands) {
      below stays clear: that is where the stamp and the signature go. */
   row([[1, { v: airOf(ctx) ? "AIR FREIGHT" : "FREIGHT", s: P.frLbl }], [3, { v: freightTerm(ctx), s: P.frVal }],
     [4, { v: "", s: P.signTop }]]);
-  row([[1, { v: "DELIVERY", s: P.frLblB }], [3, { v: deliveryMonth(ctx), s: P.frValB }],
+  row([[1, { v: shipLabel(ctx), s: P.frLblB }], [3, { v: deliveryMonth(ctx), s: P.frValB }],
     [4, { v: "", s: P.plain }]]);
   gap(SIGN_PT);
-  FOOTER.forEach((l) => {
+  footerOf(ctx).forEach((l) => {
     if (l.spaced) gap(FOOT_PT);
     row([[8, { v: l.text, s: P.foot }]], FOOT_PT);
   });
@@ -198,6 +210,9 @@ const FOOTER = [
   { text: "Tel : 61 8 1300 800 961 * Fax : 61 8 1300 800 962" },
   { text: "Web : www.gdwatermark.com.au * Email : sales@gdwatermark.com.au", spaced: true },
 ];
+/* Their air order ends on the first two lines only — the name and the address
+   (Docs/JG_Air_Docs/Proforma Invoice.pdf). */
+const footerOf = (ctx) => (airOf(ctx) ? FOOTER.slice(0, 2) : FOOTER);
 
 /* Several runs of their form are one ruled box with the text set at fixed
    points inside it rather than a row of cells — the account-code strip, the
@@ -365,11 +380,11 @@ export const B_17 = (ctx) => {
   const foot = `${SPACE}
         <tr class="sig"><td class="bx" colspan="4">${bpoBox([
           [[25, "c b", airOf(ctx) ? "AIR FREIGHT" : "FREIGHT"], [75, null, esc(freightTerm(ctx))]],
-          [[25, "c b", "DELIVERY"], [75, null, esc(deliveryMonth(ctx))]],
+          [[25, "c b", shipLabel(ctx)], [75, null, esc(deliveryMonth(ctx))]],
         ])}</td>
           <td class="nb c sign" colspan="4"></td></tr>
         ${SIGN_SPACE}
-        ${FOOTER.map((l) => `${l.spaced ? FOOT_SPACE : ""}<tr class="ft"><td class="nb c foot" colspan="8">${esc(l.text)}</td></tr>`).join("")}`;
+        ${footerOf(ctx).map((l) => `${l.spaced ? FOOT_SPACE : ""}<tr class="ft"><td class="nb c foot" colspan="8">${esc(l.text)}</td></tr>`).join("")}`;
 
   let carried = 0;
   const html = pages.map((page, i) => {
@@ -383,7 +398,7 @@ export const B_17 = (ctx) => {
       <tbody>
         ${page.blocks.map((blk, j) => block(blk, j === 0 ? lead : "")).join("")}
         ${filler(page)}
-        ${last ? closing("Total", total) : closing("Balance c/f....", carried)}
+        ${last ? closing(esc(proformaTotalLabel(ctx)), total) : closing("Balance c/f....", carried)}
         ${foot}
       </tbody>
     </table></div>`;

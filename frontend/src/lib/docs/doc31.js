@@ -1,4 +1,4 @@
-import { airMargin, airOf, CI_BUYER_BANDS, CI_P1_BODY_BUYER, CI_P1_TOP, CI_P2_TOP, CI_PLAIN, CI_USD, CI_USDT, L, USD, addrLines, amountWords, bundled, buyerGoods, ciMarks, ciP2Body, ddmm, esc, fitSheet, formGrid, formLogo, invoiceBands, invoiceLayout, num, numOrText, packagesText, poHeaderList, sum, wrapTo } from "./common.js";
+import { AIR_MARGIN_ONE, CI_ONE_BODY, airMargin, airOf, fitsOnePage, gstinLine, marksLines, CI_BUYER_BANDS, CI_P1_BODY_BUYER, CI_P1_TOP, CI_P2_TOP, CI_PLAIN, CI_USD, CI_USDT, L, USD, addrLines, amountWords, bundled, buyerGoods, ciMarks, ciP2Body, ddmm, esc, fitSheet, formGrid, formLogo, invoiceBands, invoiceLayout, num, numOrText, packagesText, poHeaderList, sum, wrapTo } from "./common.js";
 import { LOGO_SRC, imgTag } from "../logo.js";
 import { colLetter } from "../xlsx.js";
 
@@ -11,12 +11,29 @@ import { colLetter } from "../xlsx.js";
    them spelled out. It carries the buyer's own order numbers where the customs
    copy carries the exporter's, and it does not claim anything under RoDTEP. */
 
+/* By air, one page whenever the goods fit (Docs/JG_Air_Docs/Commercial
+   Invoice.xlsx): the frame runs to row 79, the total, the words and the
+   declaration under it. Otherwise the two pages of the sea form. */
+export function commercialLayout(ctx, bands) {
+  const one = !!airOf(ctx) && fitsOnePage(invoiceLayout(bands, Infinity).p1.length, CI_ONE_BODY);
+  return { one, room: CI_ONE_BODY, ...invoiceLayout(bands, one ? CI_ONE_BODY : CI_P1_BODY_BUYER) };
+}
+
+/* The packages and the goods over the two lines beside the marks. The air
+   form runs them on as one sentence — "10 CARTONS (02 SKIDS) CONTAINING PP
+   EXTRUDED PIPES" — where the sea form gives the goods a line of their own. */
+const pkgLines = (ctx, rows, bands) => (airOf(ctx)
+  ? wrapTo(`${packagesText(ctx, rows)} CONTAINING ${buyerGoods(bands)}`, 80, 3)
+  : [`${packagesText(ctx, rows)} CONTAINING`, ...wrapTo(buyerGoods(bands), 80, 2)]);
+
 export function commercialInvoiceSheets(ctx) {
   const E = ctx.EXPORTER, b = ctx.buyer, s = ctx.inv.ship || {};
   const rows = L(ctx);
   const bands = invoiceBands(ctx, CI_BUYER_BANDS);
-  const { p1, p2 } = invoiceLayout(bands, CI_P1_BODY_BUYER);
+  const { p1, p2, one } = commercialLayout(ctx, bands);
   const marks = ciMarks(ctx, rows);
+  const mk = marksLines(ctx, marks);
+  const pk = pkgLines(ctx, rows, bands);
   /* By air (Docs/JG_Air_Docs/Commercial Invoice.xlsx): the waybill, the
      airline and its flights, and the terms it was sold on. Null by sea. */
   const air = airOf(ctx);
@@ -57,13 +74,13 @@ export function commercialInvoiceSheets(ctx) {
 
   const invRef = `${ctx.inv.invoiceNo || ""}${ctx.inv.date ? ` DT ${ddmm(ctx.inv.date)}` : ""}`;
   const dated = (no, d) => (no ? `${no}${d ? ` DT. ${ddmm(d)}` : ""}` : "");
-  /* The goods run the width of the seven columns beside the marks, so they
-     stand on the one line rather than leaving a word under the last box no. */
-  const desc2 = wrapTo(buyerGoods(bands), 80, 2);
   const desc3 = wrapTo(buyerGoods(bands), 42, 3);
   /* The buyer's own order numbers, broken over the four lines their form gives
      them — the customs copy prints the exporter's single reference instead. */
-  const orders = wrapTo(poHeaderList(ctx), 44, 4);
+  /* By air their copy keeps a line for "Other Reference(s):" under the order
+     numbers, filled or not (Docs/JG_Air_Docs/Commercial Invoice.xlsx). */
+  const orders = airOf(ctx) ? [...wrapTo(poHeaderList(ctx), 44, 2), s.otherRef || "", ""] : wrapTo(poHeaderList(ctx), 44, 4);
+  const otherLbl = airOf(ctx) ? "Other Reference(s):" : "";
 
   function headBlock(grid) {
     const { row } = grid;
@@ -82,7 +99,7 @@ export function commercialInvoiceSheets(ctx) {
     row([[5, { v: addr[0] || "", s: { ...C.rgt, border: "l" } }],
       [2, { v: "", s: { ...C.txt, border: "l" } }], [4, { v: orders[1], s: C.txt }]]);
     row([[5, { v: addr[1] || "", s: { ...C.rgt, border: "l" } }],
-      [2, { v: "", s: { ...C.lbl, border: "l" } }], [4, { v: orders[2], s: C.txt }]]);
+      [2, { v: otherLbl, s: { ...C.lbl, border: "l" } }], [4, { v: orders[2], s: C.txt }]]);
     row([[5, { v: [E.tel && `Tel: ${E.tel}`, E.email && `E-Mail: ${E.email}`].filter(Boolean).join(" "), s: { ...C.rgt, border: "lb" } }],
       [2, { v: "", s: { ...C.txt, border: "lb" } }], [4, { v: orders[3], s: { ...C.txt, border: "b" } }]]);
     /* Where the customs copy carries the e-invoice reference and its
@@ -147,14 +164,14 @@ export function commercialInvoiceSheets(ctx) {
       [7, H("No & Kinds of Pkgs   Description of Goods")],
       [1, H("Quantity")], [1, H("Rate")], [1, H("Amount")]]);
     const M = (v, r) => (mirror ? { f: `Page1!${r}`, s: { ...C.txt, border: "lr" } } : { v, s: { ...C.txt, border: "lr" } });
-    row([[1, M(`${marks.prefix} NOS :`, "A23")],
+    row([[1, M(mk[0], "A23")],
       [7, mirror ? { f: "Page1!B23", s: { ...C.txt, border: "lr", align: "left" } }
-        : { v: `${packagesText(ctx, rows)} CONTAINING`, s: { ...C.txt, border: "lr", align: "left" } }],
+        : { v: pk[0], s: { ...C.txt, border: "lr", align: "left" } }],
       [1, { v: "", s: { ...C.txt, border: "lr" } }],
       [2, { v: `${priced} IN US$`, s: { ...C.ctr, border: "lr" } }]]);
-    row([[1, M(`${marks.start} - ${marks.end}`, "A24")],
+    row([[1, M(mk[1], "A24")],
       [7, mirror ? { f: "Page1!B24", s: { ...C.txt, border: "lr", align: "left" } }
-        : { v: desc2[0], s: { ...C.txt, border: "lr", align: "left" } }],
+        : { v: pk[1] || "", s: { ...C.txt, border: "lr", align: "left" } }],
       [1, { v: "", s: { ...C.txt, border: "lr" } }],
       [1, { v: "", s: { ...C.txt, border: "lr" } }],
       [1, { v: "", s: { ...C.txt, border: "lr" } }]], 12.75);
@@ -199,11 +216,17 @@ export function commercialInvoiceSheets(ctx) {
     const L7 = (v, edge) => [7, { v, s: { ...C.lbl, border: edge } }];
     const R4 = (v, edge, fmt) => [4, { v, s: { ...C.lbl, border: edge, align: "right", ...(fmt ? { fmt } : {}) } }];
     const P7 = (v, edge) => [7, { v, s: { ...C.txt, border: edge } }];
-    row([L7(E.gstin ? `GSTIN : ${E.gstin}` : "", "lt"), R4(`FOR ${E.name}`.toUpperCase(), "rt", CI_PLAIN)], 13.5);
+    row([L7(gstinLine(ctx), "lt"), R4(`FOR ${E.name}`.toUpperCase(), "rt", CI_PLAIN)], 13.5);
     row([L7(E.pan ? `PAN No: ${E.pan}` : "", "l"), R4("", "r")], 12.75);
     row([P7("Declaration:-", "l"), R4("", "r")], 12.75);
     row([P7("We declare that this invoice shows the actual price of the goods described and that all particulars are true and correct.", "l"), R4("", "r")], 12.75);
-    row([L7("SUPPLY MEANT FOR EXPORT WITH PAYMENT OF INTEGRATED TAX", "lb"), R4(" PROPRIETOR", "rb", CI_PLAIN)], 12.75);
+    // The air form signs a line under the declaration rather than beside it.
+    if (air) {
+      row([L7("SUPPLY MEANT FOR EXPORT WITH PAYMENT OF INTEGRATED TAX", "l"), R4("", "r")], 12.75);
+      row([L7("", "lb"), R4(" PROPRIETOR", "rb", CI_PLAIN)], 12.75);
+    } else {
+      row([L7("SUPPLY MEANT FOR EXPORT WITH PAYMENT OF INTEGRATED TAX", "lb"), R4(" PROPRIETOR", "rb", CI_PLAIN)], 12.75);
+    }
   }
 
   const SHEET = {
@@ -217,14 +240,58 @@ export function commercialInvoiceSheets(ctx) {
     },
   };
 
+  /* The left margin states the container, the weights, the freight terms and
+     the value — the only things on the form outside the grid. */
+  const netWt = Number(s.netWt) || sum(rows, "netTotal");
+  const grossWt = Number(s.grossWt) || sum(rows, "grossTotal");
+  const wt3 = { ...C.ctr, fmt: "0.000" };
+  // The buyer's copy is in dollars only, so its margin carries no rupees.
+  const AIR_ST = { lbl: C.lblC, txt: C.ctr, wt: wt3, usd: { ...C.ctr, fmt: USD }, inr: C.ctr };
+  const margin = air
+    ? Object.fromEntries(airMargin(ctx, rows, sum(rows, "fobTotal"), { inr: false, ...(one ? { at: AIR_MARGIN_ONE } : {}) })
+      .map(([i, v, k]) => [i, [v, AIR_ST[k]]]))
+    : {
+      5: ["Container No.", C.lblC], 6: [s.container || "", C.ctr],
+      15: ["Seal No.", C.lblC], 16: [s.seal || "", C.ctr],
+      24: ["Nett Wt.", C.lblC], 25: [netWt, wt3], 26: ["KGS", C.ctr],
+      33: ["Gross Wt", C.lblC], 34: [grossWt, wt3], 35: ["KGS", C.ctr],
+      41: ["Freight", C.lblC], 42: ["Payable at", C.lblC], 43: ["Destination", C.lblC],
+    };
+  const setA = (g, r, cell, st) => {
+    const was = g.rows[r - 1]?.[0];
+    if (was) g.rows[r - 1][0] = { ...was, ...cell, s: { ...st, border: was.s?.border } };
+  };
+  /* The total, the value in words and the declaration, on the last page.
+     The value is read out in international scale, which is what a buyer's
+     invoice states. */
+  function closeInvoice(g, first, last, lead) {
+    g.row([[1, lead],
+      [3, { v: air ? `Total ${air.terms} Value :` : "Total FOB Mumbai Value :", s: { ...G.totL, align: "left" } }],
+      ...blank(6, G.totV), [1, { f: `SUM(K${first}:K${last})`, s: G.sumU }]], 12.75);
+    g.row([[1, { v: "", s: { ...C.txt, border: "lb" } }],
+      [10, { v: amountWords(sum(rows, "fobTotal"), "US DOLLARS", "CENTS"), s: { ...C.txt, border: "rb" } }]], 12.75);
+    // The air form leaves a line clear between the words and the declaration.
+    if (air) g.row([[1, { v: "", s: { ...C.txt, border: "l" } }], [10, { v: "", s: { ...C.txt, border: "r" } }]], 12.75);
+    footBlock(g);
+  }
+
   /* ---- Page 1 ------------------------------------------------------------ */
   const g1 = formGrid(11);
   headBlock(g1);
   goodsHead(g1, false);
-  g1.row([[1, { v: String(marks.end), s: { ...C.txt, border: "lr" } }],
-    [7, { v: desc2[1], s: { ...C.txt, border: "lr", align: "left" } }],
+  g1.row([[1, { v: mk[2], s: { ...C.txt, border: "lr" } }],
+    [7, { v: pk[2] || "", s: { ...C.txt, border: "lr", align: "left" } }],
     ...blank(3, { ...C.txt, border: "lr" })], 12.75);
-  for (let i = 0; i < CI_P1_BODY_BUYER; i++) bodyLine(g1, p1[i], CI_P1_TOP + i);
+  const p1Body = one ? CI_ONE_BODY : CI_P1_BODY_BUYER;
+  for (let i = 0; i < p1Body; i++) bodyLine(g1, p1[i], CI_P1_TOP + i);
+
+  if (one) {
+    /* ---- the one-page air invoice ---------------------------------------- */
+    Object.entries(margin).forEach(([i, [v, st]]) => setA(g1, CI_P1_TOP + Number(i), { v }, st));
+    closeInvoice(g1, CI_P1_TOP, CI_P1_TOP + p1Body - 1, { v: "", s: { ...C.txt, border: "lr" } });
+    return [fitSheet({ name: "Page1", rows: g1.rows, merges: g1.merges, heights: g1.heights, image: formLogo(), ...SHEET }, { widen: false })];
+  }
+
   const p1First = CI_P1_TOP + p1.findIndex((l) => l.kind === "item");
   const p1Last = CI_P1_TOP + CI_P1_BODY_BUYER - 1;
   const p1Has = p1.some((l) => l.kind === "item");
@@ -256,44 +323,16 @@ export function commercialInvoiceSheets(ctx) {
     [1, { f: `Page1!K${cfRow}`, s: { ...C.txt, border: "lr", fmt: USD } }]], 12.75);
   const p2Body = ciP2Body(p2);
   for (let i = 0; i < p2Body; i++) bodyLine(g2, p2[i], CI_P2_TOP + i);
-
-  /* The left margin of Page 2 states the container, the weights, the freight
-     terms and the value — the only things on the form outside the grid. */
-  const netWt = Number(s.netWt) || sum(rows, "netTotal");
-  const grossWt = Number(s.grossWt) || sum(rows, "grossTotal");
-  const wt3 = { ...C.ctr, fmt: "0.000" };
-  // The buyer's copy is in dollars only, so its margin carries no rupees.
-  const AIR_ST = { lbl: C.lblC, txt: C.ctr, wt: wt3, usd: { ...C.ctr, fmt: USD }, inr: C.ctr };
-  const margin = air
-    ? Object.fromEntries(airMargin(ctx, rows, sum(rows, "fobTotal"), { inr: false }).map(([i, v, k]) => [i, [v, AIR_ST[k]]]))
-    : {
-      5: ["Container No.", C.lblC], 6: [s.container || "", C.ctr],
-      15: ["Seal No.", C.lblC], 16: [s.seal || "", C.ctr],
-      24: ["Nett Wt.", C.lblC], 25: [netWt, wt3], 26: ["KGS", C.ctr],
-      33: ["Gross Wt", C.lblC], 34: [grossWt, wt3], 35: ["KGS", C.ctr],
-      41: ["Freight", C.lblC], 42: ["Payable at", C.lblC], 43: ["Destination", C.lblC],
-    };
-  const setA = (r, cell, st) => {
-    const was = g2.rows[r - 1]?.[0];
-    if (was) g2.rows[r - 1][0] = { ...was, ...cell, s: { ...st, border: was.s?.border } };
-  };
-  Object.entries(margin).forEach(([i, [v, st]]) => setA(CI_P2_TOP + Number(i), { v }, st));
+  Object.entries(margin).forEach(([i, [v, st]]) => setA(g2, CI_P2_TOP + Number(i), { v }, st));
 
   const p2First = CI_P2_TOP - 1;                 // the brought-forward line
   const p2Last = CI_P2_TOP + p2Body - 1;
   const totRow = p2Last + 1;
   if (!air || air.fob) {
-    setA(totRow - 2, { v: "FOB VALUE" }, C.lblC);
-    setA(totRow - 1, { v: undefined, f: `K${totRow}` }, { ...C.lblC, fmt: USD });
+    setA(g2, totRow - 2, { v: "FOB VALUE" }, C.lblC);
+    setA(g2, totRow - 1, { v: undefined, f: `K${totRow}` }, { ...C.lblC, fmt: USD });
   }
-  g2.row([[1, { v: "", s: { ...C.txt, border: "lr" } }],
-    [3, { v: air ? `Total ${air.terms} Value :` : "Total FOB Mumbai Value :", s: { ...G.totL, align: "left" } }],
-    ...blank(6, G.totV), [1, { f: `SUM(K${p2First}:K${p2Last})`, s: G.sumU }]], 12.75);
-  /* The value in words, as the invoice reads it out — the dollars in
-     international scale, which is what a buyer's invoice states. */
-  g2.row([[1, { v: "", s: { ...C.txt, border: "lb" } }],
-    [10, { v: amountWords(sum(rows, "fobTotal"), "US DOLLARS", "CENTS"), s: { ...C.txt, border: "rb" } }]], 12.75);
-  footBlock(g2);
+  closeInvoice(g2, p2First, p2Last, { v: "", s: { ...C.txt, border: "lr" } });
 
   return [
     fitSheet({ name: "Page1", rows: g1.rows, merges: g1.merges, heights: g1.heights, image: formLogo(), ...SHEET }, { widen: false }),
@@ -309,8 +348,10 @@ export function commercialInvoiceHtml(ctx) {
   const E = ctx.EXPORTER, b = ctx.buyer, s = ctx.inv.ship || {};
   const rows = L(ctx);
   const bands = invoiceBands(ctx, CI_BUYER_BANDS);
-  const { p1, p2 } = invoiceLayout(bands, CI_P1_BODY_BUYER);
+  const { p1, p2, one } = commercialLayout(ctx, bands);
   const marks = ciMarks(ctx, rows);
+  const mk = marksLines(ctx, marks);
+  const pk = pkgLines(ctx, rows, bands);
   /* By air (Docs/JG_Air_Docs/Commercial Invoice.xlsx): the waybill, the
      airline and its flights, and the terms it was sold on. Null by sea. */
   const air = airOf(ctx);
@@ -319,11 +360,11 @@ export function commercialInvoiceHtml(ctx) {
   const priced = air ? air.terms : "FOB MUMBAI";
   const destPort = (air?.deliveryPlace || s.finalDest || s.pod || b.shipTo || "").toUpperCase();
   const addr = addrLines(E), bAddr = addrLines({ addr: b.addr });
-  /* The goods run the width of the seven columns beside the marks, so they
-     stand on the one line rather than leaving a word under the last box no. */
-  const desc2 = wrapTo(buyerGoods(bands), 80, 2);
   const desc3 = wrapTo(buyerGoods(bands), 42, 3);
-  const orders = wrapTo(poHeaderList(ctx), 44, 4);
+  /* By air their copy keeps a line for "Other Reference(s):" under the order
+     numbers, filled or not (Docs/JG_Air_Docs/Commercial Invoice.xlsx). */
+  const orders = airOf(ctx) ? [...wrapTo(poHeaderList(ctx), 44, 2), s.otherRef || "", ""] : wrapTo(poHeaderList(ctx), 44, 4);
+  const otherLbl = airOf(ctx) ? "Other Reference(s):" : "";
   const dated = (no, d) => (no ? `${no}${d ? ` DT. ${ddmm(d)}` : ""}` : "");
   const invRef = `${ctx.inv.invoiceNo || ""}${ctx.inv.date ? ` DT ${ddmm(ctx.inv.date)}` : ""}`;
 
@@ -348,7 +389,7 @@ export function commercialInvoiceHtml(ctx) {
       ${td(esc("Invoice No. "), "k lt")}${td(esc(invRef), "rt", 4)}${td(esc("Exporter's Ref."), "k rt")}</tr>
     <tr>${td("Date:", "k lf")}${td("", "rt0", 4)}${td(esc(E.iec ? `IEC ${E.iec}` : ""), "k rt0")}</tr>
     <tr>${td(esc("Buyers Order No: "), "k lf", 2)}${td(esc(orders[0]), "rt0", 4)}</tr>
-    ${orders.slice(1).map((o) => `<tr>${td("", "lf", 2)}${td(esc(o), "rt0", 4)}</tr>`).join("")}
+    ${orders.slice(1).map((o, i) => `<tr>${td(i === 1 ? esc(otherLbl) : "", i === 1 ? "k lf" : "lf", 2)}${td(esc(o), "rt0", 4)}</tr>`).join("")}
     <tr>${td("On Account &amp; Risks of:", "k lt", 2)}${td("", "lt0", 3)}${td(air ? "AWB No." : "BL. NO.", "k lt")}${td(esc(air ? air.awb : dated(s.blNo, s.blDate)), "rt", 5)}</tr>
     <tr>${td(esc(b.name ? `Messrs ${b.name},` : ""), "lf", 5)}${td("", "lf")}${td("", "rt0", 5)}</tr>
     <tr>${td(esc(b.brand ? `T/A ${b.brand}` : ""), "lf", 5)}${td("Shipped Per", "k lf")}${td(esc(shippedPer), "rt0", 5)}</tr>
@@ -374,11 +415,11 @@ export function commercialInvoiceHtml(ctx) {
       ${td("", "lf bb", 2)}${td(esc(s.bankAddr || ""), "k rt0 bb", 4)}</tr>
     <tr>${td("Marks &amp; Nos.", "h l")}${td("No &amp; Kinds of Pkgs   Description of Goods", "h", 7)}
       ${["Quantity", "Rate", "Amount"].map((h) => td(h, "h")).join("")}</tr>
-    <tr class="gd">${vl(`${marks.prefix} NOS :`)}${td(esc(`${packagesText(ctx, rows)} CONTAINING`), "l", 7)}
+    <tr class="gd">${vl(mk[0])}${td(esc(pk[0]), "l", 7)}
       ${td("")}${td(esc(`${priced} IN US$`), "c", 2)}</tr>
-    <tr class="gd">${vl(`${marks.start} - ${marks.end}`)}${td(esc(desc2[0]), "l", 7)}${td("")}${td("")}
+    <tr class="gd">${vl(mk[1])}${td(esc(pk[1] || ""), "l", 7)}${td("")}${td("")}
       ${td(second ? ciUsd(cfUsd) : "", "r")}</tr>
-    <tr class="gd">${vl(String(marks.end))}${td(esc(desc2[1]), "l", 7)}${td("")}${td("")}${td("")}</tr>`;
+    <tr class="gd">${vl(mk[2])}${td(esc(pk[2] || ""), "l", 7)}${td("")}${td("")}${td("")}</tr>`;
 
   const line = (l) => {
     /* Quantity, Rate and Amount are ruled as their own columns on every line,
@@ -409,49 +450,54 @@ export function commercialInvoiceHtml(ctx) {
   /* The declaration at the foot of both pages. The buyer's copy claims nothing
      under RoDTEP — that line is the customs copy's. */
   const foot = () => `
-    <tr>${td(esc(E.gstin ? `GSTIN : ${E.gstin}` : ""), "k lt", 7)}${td(esc(`FOR ${E.name}`.toUpperCase()), "k rt r", 4)}</tr>
+    <tr>${td(esc(gstinLine(ctx)), "k lt", 7)}${td(esc(`FOR ${E.name}`.toUpperCase()), "k rt r", 4)}</tr>
     <tr>${td(esc(E.pan ? `PAN No: ${E.pan}` : ""), "k lf", 7)}${td("", "rt0", 4)}</tr>
     <tr>${td("Declaration:-", "lf", 7)}${td("", "rt0", 4)}</tr>
     <tr>${td("We declare that this invoice shows the actual price of the goods described and that all particulars are true and correct.", "lf", 7)}${td("", "rt0", 4)}</tr>
-    <tr>${td("SUPPLY MEANT FOR EXPORT WITH PAYMENT OF INTEGRATED TAX", "k lf bb", 7)}${td(" PROPRIETOR", "k rt0 bb r", 4)}</tr>`;
+    ${air ? `<tr>${td("SUPPLY MEANT FOR EXPORT WITH PAYMENT OF INTEGRATED TAX", "k lf", 7)}${td("", "rt0", 4)}</tr>
+    <tr>${td("", "lf bb", 7)}${td(" PROPRIETOR", "k rt0 bb r", 4)}</tr>`
+    : `<tr>${td("SUPPLY MEANT FOR EXPORT WITH PAYMENT OF INTEGRATED TAX", "k lf bb", 7)}${td(" PROPRIETOR", "k rt0 bb r", 4)}</tr>`}`;
 
   const cfUsd = p1.reduce((n, l) => n + (l.kind === "item" ? l.r.fobTotal : 0), 0);
   const fobAll = sum(rows, "fobTotal");
   const colg = `<colgroup>${[12.6, 12.9, 10.8, 10.8, 10.8, 12.1, 12.1, 12.1, 15.5, 12.1, 12.1]
     .map((w) => `<col style="width:${(w / 133.9) * 100}%">`).join("")}</colgroup>`;
 
-  const page1 = `<table class="wb ci ci31">${colg}<tbody>${head(false)}
-    ${Array.from({ length: CI_P1_BODY_BUYER }, (_, i) => line(p1[i])).join("")}
-    <tr class="tt">${td("")}${td("Total C/F Page :2", "k c", 3)}${td("", "", 6)}
-      ${td(ciUsd(cfUsd), "r dbl")}</tr>
-    ${foot()}</tbody></table>`;
-
-  /* Page 2's left margin carries the container, the weights, the freight terms
+  /* The left margin carries the container, the weights, the freight terms
      and the value; the rest of it is the same frame continued. */
   const netWt = Number(s.netWt) || sum(rows, "netTotal");
   const grossWt = Number(s.grossWt) || sum(rows, "grossTotal");
   const AIR_FMT = { lbl: (v) => v, txt: (v) => v, wt: (v) => Number(v || 0).toFixed(3), usd: (v) => ciUsd(v), inr: (v) => v };
   const margin = air
-    ? Object.fromEntries(airMargin(ctx, rows, fobAll, { inr: false }).map(([i, v, k]) => [i, AIR_FMT[k](v)]))
+    ? Object.fromEntries(airMargin(ctx, rows, fobAll, { inr: false, ...(one ? { at: AIR_MARGIN_ONE } : {}) }).map(([i, v, k]) => [i, AIR_FMT[k](v)]))
     : {
       5: "Container No.", 6: s.container || "", 15: "Seal No.", 16: s.seal || "",
       24: "Nett Wt.", 25: Number(netWt || 0).toFixed(3), 26: "KGS",
       33: "Gross Wt", 34: Number(grossWt || 0).toFixed(3), 35: "KGS",
       41: "Freight", 42: "Payable at", 43: "Destination",
     };
-  const p2Body = ciP2Body(p2);
-  const body2 = Array.from({ length: p2Body }, (_, i) => {
+  const framed = (lines, n) => Array.from({ length: n }, (_, i) => {
     const cell = margin[i];
-    const out = line(p2[i]);
+    const out = line(lines[i]);
     return cell == null ? out
       : out.replace('<tr class="gd fl">', '<tr class="gd">').replace("<td>&nbsp;</td>", `<td class="c k">${esc(String(cell))}</td>`);
   }).join("");
-
-  const page2 = `<table class="wb ci ci31">${colg}<tbody>${head(true)}${body2}
-    <tr class="tt">${td(ciUsd(fobAll), "c k")}${td(esc(air ? `Total ${air.terms} Value :` : "Total FOB Mumbai Value :"), "k", 3)}${td("", "", 6)}
+  // The FOB box beside the total is the sea copy's; a CFR air copy states its FOB in the margin.
+  const closing = () => `
+    <tr class="tt">${td(!air || air.fob ? ciUsd(fobAll) : "", "c k")}${td(esc(air ? `Total ${air.terms} Value :` : "Total FOB Mumbai Value :"), "k", 3)}${td("", "", 6)}
       ${td(ciUsd(fobAll), "r dbl")}</tr>
     <tr>${td("")}${td(esc(amountWords(fobAll, "US DOLLARS", "CENTS")), "l", 10)}</tr>
+    ${air ? `<tr>${td("", "lf")}${td("", "rt0", 10)}</tr>` : ""}
+    ${foot()}`;
+
+  if (one) return `<table class="wb ci ci31">${colg}<tbody>${head(false)}${framed(p1, CI_ONE_BODY)}${closing()}</tbody></table>`;
+
+  const page1 = `<table class="wb ci ci31">${colg}<tbody>${head(false)}
+    ${Array.from({ length: CI_P1_BODY_BUYER }, (_, i) => line(p1[i])).join("")}
+    <tr class="tt">${td("")}${td("Total C/F Page :2", "k c", 3)}${td("", "", 6)}
+      ${td(ciUsd(cfUsd), "r dbl")}</tr>
     ${foot()}</tbody></table>`;
+  const page2 = `<table class="wb ci ci31">${colg}<tbody>${head(true)}${framed(p2, ciP2Body(p2))}${closing()}</tbody></table>`;
 
   return `${page1}<div class="pgbrk"></div>${page2}`;
 }

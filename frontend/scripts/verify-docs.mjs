@@ -350,7 +350,7 @@ group("Air mode", () => {
   check(A, "40: the AWB in the transport document details", t("40").includes("232-19269504"));
   check(A, "by sea, 22 still goes to Velji Dosabhai", text(html("22")).includes("Velji Dosabhai"));
   const t26a = t("26A");
-  check(A, "26A: airline and flights, dimensions, skids, freight prepaid", t26a.includes(`AIRLINE NAME AND FLIGHT NUMBER PLACE OF RECEIPT : ${per}`) && t26a.includes("40 X 40 X 40 CMS") && t26a.includes("NO OF SKIDS") && /PREPAID/.test(t26a));
+  check(A, "26A: airline and flights, dimensions, skids, freight prepaid", t26a.includes(`AIRLINE NAME AND FLIGHT NUMBER PLACE OF RECEIPT : ${per}`) && t26a.includes("40 X 40 X 40 CMS") && t26a.includes("DIMENSION OF CTN") && t26a.includes("MUMBAI, INDIA") && /PREPAID/.test(t26a));
   check(A, "26A: the HS code table", /HS CODE DESCRIPTION PACKAGES GROSS WEIGHT TOTAL CBM/.test(t26a) && cells("26A", airCtx).includes("Grand Total"));
   check(A, "16A: origin declared against the invoice", t("16A").includes("Invoice No. DEMO/2 DATED 01-JUNE-2026 are wholly obtained Indian origin"));
   Object.keys(docs.DOC_META).forEach((no) => {
@@ -383,6 +383,33 @@ group("Air mode", () => {
     ["18", "19", "26A", "30", "31"].filter((no) => /NaN|undefined/.test(text(html(no, xc)))).join(", "));
   check(A, "the air set leaves out the container papers", M.docsForMode(Object.keys(docs.DOC_META), "air").every((no) => !["24", "26", "27", "34"].includes(no)));
   check(A, "the air set has the AWB instructions and the origin declaration", ["16A", "26A"].every((no) => docs.DOC_META[no] && M.docInMode(no, "air") && !M.docInMode(no, "water")));
+});
+
+/* 9 · the air papers laid out as Docs/JG_Air_Docs lays them out:
+   one page where the goods fit, the pipes' length, the air foot. */
+group("Air layout", () => {
+  const A = "Air layout";
+  const tabs = (no, c) => parts(no, c).flatMap((p) => p.sheets || [p.sheet]).filter(Boolean).map((sh) => sh.name);
+  check(A, "18: one page and the annexure by air, two pages and the annexure by sea",
+    tabs("18", airCtx).join(",") === "Page1,Annx" && tabs("18", ctx).join(",") === "Page1,Page2,Annx", `${tabs("18", airCtx)} / ${tabs("18", ctx)}`);
+  check(A, "31: one page by air, two by sea", tabs("31", airCtx).join(",") === "Page1" && tabs("31", ctx).join(",") === "Page1,Page2");
+  // Corrugated boxes need the break-up of weights, which keeps the second page.
+  const NOBOX = JSON.parse(JSON.stringify(AIR));
+  NOBOX.invoices[1].lines = NOBOX.invoices[1].lines.filter((l) => l.item_id !== "i-gd3");
+  check(A, "19: one page by air, two by sea or with corrugated boxes",
+    tabs("19", ctxOf(NOBOX)).join(",") === "Page1" && tabs("19", airCtx).join(",") === "Page1,Page2" && tabs("19", ctx).join(",") === "Page1,Page2");
+  const t18 = text(html("18", airCtx));
+  check(A, "18: the pipes print LEN (MM) by air", t18.includes("LEN (MM)"));
+  check(A, "18 / 19 by sea still leave LEN out", !text(html("18")).includes("LEN (MM)") && !t19.includes("LEN (MM)"));
+  check(A, "18: no RoDTEP claim by air, and the GSTIN dated", !t18.includes("RoDTEP") && t18.includes("w.e.f 20.01.2021"));
+  check(A, "18: the marks put the count under the run (NOS : start - end)", /NOS : \d+ - \d+/.test(t18) && !/GDW NOS :/.test(t18));
+  check(A, "19: the pipes are counted in boxes by air", text(html("19", airCtx)).includes("Qty/Box-Pcs"));
+  check(A, "17: SHIPMENT and the C&F total by air", /SHIPMENT/.test(text(html("17", airCtx))) && /TOTAL C&F PERTH VALUE/.test(text(html("17", airCtx))));
+  check(A, "11: the air letter leaves its reference and date to be written in", !/JG\/\d{4}\//.test(text(html("11", airCtx))));
+  const t26 = text(html("26A", airCtx));
+  check(A, "26A: the gross weight stands over the net", t26.includes("NET WEIGHT") && t26.indexOf("GROSS WEIGHT") < t26.indexOf("NET WEIGHT"));
+  check(A, "13: the air declaration is valued FOB MUMBAI", text(html("13", airCtx)).includes(": FOB MUMBAI"));
+  check(A, "10: the e-way tax is to the whole rupee", /IGST Amount[\s\S]*?\d+\.00/.test(text(html("10", airCtx))));
 });
 
 /* ---- write the papers out ---------------------------------------------------- */

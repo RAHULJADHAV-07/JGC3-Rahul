@@ -224,7 +224,10 @@ test("complete shipment details follow the mode", () => {
 
 test("the papers offered follow the mode", () => {
   const all = ["14", "16", "16A", "18", "24", "26", "26A", "27", "34"];
-  assert.deepEqual(docsForMode(all, "air"), ["14", "16", "16A", "18", "26A"]);
+  // By air only the client's air set (Docs/JG_Air_Docs) — no RoDTEP (16), no container papers.
+  assert.deepEqual(docsForMode(all, "air"), ["14", "16A", "18", "26A"]);
+  assert.deepEqual(docsForMode(["7", "8", "20", "22", "29", "32", "35"], "air"), []);
+  MODE_CHECKLIST.air.generated.forEach((no) => assert.equal(docInMode(no, "air"), true, no));
   assert.deepEqual(docsForMode(all, "water"), ["14", "16", "18", "24", "26", "27", "34"]);
   assert.deepEqual(docsForMode(all, "land"), docsForMode(all, "water"));
   SEA_ONLY_DOCS.forEach((no) => assert.equal(docInMode(no, "air"), false));

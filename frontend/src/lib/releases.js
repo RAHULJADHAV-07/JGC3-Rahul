@@ -7,6 +7,37 @@
 
 export const RELEASES = [
   {
+    version: "7.7.0",
+    date: "2026-11-19",
+    notes: [
+      "Air declarations go out signed and stamped: export value declaration (13), SCOMET (14), SDF (15) and declaration of origin (16A).",
+      "Despatch instruction (11) prints portrait again when a shipment has more than one supplier.",
+      "Shipment step 3 (air): new boxes for the despatch letter No. and date (11) and the letter to buyer No. and date (30) — printed at the head of each letter, or left blank to write in.",
+      "Air custom invoice (18), packing list (19) and commercial invoice (31) keep the “Other Reference(s):” line.",
+      "AWB instructions (26A): dimension of carton under the net weight in the weights column, port of loading as “MUMBAI, INDIA”.",
+      "Air SCOMET (14): subject, ref and end use set plain, not bold.",
+      "Air proforma (17): ends on the buyer's name and address lines only.",
+      "Other Reports: “By item” opens first; “By purchase order” (Report 37) moved to the last tab.",
+      "Number boxes no longer show the up / down arrows.",
+    ],
+  },
+  {
+    version: "7.6.0",
+    date: "2026-11-17",
+    notes: [
+      "An air shipment's Documents show only the air set: 10, 11, 12, 13, 14, 15, 16A, 17, 18, 19, 21, 23, 26A, 30, 31, 33.",
+      "Air invoices (18, 31) and packing list (19) print on one page when the goods fit, with the weights, skids, freight and FOB in the margin — as the client's air files do.",
+      "Air papers show the LEN (MM) column for pipes (2\" | 300); sea papers stay without it.",
+      "Air customs invoice (18): GSTIN with “w.e.f 20.01.2021”, no RoDTEP line, marks read “GDW / PERTH  NOS : 1 - 10  / 10”.",
+      "Air packing list (19): pipes counted as “Qty/Box-Pcs” and “BOXES”.",
+      "Air proforma (17): LEN column, “TOTAL C&F PERTH VALUE” and “SHIPMENT” month.",
+      "Air packaging declaration (21, 33) and letter to buyer (30): “10 CARTONS (02 SKIDS)” / “10 Cartons PP Extruded Pipes”.",
+      "AWB instructions (26A) show the gross weight above the net weight.",
+      "Air despatch letter (11): reference and date left blank to write in; EVD (13) states FOB MUMBAI.",
+      "E-way bill (10): GST rounded to the whole rupee, as on the portal format.",
+    ],
+  },
+  {
     version: "7.5.0",
     date: "2026-11-16",
     notes: [
