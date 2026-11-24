@@ -2,13 +2,13 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..deps import require, current_user
+from ..deps import require, active_user
 from .. import models, schemas
 
 router = APIRouter(prefix="/api/transports", tags=["transports"])
 
 # Masters are reference data every page reads; only Setup may change them.
-_read = current_user
+_read = active_user
 _write = require("setup.parties")
 
 
@@ -44,7 +44,7 @@ def update_transport(tid: str, body: schemas.TransportUpdate, db: Session = Depe
     obj = db.get(models.Transport, tid)
     if not obj:
         raise HTTPException(404, "Transport not found")
-    for k, v in body.model_dump(exclude_unset=True).items():
+    for k, v in schemas.changes(body, schemas.Transport).items():
         setattr(obj, k, v)
     _sync_primary(obj)
     db.commit()

@@ -5,13 +5,14 @@ from types import SimpleNamespace
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from ..database import get_db
+from ..database import get_db, lock_ledger
 from ..deps import require, require_admin
+from ..permissions import READ_INVOICES
 from .. import models, schemas, calc, options
 
 router = APIRouter(prefix="/api/invoices", tags=["invoices"])
 
-_read = require("shipment.packing", "shipment.details", "shipment.reports", "pre-shipment", "post-shipment", "home")
+_read = require(*READ_INVOICES)
 _write = require("shipment.packing", "shipment.details")
 
 
@@ -160,7 +161,8 @@ def _resolve_allocation(db: Session, mode: str, lines, exclude_invoice_id=None) 
             raise HTTPException(404, f"Item {l.item_id} not found")
         name = it.gd or it.code
         boxes = max(0, int(l.boxes or 0))
-        room = {r["po"]: r["open"] for r in held.get(l.item_id, [])}
+        # What an earlier line of this same invoice took is no longer there.
+        room = {r["po"]: r["open"] for r in held.get(l.item_id, []) if r["open"] > 0}
         placed = sum(p["boxes"] for p in l.po_alloc)
         if placed > boxes:
             raise HTTPException(400, f"{name}: {placed} boxes are placed on purchase orders but only {boxes} were packed.")
@@ -172,6 +174,8 @@ def _resolve_allocation(db: Session, mode: str, lines, exclude_invoice_id=None) 
         short = min(boxes, sum(room.values())) - placed
         if short > 0:
             raise HTTPException(400, f"{name}: {short} more box{'' if short == 1 else 'es'} need a purchase order.")
+        for pin in l.po_alloc:
+            next(r for r in held[l.item_id] if r["po"] == pin["po"])["open"] -= pin["boxes"]
     return out
 
 
@@ -235,6 +239,7 @@ def _no_duplicate(db: Session, invoice_no: str, except_id=None) -> None:
 
 @router.post("", response_model=schemas.InvoiceOut, status_code=201, dependencies=[Depends(_write)])
 def create_invoice(body: schemas.InvoiceCreate, db: Session = Depends(get_db)):
+    lock_ledger(db)
     _no_duplicate(db, body.invoice_no)
     inv = models.Invoice(
         invoice_no=body.invoice_no, date=body.date, buyer_id=body.buyer_id,
@@ -254,16 +259,24 @@ def create_invoice(body: schemas.InvoiceCreate, db: Session = Depends(get_db)):
 
 @router.put("/{iid}", response_model=schemas.InvoiceOut, dependencies=[Depends(_write)])
 def update_invoice(iid: str, body: schemas.InvoiceUpdate, db: Session = Depends(get_db)):
+    lock_ledger(db)
     inv = db.get(models.Invoice, iid)
     if not inv:
         raise HTTPException(404, "Invoice not found")
     data = body.model_dump(exclude_unset=True)
     lines = data.pop("lines", None)
     renumber = bool(data.pop("renumber", None))
+    if data.get("invoice_no") is not None:
+        data["invoice_no"] = schemas.restated("invoice no", data["invoice_no"], inv.invoice_no, schemas._named)
+    if data.get("date") is not None:
+        data["date"] = schemas.restated("date", data["date"], inv.date, schemas._iso_date)
     if data.get("invoice_no") and data["invoice_no"] != inv.invoice_no:
         _no_duplicate(db, data["invoice_no"], except_id=inv.id)
-    if data.get("allocation") is None:
-        data.pop("allocation", None)
+    # Sent as null, what an invoice always has is left as it was.
+    for k in ("allocation", "invoice_no", "date", "rbi", "serial_start", "vehicles", "ship",
+              "step_skip", "packing_transports"):
+        if k in data and data[k] is None:
+            data.pop(k)
     # A change of mode with no lines sent restates the lines already there.
     if lines is None and data.get("allocation", inv.allocation or "fifo") != (inv.allocation or "fifo"):
         lines = [{"item_id": l.item_id, "supplier_id": l.supplier_id, "boxes": l.boxes} for l in inv.lines]
@@ -342,6 +355,7 @@ def update_invoice(iid: str, body: schemas.InvoiceUpdate, db: Session = Depends(
 # admin may delete one. Packing staff can still correct it by editing.
 @router.delete("/{iid}", status_code=204, dependencies=[Depends(require_admin)])
 def delete_invoice(iid: str, db: Session = Depends(get_db)):
+    lock_ledger(db)
     inv = db.get(models.Invoice, iid)
     if inv:
         db.delete(inv)

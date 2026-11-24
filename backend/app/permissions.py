@@ -41,6 +41,21 @@ PERM_TREE = [
 ]
 
 
+# ---------- What a screen has to be able to read ----------
+# An area is granted whole: whoever may open a screen may read what that screen
+# is drawn from. The papers are built in the browser off the orders and the
+# invoices both, whichever menu head they are opened under, and packing is
+# recorded against what every order still owes — so those reads follow the
+# screens rather than the menu they happen to sit in.
+PAPERS = ("orders.reports", "shipment.reports", "pre-shipment", "post-shipment", "reports.balance")
+# Setup → Document columns reads each paper's columns off the latest ones.
+SETUP = ("setup.items", "setup.parties")
+READ_ORDERS = ("home", "orders.entry", "shipment.packing", "shipment.details", *PAPERS, *SETUP)
+READ_INVOICES = ("home", "shipment.packing", "shipment.details", *PAPERS, *SETUP)
+READ_BALANCE = ("reports.balance", "orders.reports", "shipment.reports", "shipment.packing")
+READ_ITEM_DETAIL = ("reports.balance", "orders.reports", "shipment.reports", "orders.entry")
+
+
 def _leaves(nodes) -> list[str]:
     out = []
     for n in nodes:

@@ -137,7 +137,8 @@ export function boxesVolumeSheet(ctx, blocks, ex) {
 export const B_12 = (ctx) => {
   const ex = exRate(ctx);
   const blocks = boxVolBlocks(ctx);
-  const acc = (n) => Number(n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  // A difference of less than half a paisa is none, not "-0.00".
+  const acc = (n) => (Math.abs(Number(n) || 0) < 0.005 ? 0 : Number(n)).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const cell = (v, t, val) => `<td class="r" data-t="${t}" data-v="${val}">${v}</td>`;
   const money = (n) => cell(acc(n), "num", n);
 

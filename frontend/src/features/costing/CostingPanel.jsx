@@ -4,7 +4,7 @@ import {
 } from "lucide-react";
 import {
   Card, CardHead, Btn, Field, Input, Select, Pill, Mono, Stat, DataTable, Empty,
-  Spinner, ErrorState, SearchInput, Step, Info, DownloadPair, FormulaHelp, ResultState,
+  Spinner, ErrorState, SearchInput, Step, Info, FormulaHelp, ResultState,
 } from "../../components/ui/index.jsx";
 import {
   useCosting, useCostParams, useCostFormulas, useCostingMutations, useGroupedItems,
@@ -13,7 +13,8 @@ import {
 import { useToast } from "../../providers/ToastProvider.jsx";
 import { inr, usdp, num, todayISO } from "../../lib/format.js";
 import { useDebounced } from "../../lib/useDebounced.js";
-import { downloadGridExcel, downloadGridPDF } from "../../lib/download.js";
+import { downloadGridExcel, downloadGridPDF, downloadGridWord } from "../../lib/download.js";
+import DownloadMenu from "../../components/ui/DownloadMenu.jsx";
 import { useHiddenFields, pruneColumns } from "../../lib/columnPrefs.js";
 
 /* ============================================================
@@ -266,9 +267,10 @@ export default function CostingPanel() {
           <div className="row" style={{ gap: 8, marginBottom: 10 }}>
             <FormulaHelp title="How is the cost worked out?"
               rows={(formulas.data || []).map((f) => [f.label, f.rule])} />
-            <DownloadPair disabled={!rows.length}
+            <DownloadMenu name="cost working" disabled={!rows.length}
               onExcel={() => downloadGridExcel(`Cost_working_${todayISO()}`, "Cost working", exportCols, rows, exportOpts)}
-              onPDF={() => downloadGridPDF("Cost working", exportCols, rows, exportOpts)} />
+              onPDF={() => downloadGridPDF("Cost working", exportCols, rows, exportOpts)}
+              onWord={() => downloadGridWord(`Cost_working_${todayISO()}`, "Cost working", exportCols, rows, exportOpts)} />
             <Btn size="sm" icon={Check} disabled={!typed.length || savePrices.isPending} onClick={persist}>
               {savePrices.isPending ? "Saving…" : `Save ${typed.length || ""} price${typed.length === 1 ? "" : "s"}`}
             </Btn>

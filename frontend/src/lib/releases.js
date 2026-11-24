@@ -7,6 +7,36 @@
 
 export const RELEASES = [
   {
+    version: "7.8.0",
+    date: "2026-11-24",
+    notes: [
+      "Custom PO: type an item's boxes and the orders holding it open right under it — how many there are, what each has open, and what is left after these boxes. Choose the order there; each item has its own.",
+      "Custom PO: choose a second order and it takes what the first could not. Retype a figure to split the boxes yourself, or “Rest, oldest first”. An item only one order holds is placed by itself.",
+      "Custom PO: “Same order for every item” puts a whole delivery on one order in one go. The check table says which order each line is deducted from.",
+      "Edit invoice: the same choice under each line.",
+      "Record packing: “still pending” names only the orders that will still hold boxes after what you have typed.",
+      "Two people packing at the same moment can no longer take the same boxes, or be given the same invoice number. If the order book moved while you typed, the save says so and the figures refresh.",
+      "Renaming a purchase order onto a number already in use is refused — it used to merge the two orders.",
+      "A buyer still named on an order or an invoice cannot be deleted. Negative boxes, blank numbers and dates that are not dates are refused with a plain message.",
+      "Staff granted a single area — Packing, Pre-Shipment, Suppliers' Reports … — can work in it: the screens no longer answer “Not allowed” for what they are drawn from.",
+      "Security: packages updated; a password set by an admin now opens nothing but the change-password screen; stricter checks on everything sent to the server.",
+    ],
+  },
+  {
+    version: "7.7.1",
+    date: "2026-11-24",
+    notes: [
+      "Downloads: the three dots beside a document, a supplier's copy or a whole set offer Excel, PDF and Word — in place of the separate Excel and PDF buttons, on every screen.",
+      "Word: every document and report downloads as an editable Word file, laid out as its PDF. A set downloads as one Word file, each document on its own pages.",
+      "BL annexure (24) and CWD (34) download as Excel too — before, they gave Word only.",
+      "Suppliers' PO (6) with more than one supplier prints portrait, as it does for one supplier.",
+      "E-way bill (10), one supplier's copy: prints landscape, as the full document does.",
+      "Sales (5): the PDF stays inside the margins — the last column no longer runs off the paper.",
+      "PDFs of several sheets: every new sheet starts below the edge of the paper, as the first one does.",
+      "Boxes & volume (12): a nil difference prints 0.00, not -0.00.",
+    ],
+  },
+  {
     version: "7.7.0",
     date: "2026-11-19",
     notes: [

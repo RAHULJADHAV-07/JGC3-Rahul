@@ -7,7 +7,10 @@
    checks each rule. Then, if Chrome / Chromium is installed, it opens every
    preview and every PDF in a headless browser and checks the layout: no text
    cut off in a cell, no paper wider than its content, no sheet spilling a few
-   lines onto a page of its own.
+   lines onto a page of its own. Every paper's Word copy is built in the same
+   browser and checked against its PDF: the package opens, it says everything
+   the paper says, and — with LibreOffice installed — it comes to the same
+   number of pages.
 
    Everything it renders is written to verify-output/ — open
    verify-output/index.html to look through the previews and the PDFs
@@ -30,14 +33,22 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const OUT = path.join(ROOT, "verify-output");
 const { createServer } = await import(path.join(ROOT, "node_modules/vite/dist/node/index.js"));
 
-process.on("unhandledRejection", () => {});   // the logo fetch has no server to talk to
+process.on("unhandledRejection", () => {});
+/* The letterhead, the mark, the signature and the stamp are fetched from the
+   app's own public folder, so the papers here carry them as the real ones do. */
+const netFetch = globalThis.fetch;
+globalThis.fetch = async (src, ...a) => {
+  if (typeof src !== "string" || !src.startsWith("/")) return netFetch(src, ...a);
+  return new Response(fs.readFileSync(path.join(ROOT, "public", src)));
+};
 const server = await createServer({
   root: ROOT, server: { middlewareMode: true }, appType: "custom", logLevel: "error",
   optimizeDeps: { noDiscovery: true, entries: [] },   // no browser bundle needed here
 });
-const { docCtx } = await server.ssrLoadModule("/src/lib/docCtx.js");
+const { docCtx, poCtx } = await server.ssrLoadModule("/src/lib/docCtx.js");
 const docs = await server.ssrLoadModule("/src/lib/docs.js");
 const C = await server.ssrLoadModule("/src/lib/docs/common.js");
+await (await server.ssrLoadModule("/src/lib/logo.js")).primeLogo();
 
 /* ---- the demo shipment ---------------------------------------------------- */
 const item = (id, o) => ({
@@ -237,6 +248,21 @@ const only = (sid) => docCtx({ invoice: D.invoices[1], items: D.items, buyers: D
 check("Made in (22)", "one supplier's letter names its own place only", C.madeIn(only(OSW)) === "Daman" && C.madeIn(only(HAN)) === "Maharashtra", `${C.madeIn(only(OSW))} / ${C.madeIn(only(HAN))}`);
 });
 
+// 4d · figures are figures, on every paper
+group("Figures", () => {
+  /* A rate that does not go into the paisa evenly: what is left over is nothing,
+     and prints as nothing. */
+  const odd = JSON.parse(JSON.stringify(D));
+  odd.invoices[1].ship.exRate = "95.17";
+  odd.items.forEach((i) => { i.unit_fob100 = i.unit_fob100 * 1.0137; });
+  const oc = ctxOf(odd);
+  Object.keys(docs.DOC_META).forEach((no) => {
+    const t = text(html(no, docs.isPoDoc(no) ? ctx : oc));
+    const bad = (t.match(/-0\.0+(?![0-9])|\bNaN\b|\bundefined\b|\[object|Infinity/g) || []);
+    check("Figures", `doc ${no}: no "-0.00", NaN or undefined`, !bad.length, bad.slice(0, 3).join(", "));
+  });
+});
+
 // 5 · break-up of weights only with corrugated boxes (19)
 group("Weight break-up (19)", () => {
 check("Weight break-up (19)", "with corrugated boxes: break-up printed", /BREAK-UP OF WEIGHTS/.test(t19) && cells("19").includes("BREAK-UP OF WEIGHTS"));
@@ -415,17 +441,22 @@ group("Air layout", () => {
 /* ---- write the papers out ---------------------------------------------------- */
 fs.rmSync(OUT, { recursive: true, force: true });
 fs.mkdirSync(OUT, { recursive: true });
-const PRINT = fs.readFileSync(path.join(ROOT, "src/lib/download.js"), "utf8").match(/const PRINT_CSS = `([\s\S]*?)`;\n/)[1];
+const { PRINT_CSS: PRINT } = await server.ssrLoadModule("/src/lib/download.js");
 const PAPER = fs.readFileSync(path.join(ROOT, "src/index.css"), "utf8").match(/\.docprev-paper[^{]*\{[\s\S]*?\n\}/g).join("\n");
 const FIT = `<script>${fs.readFileSync(path.join(ROOT, "src/lib/fitCells.js"), "utf8").replace(/export /g, "")}</script>`;
 const AUDIT = `<script>addEventListener("load", () => setTimeout(() => {
   const preview = !!document.querySelector(".docprev-paper");
-  fitCells(document.body); if (!preview) fitPages(document, window.__orient);
+  fitCells(document.body); if (!preview) { fitWidths(document); fitPages(document, window.__orient); }
   const out = [];
   document.querySelectorAll("td, th").forEach((el) => {
     const cs = getComputedStyle(el);
     if (el.textContent.trim() && el.clientWidth > 0 && el.scrollWidth > el.clientWidth + 2
       && (cs.whiteSpace === "nowrap" || cs.overflow === "hidden")) out.push("cut: " + el.textContent.trim().slice(0, 60));
+  });
+  // On paper: nothing past the margin (a hair is allowed for a rule's own width).
+  document.querySelectorAll(".jg-doc").forEach((jd) => {
+    const edge = jd.getBoundingClientRect().right - Math.min(6, parseFloat(getComputedStyle(jd).paddingRight) || 0);
+    jd.querySelectorAll("table").forEach((t) => { const r = t.getBoundingClientRect(); if (r.right > edge + 2) out.push("runs off the paper: a table " + Math.round(r.right - edge) + "px past the margin"); });
   });
   const p = document.querySelector(".docprev-paper");
   if (p) { let r = 0; const l = p.getBoundingClientRect().left;
@@ -434,11 +465,13 @@ const AUDIT = `<script>addEventListener("load", () => setTimeout(() => {
   const pre = document.createElement("pre"); pre.id = "audit"; pre.style.display = "none"; pre.textContent = out.join("\\n"); document.body.appendChild(pre);
 }, 300));</script>`;
 
-const NOS = ["7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29"];
+// Every paper of a sea shipment, and the purchase-order papers off an order.
+const NOS = Object.keys(docs.DOC_META).filter((no) => M.docInMode(no, "water"));
+const orderCtx = poCtx({ po: "PO-B", items: D.items, buyers: D.buyers, suppliers: D.suppliers, poLines: D.poLines, transports: D.transports });
 // The air papers, laid out from the air demo (V-7.5.0).
 const AIR_NOS = ["10", "11", "14", "16A", "17", "18", "19", "21", "22", "26A", "30", "31", "33"];
 const written = [];
-for (const [no, c, tag] of [...NOS.map((n) => [n, ctx, ""]), ...AIR_NOS.map((n) => [n, airCtx, "air-"])]) {
+for (const [no, c, tag] of [...NOS.map((n) => [n, docs.isPoDoc(n) ? orderCtx : ctx, ""]), ...AIR_NOS.map((n) => [n, airCtx, "air-"])]) {
   const key = `${tag}${no}`;
   let ps;
   try { ps = parts(no, c); } catch (e) { check("Renders", `doc ${key} renders`, false, e.message); continue; }
@@ -475,6 +508,89 @@ if (!chrome) {
       const n = pdfPages(pdf);
       written.find((x) => x.no === no).pages = n;
       if (["13", "14", "15", "16", "21", "22", "23", "24", "26", "27", "29", "air-14", "air-16A", "air-21", "air-22", "air-26A"].includes(no)) check("Layout · PDF", `doc ${no}: one A4 page`, n === 1, `${n} page(s)`);
+    }
+  }
+}
+
+/* ---- the Word copies -------------------------------------------------------- */
+if (chrome) await wordChecks();
+
+async function wordChecks() {
+  const A = "Word";
+  const { buildSync } = await import(path.join(ROOT, "node_modules/esbuild/lib/main.js"));
+  const { readZip, xmlErrors } = await import("./docx-check.mjs");
+  const bundle = path.join(OUT, "word-engine.js");
+  buildSync({ entryPoints: [path.join(ROOT, "src/lib/download.js")], bundle: true, format: "iife", globalName: "JG", outfile: bundle, logLevel: "error" });
+  // Every document in the library, not only the ones laid out above.
+  const all = [...Object.keys(docs.DOC_META).map((n) => [n, docs.isPoDoc(n) ? orderCtx : ctx, ""]), ...AIR_NOS.map((n) => [n, airCtx, "air-"])];
+  const jobs = [];
+  for (const [no, c, tag] of all) {
+    let ps = [];
+    try { ps = parts(no, c); } catch { /* reported under Renders */ }
+    if (ps.length) jobs.push({ key: `${tag}${no}`, no, parts: ps.map(({ html: h, page, docx }) => ({ html: h, page, docx: docx || undefined })) });
+  }
+  const sup = C.supplierPoDocs(orderCtx)[0], bundleOf = (nos, c) => nos.flatMap((n) => parts(n, c)).map(({ html: h, page, docx }) => ({ html: h, page, docx: docx || undefined }));
+  jobs.push({ key: "one-supplier-6", no: "6", parts: [{ html: sup.html, page: sup.page }] });
+  jobs.push({ key: "stage-PRE", parts: bundleOf(["12", "13", "16", "18", "19", "24", "27"], ctx) });
+  /* Pictures are bytes in a typed document (34): carried over as base64. */
+  const enc = (k, v) => (v instanceof Uint8Array ? { __bytes: Buffer.from(v).toString("base64") } : v);
+  for (const job of jobs) {
+    const page = path.join(OUT, `word-${job.key}.html`);
+    fs.writeFileSync(page, `<!doctype html><html><head><meta charset="utf-8"></head><body><script src="word-engine.js"></script><script>
+      const parts = JSON.parse(${JSON.stringify(JSON.stringify(job.parts, enc)).replace(/</g, "\\u003c")}, (k, v) => v && v.__bytes ? Uint8Array.from(atob(v.__bytes), (c) => c.charCodeAt(0)) : v);
+      JG.wordBlob(parts).then((b) => b.arrayBuffer()).then((buf) => {
+        const u = new Uint8Array(buf); let t = "";
+        for (let i = 0; i < u.length; i += 8192) t += String.fromCharCode(...u.subarray(i, i + 8192));
+        const p = document.createElement("pre"); p.id = "out"; p.textContent = btoa(t); document.body.replaceChildren(p);
+      }).catch((e) => { const p = document.createElement("pre"); p.id = "err"; p.textContent = e.stack; document.body.replaceChildren(p); });
+    </script></body></html>`);
+    let dom = "";
+    try {
+      dom = execFileSync(chrome, ["--headless=new", "--disable-gpu", "--no-sandbox", "--virtual-time-budget=8000", "--window-size=1400,1000", "--dump-dom", `file://${page}`],
+        { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 60000, maxBuffer: 1 << 28 });
+    } catch (e) { dom = String(e.stdout || ""); }
+    fs.rmSync(page, { force: true });
+    const b64 = (dom.match(/<pre id="out">([^<]*)<\/pre>/) || [])[1];
+    const err = (dom.match(/<pre id="err">([\s\S]*?)<\/pre>/) || [])[1];
+    check(A, `${job.key}: builds`, !!b64, err || "no file came back");
+    if (!b64) continue;
+    job.file = path.join(OUT, `word-${job.key}.docx`);
+    fs.writeFileSync(job.file, Buffer.from(b64, "base64"));
+    let files;
+    try { files = readZip(fs.readFileSync(job.file)); } catch (e) { check(A, `${job.key}: the package opens`, false, e.message); continue; }
+    const doc = files["word/document.xml"]?.toString("utf8") || "";
+    const bad = Object.entries(files).filter(([n]) => /\.(xml|rels)$/.test(n)).flatMap(([n, d]) => xmlErrors(d.toString("utf8"), n));
+    check(A, `${job.key}: the package is well formed`, !bad.length, bad.slice(0, 3).join("; "));
+    const rels = files["word/_rels/document.xml.rels"]?.toString("utf8") || "";
+    const missing = [...doc.matchAll(/r:embed="([^"]+)"/g)].map((m) => m[1])
+      .filter((id) => { const t = (rels.match(new RegExp(`Id="${id}"[^>]*Target="([^"]+)"`)) || [])[1]; return !t || !files[`word/${t}`]; });
+    check(A, `${job.key}: every picture is carried`, !missing.length, missing.join(", "));
+    /* Every word the paper prints is in the Word copy, in the same order the
+       letters come — spaces aside, which the two break lines at differently. */
+    const said = [...doc.matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g)].map((m) => m[1]).join("")
+      .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&amp;/g, "&").replace(/[\s\u00a0]+/g, "").toUpperCase();
+    const asked = job.parts.filter((p) => !p.docx).map((p) => p.html.replace(/<!--[\s\S]*?-->/g, "").replace(/<(style|script|svg)[\s\S]*?<\/\1>/g, "").replace(/<[^>]+>/g, "")
+      .replace(/&nbsp;/g, "").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, "&").replace(/[\s\u00a0]+/g, "").toUpperCase());
+    const lost = asked.filter((t) => !said.includes(t));
+    const at = (t) => { let i = 0; while (i < t.length && said.includes(t.slice(0, i + 1))) i += 1; return t.slice(Math.max(0, i - 25), i + 25); };
+    check(A, `${job.key}: says everything the paper says`, !lost.length, lost.map(at).join(" | "));
+  }
+  /* The same number of pages as the PDF, laid out by a word processor. */
+  const office = ["soffice", "libreoffice"].find((b) => { try { execFileSync("which", [b], { stdio: "ignore" }); return true; } catch { return false; } });
+  const built = jobs.filter((j) => j.file);
+  const counter = (() => { try { execFileSync("which", ["pdfinfo"], { stdio: "ignore" }); return true; } catch { return false; } })();
+  if (!office) { console.log("LibreOffice is not installed — the Word copies' page counts were not checked."); return; }
+  try {
+    execFileSync(office, [`-env:UserInstallation=file://${OUT}/office`, "--headless", "--convert-to", "pdf", "--outdir", path.join(OUT, "word-pdf"), ...built.map((j) => j.file)],
+      { stdio: "ignore", timeout: 300000 });
+  } catch (e) { check(A, "LibreOffice opens the Word copies", false, e.message); return; }
+  for (const j of built) {
+    const pdf = path.join(OUT, "word-pdf", `word-${j.key}.pdf`);
+    check(A, `${j.key}: opens in a word processor`, fs.existsSync(pdf));
+    const same = written.find((w) => w.no === j.key);
+    if (counter && same?.pages && fs.existsSync(pdf)) {
+      const n = Number((execFileSync("pdfinfo", [pdf], { encoding: "utf8" }).match(/Pages:\s*(\d+)/) || [])[1]);
+      check(A, `${j.key}: as many pages as the PDF`, n === same.pages, `${n} in Word, ${same.pages} in the PDF`);
     }
   }
 }

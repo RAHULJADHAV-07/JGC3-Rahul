@@ -2,13 +2,13 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..deps import require, current_user
+from ..deps import require, active_user
 from .. import models, schemas
 
 router = APIRouter(prefix="/api/buyers", tags=["buyers"])
 
 # Masters are reference data every page reads; only Setup may change them.
-_read = current_user
+_read = active_user
 _write = require("setup.parties")
 
 
@@ -31,7 +31,7 @@ def update_buyer(bid: str, body: schemas.BuyerUpdate, db: Session = Depends(get_
     obj = db.get(models.Buyer, bid)
     if not obj:
         raise HTTPException(404, "Buyer not found")
-    for k, v in body.model_dump(exclude_unset=True).items():
+    for k, v in schemas.changes(body, schemas.Buyer).items():
         setattr(obj, k, v)
     db.commit()
     db.refresh(obj)
@@ -41,7 +41,14 @@ def update_buyer(bid: str, body: schemas.BuyerUpdate, db: Session = Depends(get_
 @router.delete("/{bid}", status_code=204, dependencies=[Depends(_write)])
 def delete_buyer(bid: str, db: Session = Depends(get_db)):
     obj = db.get(models.Buyer, bid)
-    if obj:
-        db.delete(obj)
-        db.commit()
+    if not obj:
+        return None
+    # An order or an invoice raised for this buyer still names it.
+    orders = db.query(models.PurchaseOrderLine).filter_by(buyer_id=bid).count()
+    invoices = db.query(models.Invoice).filter_by(buyer_id=bid).count()
+    if orders or invoices:
+        raise HTTPException(409, f"{obj.name} is named on {orders} order line(s) and "
+                                 f"{invoices} invoice(s) — it cannot be deleted.")
+    db.delete(obj)
+    db.commit()
     return None

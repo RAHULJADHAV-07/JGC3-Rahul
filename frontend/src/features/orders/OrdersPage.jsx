@@ -6,7 +6,7 @@ import {
 } from "lucide-react";
 import {
   Card, CardHead, Btn, Seg, Field, Input, Select, Pill, Mono, DataTable, Modal,
-  Empty, Note, Spinner, ErrorState, FormulaPanel, DownloadPair, XScroll,
+  Empty, Note, Spinner, ErrorState, FormulaPanel, XScroll,
 } from "../../components/ui/index.jsx";
 import ItemPicker from "../../components/ItemPicker.jsx";
 import {
@@ -16,7 +16,8 @@ import {
 import { useToast } from "../../providers/ToastProvider.jsx";
 import { useAuth } from "../../auth/AuthProvider.jsx";
 import { dmy, dmyNum, num, boxesExact, todayISO } from "../../lib/format.js";
-import { downloadGridExcel, downloadGridPDF } from "../../lib/download.js";
+import { downloadGridExcel, downloadGridPDF, downloadGridWord } from "../../lib/download.js";
+import DownloadMenu from "../../components/ui/DownloadMenu.jsx";
 import { hidePriceCols } from "../../lib/priceCols.js";
 import { useIsMobile } from "../../lib/useIsMobile.js";
 import { useHiddenFields, pruneColumns } from "../../lib/columnPrefs.js";
@@ -183,9 +184,10 @@ function PoModal({ po, supplierId = "", onClose, onEdit }) {
         </span>
         <div className="row wrap" style={{ gap: 8 }}>
           <Btn variant="ghost" size="sm" icon={Pencil} onClick={onEdit}>{isAdmin ? "Edit / delete" : "Edit"}</Btn>
-          <DownloadPair disabled={!rows.length}
+          <DownloadMenu name={`PO ${po.po}`} disabled={!rows.length}
             onExcel={() => downloadGridExcel(`PO_${po.po}${live ? "_" + supCode(live) : ""}`, `PO ${po.po}`, exportCols, rows, exportOpts)}
-            onPDF={() => downloadGridPDF(exportOpts.title, exportCols, rows, exportOpts)} />
+            onPDF={() => downloadGridPDF(exportOpts.title, exportCols, rows, exportOpts)}
+            onWord={() => downloadGridWord(`PO_${po.po}${live ? "_" + supCode(live) : ""}`, exportOpts.title, exportCols, rows, exportOpts)} />
         </div>
       </>}>
       {/* The filter that answers "what is Oswin making on this order?" — set
@@ -629,9 +631,10 @@ export default function OrdersPage() {
         <span className="grow" />
 
         {tab === "itemdetail" && !mobile && (
-          <DownloadPair disabled={!bsRows.length}
+          <DownloadMenu name={bsTitle} disabled={!bsRows.length}
             onExcel={() => downloadGridExcel(`Buyers_Summary${bsSup ? `_${supCode(bsSup).replace(/[^A-Za-z0-9]+/g, "")}` : ""}_${todayISO()}`, "Buyers Summary", buyersExport, bsRows, { title: bsTitle, subtitle: bsSub })}
-            onPDF={() => downloadGridPDF(bsTitle, buyersExport, bsRows, { subtitle: bsSub })} />
+            onPDF={() => downloadGridPDF(bsTitle, buyersExport, bsRows, { subtitle: bsSub })}
+            onWord={() => downloadGridWord(`Buyers_Summary${bsSup ? `_${supCode(bsSup).replace(/[^A-Za-z0-9]+/g, "")}` : ""}_${todayISO()}`, bsTitle, buyersExport, bsRows, { subtitle: bsSub })} />
         )}
 
         <Btn size="lg" icon={Plus} onClick={() => setDrawer(true)}>New buyer order</Btn>
@@ -645,9 +648,10 @@ export default function OrdersPage() {
           <>
             <Card>
               <CardHead icon={ClipboardList} title={`${rows.length} purchase order${rows.length === 1 ? "" : "s"}${sup ? ` · ${supCode(sup)}` : ""}`}>
-                <DownloadPair disabled={!rows.length}
+                <DownloadMenu name={title} disabled={!rows.length}
                   onExcel={() => downloadGridExcel(`${title.replace(/[^A-Za-z0-9]+/g, "_")}_${todayISO()}`, title, summaryExport, rows, { title, subtitle })}
-                  onPDF={() => downloadGridPDF(title, summaryExport, rows, { subtitle })} />
+                  onPDF={() => downloadGridPDF(title, summaryExport, rows, { subtitle })}
+                  onWord={() => downloadGridWord(`${title.replace(/[^A-Za-z0-9]+/g, "_")}_${todayISO()}`, title, summaryExport, rows, { subtitle })} />
                 {!mobile && <span style={{ fontSize: 11.5, color: "var(--faint)" }}>Click a row for item-wise detail</span>}
               </CardHead>
               {rows.length

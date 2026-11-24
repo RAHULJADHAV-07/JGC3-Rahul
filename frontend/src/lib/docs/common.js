@@ -1246,6 +1246,7 @@ export function supplierPoDocs(ctx) {
       html: supplierPoBlock(ctx, sid, arr)
         + groups.map((g) => `<div class="pgbrk">${supplierAnnexBlock(ctx, g)}</div>`).join(""),
       sheets: [supplierLetterSheet(ctx, sp, arr), ...groups.map((g) => supplierAnnexSheet(ctx, g))],
+      page: "portrait",
     };
   });
 }
@@ -5068,8 +5069,8 @@ export function balanceFallback(ctx, title, fname) {
    letterhead at all, which is why this one is not built on the letter paper the
    declarations either side of it use.
 
-   Their file is a Word document, so the download beside the PDF hands over a
-   .docx rather than a workbook — see WORD_DOCS in docs/index.js. */
+   Their file is a Word document, so the Word download hands over the .docx the
+   builder types rather than one read off the print layout — see `docx` below. */
 
 /* The tare their form declares for the twenty-foot box, in kilograms. It is
    stamped on the container door rather than recorded here, and their own filled

@@ -976,7 +976,7 @@ def build_po_list(po_lines, invoices, items_by_id, rank=None) -> list:
         date = min(r.date for r in rows)
         ordered = completed = pending = 0
         volume = 0.0
-        sup_set, pend_by_sup, detail = set(), {}, []
+        pend_by_sup, detail = {}, []
         buyer_id = rows[0].buyer_id
         for r in rows:
             it = items_by_id.get(r.item_id)
@@ -995,7 +995,6 @@ def build_po_list(po_lines, invoices, items_by_id, rank=None) -> list:
             completed += alloc
             pending += rem
             volume += ordv * (it.volume or 0)
-            sup_set.add(it.supplier_id)
             pend_by_sup[it.supplier_id] = pend_by_sup.get(it.supplier_id, 0) + rem
             detail.append({
                 "line_id": r.id, "item_id": it.id, "gd": it.gd, "code": it.code,
@@ -1008,11 +1007,14 @@ def build_po_list(po_lines, invoices, items_by_id, rank=None) -> list:
             })
         if rank:
             detail.sort(key=lambda d: rank(items_by_id[d["item_id"]]))
-        open_suppliers = [s for s in sup_set if pend_by_sup.get(s, 0) > 0]
+        # In the order their items stand on the order, so the list reads the same
+        # after every restart rather than however a set happened to fall.
+        suppliers = list(dict.fromkeys(d["supplier_id"] for d in detail))
+        open_suppliers = [s for s in suppliers if pend_by_sup.get(s, 0) > 0]
         out.append({
             "po": po, "date": date, "buyer_id": buyer_id, "ordered": ordered,
             "completed": completed, "pending": pending, "volume": volume,
-            "suppliers": list(sup_set), "open_suppliers": open_suppliers, "detail": detail,
+            "suppliers": suppliers, "open_suppliers": open_suppliers, "detail": detail,
         })
     out.sort(key=lambda p: (p["date"], p["po"]), reverse=True)
     return out

@@ -1,17 +1,21 @@
 /* Browser downloads.
 
-   Every report and every export document offers the same two formats:
+   Every report and every export document offers the same three formats:
 
      Excel — a real .xlsx (lib/xlsx.js) with the arithmetic still live, so
              changing a quantity in the sheet re-totals the row.
      PDF   — the same layout, rendered through the browser's own print
              engine, which is what turns it into a PDF the client can send on.
+     Word  — that print layout again as a real .docx (lib/htmlDocx.js), to be
+             typed into.
 
    `downloadCSV` stays for the plain machine-readable dump. */
 import { buildXLSX } from "./xlsx.js";
-import { buildDOCX } from "./docx.js";
+import { buildDOCXPacked } from "./docx.js";
+import { readSections } from "./htmlDocx.js";
+import { safeHtml } from "./safeHtml.js";
 import { gridToSheet, gridToHtml, htmlToSheet } from "./sheet.js";
-import { fitCells, fitPages } from "./fitCells.js";
+import { fitCells, fitPages, fitWidths, widened } from "./fitCells.js";
 
 function saveBlob(blob, filename) {
   try {
@@ -41,23 +45,15 @@ const xlsxName = (name) => (/\.xlsx$/i.test(name) ? name : `${name.replace(/\.(x
 /** Save a workbook — `sheets` is what lib/sheet.js produces. */
 export function downloadWorkbook(filename, sheets) {
   const list = Array.isArray(sheets) ? sheets : [sheets];
-  if (!list.length) return;
-  saveBlob(buildXLSX({ sheets: list }), xlsxName(filename));
+  if (!list.length) return false;
+  return saveBlob(buildXLSX({ sheets: list }), xlsxName(filename));
 }
 
-const docxName = (name) => (/\.docx$/i.test(name) ? name : `${name.replace(/\.(doc|docx)$/i, "")}.docx`);
-
-/** Save a document that is a Word document rather than a workbook — the
- *  annexure to the bill of lading (24) is typed, not tabulated, and the client
- *  sends it on as it stands. */
-export function downloadDocsWord(filename, docx) {
-  if (!docx) return false;
-  return saveBlob(buildDOCX(docx), docxName(filename));
-}
+const docxName = (name) => (/\.docx$/i.test(name) ? name : `${name.replace(/\.(docx?|xlsx?|csv)$/i, "")}.docx`);
 
 /** Save one of the app's own tables as Excel, formulas included. */
 export function downloadGridExcel(filename, sheetName, columns, rows, opts) {
-  downloadWorkbook(filename, [gridToSheet(sheetName, columns, rows, opts)]);
+  return downloadWorkbook(filename, [gridToSheet(sheetName, columns, rows, opts)]);
 }
 
 /** Save one or more export documents (HTML) as Excel, formulas included.
@@ -87,9 +83,9 @@ function renameSheets(sheets, prefix) {
 
 export function downloadDocsExcel(filename, docs) {
   const list = (Array.isArray(docs) ? docs : [docs]).filter((d) => d && (d.html || d.sheet || d.sheets?.length));
-  if (!list.length) return;
+  if (!list.length) return false;
   const many = list.length > 1;
-  downloadWorkbook(filename, list.flatMap((d, i) => {
+  return downloadWorkbook(filename, list.flatMap((d, i) => {
     const name = d.name || `Sheet${i + 1}`;
     // A document may be a whole workbook of its own — the supplier purchase
     // order is a letter plus an annexure per range, the packing list two pages
@@ -141,7 +137,7 @@ export const GRID_CSS = (p = "") => `
   ${p}.bla td.c { border: 1px solid #000 !important; }
 `;
 
-const PRINT_CSS = `
+export const PRINT_CSS = `
   * { -webkit-print-color-adjust: exact; print-color-adjust: exact; box-sizing: border-box; }
   body { font-family: Calibri, Arial, sans-serif; font-size: 10pt; color: #243b53; margin: 0; padding: 0; }
   /* The page's own margin, now that @page has none. A document that runs past
@@ -659,7 +655,10 @@ const PRINT_CSS = `
   table.wb.letter tr.sign td { height: 46px; }
   table.wb.letter .buyer { color: #f00 !important; text-decoration: underline; }
   table.wb.letter tr td.l, table.wb.letter tr.band td { border-top: 1px solid #000 !important; border-bottom: 1px solid #000 !important; }
-  .pgbrk { page-break-before: always; }
+  /* A sheet started afresh opens on the same inset as the first — against the
+     edge of the paper its top line is in the strip no printer reaches. */
+  .pgbrk { page-break-before: always; padding-top: 10mm; }
+  .jg-doc:has(table.ci) .pgbrk { padding-top: 4mm; }
 
   /* 10 · E-way bill — the portal's entry form, printed as their format sheet. */
   .ew { font-family: Arial, Helvetica, sans-serif; font-size: 9pt; color: #000; }
@@ -841,6 +840,82 @@ const PRINT_CSS = `
 
 ${GRID_CSS()}`;
 
+/* ---- Word ------------------------------------------------------------------
+   The print layout, read back as a typed document. The papers are laid out in
+   an off-screen frame exactly as the PDF lays them out, each on its own paper —
+   a portrait declaration and a landscape register keep their own orientation in
+   one bundle, which a single print job cannot do — and lib/htmlDocx.js turns
+   what the browser laid out into Word's own tables and paragraphs.
+
+   A paper that is a Word document to begin with (`d.docx`, 24 and 34) is
+   written as its builder typed it.                                          */
+const px = (orientation) => Math.round((orientation === "portrait" ? 210 : 297) * 96 / 25.4);
+
+/* A document laid out off screen: resolves to the frame once its pictures have
+   decoded and its one-line cells are fitted. The caller removes the frame. */
+async function layOut(papers) {
+  const frame = document.createElement("iframe");
+  frame.setAttribute("aria-hidden", "true");
+  frame.setAttribute("tabindex", "-1");
+  const wide = Math.max(...papers.map((d) => px(d.page)));
+  frame.style.cssText = `position:fixed;left:-20000px;top:0;width:${wide}px;height:1200px;opacity:0;border:0;pointer-events:none;`;
+  document.body.appendChild(frame);
+  try {
+    const doc = frame.contentWindow.document;
+    doc.open();
+    doc.write(`<!doctype html><html><head><meta charset="utf-8"><style>${PRINT_CSS}</style></head><body>${papers
+      .map((d) => `<div class="jg-doc" style="width:${px(d.page)}px">${safeHtml(d.html)}</div>`).join("")}</body></html>`);
+    doc.close();
+    const imgs = [...doc.images].filter((i) => !i.complete);
+    await Promise.race([
+      Promise.all([
+        new Promise((res) => setTimeout(res, 60)),
+        ...imgs.map((i) => new Promise((res) => {
+          i.addEventListener("load", res, { once: true });
+          i.addEventListener("error", res, { once: true });
+        })),
+      ]),
+      new Promise((res) => setTimeout(res, 2000)),
+    ]);
+    fitCells(doc.body);
+    fitWidths(doc, widened);
+    return frame;
+  } catch (e) {
+    frame.remove();
+    throw e;
+  }
+}
+
+/** The Word document for one or more papers, as a Blob — null if there is
+ *  nothing to write. `docs` is [{ html, page?, docx? }]. */
+export async function wordBlob(docs) {
+  const list = (Array.isArray(docs) ? docs : [docs]).filter((d) => d && (d.docx || d.html));
+  if (!list.length) return null;
+  const papers = list.filter((d) => !d.docx);
+  const frame = papers.length ? await layOut(papers) : null;
+  try {
+    const els = frame ? [...frame.contentWindow.document.querySelectorAll(".jg-doc")] : [];
+    let at = 0;
+    const sections = readSections(list.map((d) => (d.docx ? { docx: d.docx }
+      : { el: els[at++], orientation: d.page === "portrait" ? "portrait" : "landscape" })), frame?.contentWindow);
+    if (!sections.length) return null;
+    return await buildDOCXPacked({ sections, modern: papers.length > 0 });
+  } finally {
+    frame?.remove();
+  }
+}
+
+/** Save one or more export documents as a single Word document. */
+export async function downloadDocsWord(filename, docs) {
+  const blob = await wordBlob(docs);
+  return blob ? saveBlob(blob, docxName(filename)) : false;
+}
+
+/** Save one of the app's own tables as Word. */
+export function downloadGridWord(filename, title, columns, rows, opts) {
+  return downloadDocsWord(filename, [{ html: gridToHtml(columns, rows, { ...opts, title: opts?.title || title }) }]);
+}
+
 const escHtml = (s) => String(s ?? "")
   .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
@@ -905,11 +980,13 @@ export function downloadPDF(title, docs, opts = {}) {
         new Promise((res) => setTimeout(res, 1000)),
       ]);
     };
-    /* Once laid out: squeeze the one-line cells that would be cut off, then
-       shrink any sheet that runs a few lines past its page onto that page. */
+    /* Once laid out: squeeze the one-line cells that would be cut off, bring a
+       table wider than the paper inside it, then shrink any sheet that runs a
+       few lines past its page onto that page. */
     const fit = () => {
       try {
         fitCells(doc.body);
+        fitWidths(doc);
         fitPages(doc, opts.orientation === "portrait" ? "portrait" : "landscape");
       } catch (e) { /* print as laid out */ }
     };

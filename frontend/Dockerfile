@@ -15,6 +15,7 @@ RUN npm run build
 # --- Serve stage ---
 FROM nginx:1.27-alpine
 COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY security-headers.conf /etc/nginx/security-headers.conf
 COPY --from=build /app/dist /usr/share/nginx/html
 
 # nginx's own workers already drop to an unprivileged user; this drops the

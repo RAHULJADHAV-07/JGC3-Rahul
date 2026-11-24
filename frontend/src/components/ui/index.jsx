@@ -1,7 +1,7 @@
 import { Fragment, forwardRef, useEffect, useMemo, useRef, useState } from "react";
 import {
   X, Pencil, Inbox, Loader2, AlertTriangle, Eye, EyeOff, Check, Circle,
-  HelpCircle, Search, ChevronRight, FileSpreadsheet, FileDown, FileType,
+  HelpCircle, Search, ChevronRight,
 } from "lucide-react";
 import { passwordRules } from "../../lib/password.js";
 import { useIsMobile } from "../../lib/useIsMobile.js";
@@ -612,24 +612,6 @@ export function FormulaHelp({ title, intro, rows }) {
 /* The same "?", at the foot of a page — where the old collapsible panel sat. */
 export const FormulaPanel = (props) => (
   props.rows?.length ? <div className="help-foot"><FormulaHelp {...props} /></div> : null
-);
-
-/* Every report and every document downloads the same two ways. The pair is a
-   component so no screen can offer one format and forget the other. */
-/* `word` swaps the workbook half of the pair for a Word download — a couple of
-   the export papers are typed documents rather than worksheets, and the client
-   sends those on as they stand. */
-export const DownloadPair = ({ onExcel, onPDF, disabled, size = "sm", variant = "teal", label = "", word = false }) => (
-  <span className="row" style={{ gap: 6 }}>
-    <Btn variant={variant} size={size} icon={word ? FileType : FileSpreadsheet} disabled={disabled} onClick={onExcel}
-      title={word ? "Download as Word — the document as the client sends it" : "Download as Excel — the formulas stay live"}>
-      {label ? `${label} · ${word ? "Word" : "Excel"}` : (word ? "Word" : "Excel")}
-    </Btn>
-    <Btn variant="ghost" size={size} icon={FileDown} disabled={disabled} onClick={onPDF}
-      title="Download as PDF — opens your browser's print dialog">
-      PDF
-    </Btn>
-  </span>
 );
 
 export const ActionCard = ({ icon: Icon, tone = "teal", title, children, onClick }) => (

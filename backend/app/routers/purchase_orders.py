@@ -1,13 +1,14 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from ..database import get_db
+from ..database import get_db, lock_ledger
 from ..deps import require, require_admin
+from ..permissions import READ_ORDERS
 from .. import models, schemas, calc, options
 
 router = APIRouter(prefix="/api/purchase-orders", tags=["purchase-orders"])
 
-_read = require("orders.entry", "orders.reports", "home")
+_read = require(*READ_ORDERS)
 _write = require("orders.entry")
 # Repricing open orders is decided where the price is edited — Setup → Items —
 # so whoever may change the master may also carry that change onto the orders
@@ -158,6 +159,7 @@ def get_purchase_order(po: str, db: Session = Depends(get_db)):
 def create_purchase_order(body: schemas.PurchaseOrderCreate, db: Session = Depends(get_db)):
     if not body.lines:
         raise HTTPException(400, "A purchase order needs at least one line")
+    lock_ledger(db)
     ids = [l.item_id for l in body.lines]
     items = {i.id: i for i in db.query(models.Item).filter(models.Item.id.in_(ids)).all()}
     missing = [i for i in ids if i not in items]
@@ -205,10 +207,17 @@ def update_purchase_order(po: str, body: schemas.PurchaseOrderUpdate, db: Sessio
     order would be; a row whose id does not come back is dropped. Sending no
     `lines` at all leaves the lines alone, which is what renaming a PO does.
     """
+    lock_ledger(db)
     rows = db.query(models.PurchaseOrderLine).filter(models.PurchaseOrderLine.po == po).all()
     if not rows:
         raise HTTPException(404, "Purchase order not found")
-    new_po = body.po or po
+    new_po = po if body.po is None else schemas.restated("po", body.po, po, schemas._named)
+    if body.date is not None and body.date not in {r.date for r in rows}:
+        body.date = schemas.restated("date", body.date, "", schemas._iso_date)
+    # Renamed onto a number already in use, the two orders would become one, and
+    # nothing afterwards could tell whose lines were whose.
+    if new_po != po and db.query(models.PurchaseOrderLine.id).filter(models.PurchaseOrderLine.po == new_po).first():
+        raise HTTPException(409, f"PO {new_po} already exists — use another number.")
     by_id = {r.id: r for r in rows}
     date = body.date or min(r.date for r in rows)
     buyer_id = rows[0].buyer_id
@@ -222,8 +231,7 @@ def update_purchase_order(po: str, body: schemas.PurchaseOrderUpdate, db: Sessio
         # A line is "new" when it names no row of this order — either it
         # carries no id at all, or one that is no longer on the order because
         # somebody else edited it in between.
-        new_ids = [l.get("item_id") for l in body.lines
-                   if l.get("id") not in by_id and l.get("item_id")]
+        new_ids = [l.item_id for l in body.lines if l.id not in by_id and l.item_id]
         items = {i.id: i for i in db.query(models.Item).filter(models.Item.id.in_(new_ids)).all()} if new_ids else {}
         missing = [i for i in new_ids if i not in items]
         if missing:
@@ -231,16 +239,15 @@ def update_purchase_order(po: str, body: schemas.PurchaseOrderUpdate, db: Sessio
 
         kept, seen = [], set()
         for l in body.lines:
-            qty = int(l.get("qty") or 0)
-            lid = l.get("id")
+            qty, lid = l.qty, l.id
             if lid and lid in by_id:
                 row = by_id[lid]
                 row.qty = qty
                 seen.add(lid)
             else:
-                it = items.get(l.get("item_id"))
+                it = items.get(l.item_id)
                 if not it:
-                    raise HTTPException(404, f"Item {l.get('item_id')} not found")
+                    raise HTTPException(404, f"Item {l.item_id} not found")
                 row = models.PurchaseOrderLine(
                     po=new_po, date=date, item_id=it.id, qty=qty,
                     rbi=rbi, buyer_id=buyer_id,
@@ -269,6 +276,7 @@ def update_purchase_order(po: str, body: schemas.PurchaseOrderUpdate, db: Sessio
 # an admin's call; whoever enters orders can still edit them.
 @router.delete("/{po}", status_code=204, dependencies=[Depends(require_admin)])
 def delete_purchase_order(po: str, db: Session = Depends(get_db)):
+    lock_ledger(db)
     db.query(models.PurchaseOrderLine).filter(models.PurchaseOrderLine.po == po).delete()
     _repoint_pins(db, po, None)
     db.commit()

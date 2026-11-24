@@ -204,7 +204,7 @@ export function documentParts(no, ctx, report) {
   // Each supplier's copy keeps its paper's orientation — the despatch letter (11) is portrait.
   if (split.length > 1) return split.map((d) => ({ name: `${d.code}`, html: d.html, sheets: d.sheets, docName: d.docName, page: d.page }));
   const out = buildOne(no, ctx, report);
-  return out ? [{ name: DOC_META[no] || out.name, html: out.html, sheet: out.sheet, sheets: out.sheets, page: out.page, docName: out.name }] : [];
+  return out ? [{ name: DOC_META[no] || out.name, html: out.html, sheet: out.sheet, sheets: out.sheets, docx: out.docx, page: out.page, docName: out.name }] : [];
 }
 
 export function documentFilename(no, ctx, report) {
@@ -214,32 +214,22 @@ export function documentFilename(no, ctx, report) {
 
 export function hasBuilder(no) { return !!B[no] || ["36", "37", "38", "39"].includes(no); }
 
-/* The papers the client keeps as Word documents rather than workbooks. Their
-   own file is a typed sheet and it is sent on as it stands, so the download
-   beside the PDF hands over a .docx — a spreadsheet of it would only have to be
-   retyped. They still take their place as a sheet in a whole-stage workbook,
-   which is a bundle rather than the document itself. */
-export const WORD_DOCS = ["24", "34"];
-
-export const isWordDoc = (no) => WORD_DOCS.includes(String(no));
-
 /* ---- downloads ----
-   Both formats come off the same parts, so an Excel and a PDF of the same
-   document can never show different figures. */
+   All three formats come off the same parts, so an Excel, a PDF and a Word copy
+   of the same document can never show different figures. The Word copy is the
+   print layout read back (lib/htmlDocx.js), except for the two papers the
+   client keeps as Word documents to begin with (24, 34), which hand over the
+   one their builder typed. */
 export function downloadDocumentExcel(no, ctx, report) {
   const parts = documentParts(no, ctx, report);
   if (!parts.length) { alert(`Document ${no} generator not available.`); return false; }
-  // A Word paper hands over its own format from this same button.
-  if (isWordDoc(no)) return downloadDocumentWord(no, ctx, report);
-  downloadDocsExcel(documentFilename(no, ctx, report), parts);
-  return true;
+  return downloadDocsExcel(documentFilename(no, ctx, report), parts) !== false;
 }
 
-export function downloadDocumentWord(no, ctx, report) {
-  const out = buildOne(String(no), ctx, report);
-  if (!out?.docx) { alert(`Document ${no} is not a Word document.`); return false; }
-  downloadDocsWord(documentFilename(no, ctx, report), out.docx);
-  return true;
+export async function downloadDocumentWord(no, ctx, report) {
+  const parts = documentParts(no, ctx, report);
+  if (!parts.length) { alert(`Document ${no} generator not available.`); return false; }
+  return downloadDocsWord(documentFilename(no, ctx, report), parts);
 }
 
 export function downloadDocumentPDF(no, ctx, report) {
@@ -275,8 +265,14 @@ export function downloadStageExcel(filename, numbers, ctxFor, report) {
     return p.map((x, i) => ({ ...x, name: `${no}${i || p.length > 1 ? ` ${x.name}` : ""}` }));
   });
   if (!parts.length) return false;
-  downloadDocsExcel(filename, parts);
-  return true;
+  return downloadDocsExcel(filename, parts) !== false;
+}
+
+/** The whole of a stage in one Word document — each paper on its own pages. */
+export async function downloadStageWord(filename, numbers, ctxFor, report) {
+  const parts = stageParts(numbers, ctxFor, report);
+  if (!parts.length) return false;
+  return downloadDocsWord(filename, parts);
 }
 
 export function downloadStagePDF(title, numbers, ctxFor, report) {
@@ -294,9 +290,11 @@ export function downloadSupplierDoc(no, ctx, supplierId, format = "excel") {
   const d = supplierSplitDocs(no, ctx).find((x) => x.supplierId === supplierId);
   if (!d) return false;
   const filename = `${d.docName}_${String(ctx.po || ctx.inv.invoiceNo || "").replace(/[^A-Za-z0-9]+/g, "-")}`;
-  if (format === "pdf") downloadPDF(`${no} · ${DOC_META[no] || ""} · ${d.code}`, [{ html: d.html }], { orientation: "portrait" });
-  else downloadDocsExcel(filename, [{ name: d.code, html: d.html, sheets: d.sheets }]);
-  return true;
+  // On the paper the form is set on: the order and the letter portrait, the e-way bill landscape.
+  const orientation = d.page === "portrait" ? "portrait" : undefined;
+  if (format === "word") return downloadDocsWord(filename, [{ html: d.html, page: d.page }]);
+  if (format === "pdf") { downloadPDF(`${no} · ${DOC_META[no] || ""} · ${d.code}`, [{ html: d.html }], { orientation }); return true; }
+  return downloadDocsExcel(filename, [{ name: d.code, html: d.html, sheets: d.sheets }]) !== false;
 }
 
 // Return the document's inner HTML (for an on-screen live preview) without downloading.

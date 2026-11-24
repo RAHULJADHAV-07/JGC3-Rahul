@@ -35,7 +35,7 @@ const appZoom = () => {
 /* Where a floating panel goes: under its field if it fits, over it if not,
    never off either edge of the window. Follows the field as the page scrolls,
    and closes once the field has scrolled out of sight altogether. */
-function usePlacement(anchorRef, open, onLost, { minWidth = 0, maxHeight = 340 } = {}) {
+export function usePlacement(anchorRef, open, onLost, { minWidth = 0, maxHeight = 340, align = "start" } = {}) {
   const [pos, setPos] = useState(null);
   const place = useCallback(() => {
     const a = anchorRef.current;
@@ -46,7 +46,8 @@ function usePlacement(anchorRef, open, onLost, { minWidth = 0, maxHeight = 340 }
     if (r.bottom < 0 || r.top > vh) { onLost?.(); return; }
     const z = appZoom();
     const width = Math.min(Math.max(r.width, minWidth * z), vw - 16);
-    const left = Math.min(Math.max(8, r.left), Math.max(8, vw - width - 8));
+    const from = align === "end" ? r.right - width : r.left;
+    const left = Math.min(Math.max(8, from), Math.max(8, vw - width - 8));
     const below = vh - r.bottom - 10;
     const above = r.top - 10;
     const want = maxHeight * z;
@@ -59,7 +60,7 @@ function usePlacement(anchorRef, open, onLost, { minWidth = 0, maxHeight = 340 }
       bottom: down ? undefined : (vh - r.top + 4) / z,
       maxHeight: room / z,
     });
-  }, [anchorRef, minWidth, maxHeight, onLost]);
+  }, [anchorRef, minWidth, maxHeight, align, onLost]);
 
   useLayoutEffect(() => { if (open) place(); else setPos(null); }, [open, place]);
   useEffect(() => {
@@ -76,7 +77,7 @@ function usePlacement(anchorRef, open, onLost, { minWidth = 0, maxHeight = 340 }
 }
 
 /* Close on a press anywhere outside the field and its panel. */
-function useOutside(open, refs, onClose) {
+export function useOutside(open, refs, onClose) {
   useEffect(() => {
     if (!open) return undefined;
     const h = (e) => {
@@ -97,7 +98,7 @@ const fieldLabel = (el) => {
 };
 
 /* The portalled layer, zoomed like the app so its type matches. */
-function Layer({ children }) {
+export function Layer({ children }) {
   if (typeof document === "undefined") return null;
   return createPortal(<div className="jg-layer">{children}</div>, document.body);
 }

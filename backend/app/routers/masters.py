@@ -13,10 +13,15 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..deps import active_user, require_admin
+from ..deps import active_user, require, require_admin
+from ..permissions import READ_ORDERS
 from .. import models, schemas, calc, masters_import, options
 
 router = APIRouter(prefix="/api/masters", tags=["masters"])
+
+# The order book worked out — quantities, agreed prices, values. The same right
+# as reading the orders themselves (routers/purchase_orders.py).
+_orders = require(*READ_ORDERS)
 
 
 @router.get("/seed", dependencies=[Depends(active_user)])
@@ -72,7 +77,7 @@ def derive(rows: list[schemas.ItemDeriveIn], db: Session = Depends(get_db)):
     return {"rows": out, "totals": {k: sum(x[k] for x in out) for k in sums}}
 
 
-@router.get("/order/{po}", dependencies=[Depends(active_user)])
+@router.get("/order/{po}", dependencies=[Depends(_orders)])
 def order_master(po: str, db: Session = Depends(get_db)):
     """Master 2A — one buyer purchase order worked out item by item."""
     items = {i.id: i for i in db.query(models.Item).all()}
@@ -82,7 +87,7 @@ def order_master(po: str, db: Session = Depends(get_db)):
     return calc.build_order_master(po, lines, items, rank=options.item_rank(db))
 
 
-@router.get("/supplier/{supplier_id}", dependencies=[Depends(active_user)])
+@router.get("/supplier/{supplier_id}", dependencies=[Depends(_orders)])
 def supplier_master(supplier_id: str, date_from: str | None = None,
                     date_to: str | None = None, db: Session = Depends(get_db)):
     """Master 7A — one supplier's order, every open PO rolled together."""
@@ -92,7 +97,7 @@ def supplier_master(supplier_id: str, date_from: str | None = None,
                                       rank=options.item_rank(db))
 
 
-@router.get("/order-lines", dependencies=[Depends(active_user)])
+@router.get("/order-lines", dependencies=[Depends(_orders)])
 def order_lines(date_from: str | None = None, date_to: str | None = None,
                 db: Session = Depends(get_db)):
     """Every buyer order line in a date range, with its 2A figures — the

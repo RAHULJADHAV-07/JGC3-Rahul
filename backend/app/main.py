@@ -23,10 +23,13 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from sqlalchemy.exc import DataError, IntegrityError
 
 from . import keepalive
+from .bodyguard import BodyGuard
 from .config import guard_secrets, settings
 from .database import Base, engine
 from . import models  # noqa: F401  (ensure models are registered before create_all)
@@ -70,7 +73,53 @@ async def lifespan(app: FastAPI):
                 pass
 
 
-app = FastAPI(title=settings.app_name, version="7.7.0", lifespan=lifespan, **_docs)
+app = FastAPI(title=settings.app_name, version="7.8.0", lifespan=lifespan, **_docs)
+
+# Innermost: what a body may hold is settled before any route reads it.
+app.add_middleware(BodyGuard)
+
+
+# ---------- Refusals, said in a sentence ----------
+#
+# Every screen shows `detail` as it arrives. The framework's own answer to a
+# body it cannot read is a list of machine paths, with the value it was sent
+# repeated back — a password among them — so the same refusal is said as a
+# sentence instead, and echoes nothing.
+
+def _field(loc) -> str:
+    parts = [p for p in loc if p not in ("body", "query", "path")]
+    name = next((str(p) for p in reversed(parts) if not isinstance(p, int)), "")
+    row = next((p for p in parts if isinstance(p, int)), None)
+    name = name.replace("_", " ")
+    return f"{name} (line {row + 1})" if name and row is not None else name
+
+
+@app.exception_handler(RequestValidationError)
+async def invalid_request(request: Request, exc: RequestValidationError):
+    said = []
+    for e in exc.errors()[:3]:
+        msg = str(e.get("msg") or "is not valid").removeprefix("Value error, ")
+        name = _field(e.get("loc") or ())
+        line = f"{name}: {msg}" if name else msg
+        if line not in said:
+            said.append(line)
+    return JSONResponse({"detail": "; ".join(said) or "The request is not valid"}, status_code=422)
+
+
+@app.exception_handler(IntegrityError)
+async def broken_reference(request: Request, exc: IntegrityError):
+    """The database refused to leave a record pointing at nothing."""
+    log.warning("integrity refused %s %s: %s", request.method, request.url.path, type(exc.orig).__name__)
+    return JSONResponse({"detail": (
+        "This is still used elsewhere, or names something that no longer exists — nothing was changed.")},
+        status_code=409)
+
+
+@app.exception_handler(DataError)
+async def unstorable(request: Request, exc: DataError):
+    log.warning("data refused %s %s: %s", request.method, request.url.path, type(exc.orig).__name__)
+    return JSONResponse({"detail": "One of the figures is outside what can be stored — nothing was changed."},
+                        status_code=422)
 
 
 # ---------- Security headers ----------
