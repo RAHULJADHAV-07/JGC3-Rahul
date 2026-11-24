@@ -2,12 +2,13 @@ import { useMemo, useState } from "react";
 import { BarChart3, ClipboardList, Layers, Truck, Boxes, Check, Calculator } from "lucide-react";
 import {
   Card, CardHead, Btn, Seg, Pill, Mono, DataTable, Input, Note, Info, Empty, Stat,
-  Spinner, ErrorState, DownloadPair, Select,
+  Spinner, ErrorState, Select,
 } from "../../components/ui/index.jsx";
 import { useAuth } from "../../auth/AuthProvider.jsx";
 import { useBalance, useSuppliers, useBuyers } from "../../api/hooks.js";
 import { dmy, dmyNum, num, todayISO } from "../../lib/format.js";
-import { downloadGridExcel, downloadGridPDF } from "../../lib/download.js";
+import { downloadGridExcel, downloadGridPDF, downloadGridWord } from "../../lib/download.js";
+import DownloadMenu from "../../components/ui/DownloadMenu.jsx";
 import { hidePriceCols } from "../../lib/priceCols.js";
 import { useHiddenFields, pruneColumns } from "../../lib/columnPrefs.js";
 import CostingPanel from "../costing/CostingPanel.jsx";
@@ -27,7 +28,7 @@ export default function ReportsPage() {
   const [sup, setSup] = useState("");          // one supplier, or all of them in the item sequence
   const hidden = useHiddenFields();
 
-  const balq = useBalance();
+  const balq = useBalance(canBalance);
   const suppliers = useSuppliers().data || [];
   const buyers = useBuyers().data || [];
   const supCode = (id) => suppliers.find((s) => s.id === id)?.code || "—";
@@ -117,9 +118,10 @@ export default function ReportsPage() {
         )}
         <span className="grow" />
         {tab === "po" && (
-          <DownloadPair size="md" disabled={!cfg.rows.length}
+          <DownloadMenu name="Report 37" disabled={!cfg.rows.length}
             onExcel={() => downloadGridExcel(`Report_37_PO_wise_Buyer${sup ? `_${supCode(sup).replace(/[^A-Za-z0-9]+/g, "")}` : ""}_${todayISO()}`, "PO wise", poExport, poRows, exportOpts)}
-            onPDF={() => downloadGridPDF(exportTitle, poExport, poRows, exportOpts)} />
+            onPDF={() => downloadGridPDF(exportTitle, poExport, poRows, exportOpts)}
+            onWord={() => downloadGridWord(`Report_37_PO_wise_Buyer${sup ? `_${supCode(sup).replace(/[^A-Za-z0-9]+/g, "")}` : ""}_${todayISO()}`, exportTitle, poExport, poRows, exportOpts)} />
         )}
       </div>
 

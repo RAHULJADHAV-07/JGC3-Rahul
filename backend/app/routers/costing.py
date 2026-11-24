@@ -190,7 +190,7 @@ def update_line(cid: str, body: schemas.CostingLineUpdate, db: Session = Depends
     obj = db.get(models.CostingLine, cid)
     if not obj:
         raise HTTPException(404, "Costing row not found")
-    for k, v in body.model_dump(exclude_unset=True).items():
+    for k, v in schemas.changes(body, schemas.CostingLineOut).items():
         setattr(obj, k, v)
     db.commit()
     db.refresh(obj)

@@ -2,11 +2,12 @@ import { useMemo, useState } from "react";
 import { Layers, ClipboardList, FileText, Boxes, Calendar, X } from "lucide-react";
 import {
   Card, CardHead, Btn, Seg, Field, Input, Select, Pill, Mono, DataTable, Empty, Note, Info,
-  Spinner, ErrorState, DownloadPair,
+  Spinner, ErrorState,
 } from "../../components/ui/index.jsx";
 import { useSupplyDetails, useSuppliers } from "../../api/hooks.js";
 import { dmyNum, num, boxesExact, todayISO } from "../../lib/format.js";
-import { downloadGridExcel, downloadGridPDF } from "../../lib/download.js";
+import { downloadGridExcel, downloadGridPDF, downloadGridWord } from "../../lib/download.js";
+import DownloadMenu from "../../components/ui/DownloadMenu.jsx";
 import { useHiddenFields, pruneColumns } from "../../lib/columnPrefs.js";
 
 /* ============================================================================
@@ -123,9 +124,10 @@ export default function SupplyDetailsPanel() {
             <Btn variant="ghost" size="sm" icon={X} onClick={() => { setFrom(""); setTo(""); }}>Clear dates</Btn>
           )}
           <span className="grow" />
-          <DownloadPair disabled={!rows.length}
+          <DownloadMenu name={title} disabled={!rows.length}
             onExcel={() => downloadGridExcel(fileStem, `${label} wise`, exportCols, rows, { title, subtitle })}
-            onPDF={() => downloadGridPDF(title, exportCols, rows, { subtitle })} />
+            onPDF={() => downloadGridPDF(title, exportCols, rows, { subtitle })}
+            onWord={() => downloadGridWord(fileStem, title, exportCols, rows, { subtitle })} />
         </div>
       </Card>
 

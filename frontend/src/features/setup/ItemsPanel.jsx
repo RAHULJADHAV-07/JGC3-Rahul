@@ -5,7 +5,7 @@ import {
 } from "lucide-react";
 import {
   Card, CardHead, Btn, Seg, Input, Select, Pill, Mono, DataTable, Modal, EditBtn,
-  Empty, Note, Info, SearchInput, FormulaPanel, Spinner, ErrorState, DownloadPair, ResultState,
+  Empty, Note, Info, SearchInput, FormulaPanel, Spinner, ErrorState, ResultState,
 } from "../../components/ui/index.jsx";
 import {
   useItems, useItemGroups, useCreateItem, useUpdateItem, useDeleteItem,
@@ -16,7 +16,8 @@ import { useToast } from "../../providers/ToastProvider.jsx";
 import { num, inr, usd, usdp, todayISO } from "../../lib/format.js";
 import { useDebounced } from "../../lib/useDebounced.js";
 import { hidePriceCols } from "../../lib/priceCols.js";
-import { downloadGridExcel, downloadGridPDF } from "../../lib/download.js";
+import { downloadGridExcel, downloadGridPDF, downloadGridWord } from "../../lib/download.js";
+import DownloadMenu from "../../components/ui/DownloadMenu.jsx";
 import AddItemDrawer from "./AddItemDrawer.jsx";
 import ItemEditModal from "./ItemEditModal.jsx";
 
@@ -387,10 +388,12 @@ export default function ItemsPanel() {
           <Btn icon={Plus} onClick={() => setAddItem(true)}>Add item</Btn>
           <Btn variant="ghost" icon={Pencil} onClick={() => setPicking(true)}>Edit item</Btn>
           <Btn variant="ghost" icon={SlidersHorizontal} onClick={openColMgr}>Customise columns</Btn>
-          <DownloadPair
+          <DownloadMenu
+            name="item master"
             disabled={!shownItems.length}
             onExcel={() => downloadGridExcel(`Item_master_${todayISO()}`, "Item master", exportCols, shownItems, exportOpts)}
             onPDF={() => downloadGridPDF("Item master", exportCols, shownItems, exportOpts)}
+            onWord={() => downloadGridWord(`Item_master_${todayISO()}`, "Item master", exportCols, shownItems, exportOpts)}
           />
         </div>
         <div className="row wrap" style={{ gap: 8 }}>

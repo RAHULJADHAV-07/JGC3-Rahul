@@ -41,6 +41,39 @@ export function fitCells(root) {
   return fixed;
 }
 
+/* A table with more columns than its paper has room for — the sales sheet (5)
+   on portrait — is set smaller until it stands inside the margins, rather than
+   running off the edge of the sheet with its last column. `set` says how: the
+   print frame zooms the table, and the Word reader — which shrinks what it
+   reads — is given it at the width it needs and a little over, the same room
+   for its words the zoom leaves. */
+const zoomed = (t, over, left, right) => {
+  let z = 1;
+  for (let i = 0; i < 6 && over() && z > 0.5; i++) {
+    const r = t.getBoundingClientRect();
+    z = Math.max(0.5, z * Math.min(0.985, (right - Math.max(left, r.left)) / r.width));
+    t.style.zoom = z.toFixed(3);
+  }
+};
+export const widened = (t) => { t.style.width = `${Math.ceil(t.getBoundingClientRect().width * 1.03)}px`; };
+
+export function fitWidths(doc, set = zoomed) {
+  let fixed = 0;
+  doc.querySelectorAll(".jg-doc").forEach((jd) => {
+    const cs = doc.defaultView.getComputedStyle(jd);
+    const left = jd.getBoundingClientRect().left + (parseFloat(cs.paddingLeft) || 0);
+    const right = jd.getBoundingClientRect().right - (parseFloat(cs.paddingRight) || 0);
+    jd.querySelectorAll("table").forEach((t) => {
+      if (t.parentElement.closest("table")) return;
+      const over = () => t.getBoundingClientRect().right - right > 1;
+      if (!over()) return;
+      set(t, over, left, right);
+      fixed += 1;
+    });
+  });
+  return fixed;
+}
+
 /* A sheet that runs a little past the foot of the paper — a few lines over —
    is shrunk onto its one page rather than leaving those lines alone on a page
    of their own (Excel's "fit to one page"). A document that is genuinely

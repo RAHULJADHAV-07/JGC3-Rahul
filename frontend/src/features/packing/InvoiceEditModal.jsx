@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { FileText, Check, Trash2, Hash, Plus, X, AlertTriangle } from "lucide-react";
 import {
   Modal, Btn, Field, Input, NumberInput, Pill, Mono, Note, Empty, XScroll, Spinner, ErrorState, Select,
@@ -9,9 +9,9 @@ import { useToast } from "../../providers/ToastProvider.jsx";
 import { useAuth } from "../../auth/AuthProvider.jsx";
 import { bySequence } from "../../lib/sequence.js";
 import { previewSerials, rangeText } from "../../lib/serials.js";
-import { placement, toPins, fromLines } from "../../lib/poAlloc.js";
+import { fillOldest, forget as forgetPicks, fromLines, pickForAll, placement, toPins, togglePick, typeCell } from "../../lib/poAlloc.js";
 import { useDebounced } from "../../lib/useDebounced.js";
-import CustomPoPanel from "./CustomPoPanel.jsx";
+import { PoForAll, PoPicker } from "./PoPicker.jsx";
 
 /* Edit an invoice — number, date, serial start, and the lines themselves:
    retype the boxes, drop an item that never went on the container, or add one
@@ -48,9 +48,7 @@ export default function InvoiceEditModal({ inv, onClose }) {
   const [adding, setAdding] = useState(false);
   const [renumber, setRenumber] = useState(false);
   const [allocation, setAllocation] = useState(inv.allocation || "fifo");
-  const [{ picked, manual }, setPins] = useState(() => fromLines(inv.lines));
-  const setPicked = (next) => setPins((p) => ({ ...p, picked: next }));
-  const setManual = (next) => setPins((p) => ({ ...p, manual: next }));
+  const [choice, setChoice] = useState(() => fromLines(inv.lines));
   const custom = allocation === "custom";
 
   const byId = useMemo(() => Object.fromEntries(items.map((i) => [i.id, i])), [items]);
@@ -59,13 +57,14 @@ export default function InvoiceEditModal({ inv, onClose }) {
   const sequence = opts?.item_sequence;
   const itemGroups = opts?.item_groups;
 
-  /* Changing a line's boxes undoes any split typed for the old figure. */
-  const forget = (key) => {
+  /* Changing a line's boxes undoes any split typed for the old figure; the
+     orders chosen for it stand. Removing the line lets those go as well. */
+  const forget = (key, gone) => {
     const id = lines.find((l) => l.key === key)?.item_id;
-    setPins((p) => ({ ...p, manual: Object.fromEntries(Object.entries(p.manual).filter(([k]) => k !== id)) }));
+    if (id) setChoice((c) => forgetPicks(c, [id], gone));
   };
   const setBoxes = (key, v) => { setLines((p) => p.map((l) => (l.key === key ? { ...l, boxes: v } : l))); forget(key); };
-  const drop = (key) => { setLines((p) => p.filter((l) => l.key !== key)); forget(key); };
+  const drop = (key) => { setLines((p) => p.filter((l) => l.key !== key)); forget(key, true); };
   /* Everything typed into the picker joins the invoice in one action — each
      line slotted in where the item sequence puts it, ahead of the first line
      that comes after it. The lines already there keep their order, so the
@@ -85,14 +84,15 @@ export default function InvoiceEditModal({ inv, onClose }) {
 
   const totalBoxes = lines.reduce((s, l) => s + (Number(l.boxes) || 0), 0);
 
-  /* Custom PO — the same panel as record packing, with this invoice's own boxes
-     counted as free. */
+  /* Custom PO — chosen line by line as in record packing, with this invoice's
+     own boxes counted as free. */
   const poRows = useMemo(() => lines
     .map((l) => ({ item_id: l.item_id, boxes: Number(l.boxes) || 0, gd: byId[l.item_id]?.gd, description: byId[l.item_id]?.description }))
     .filter((r) => r.boxes > 0), [lines, byId]);
   const poIds = useDebounced(useMemo(() => poRows.map((r) => r.item_id).sort(), [poRows]), 350);
   const openQ = useOpenOrders(custom ? poIds : [], inv.id);
-  const place = useMemo(() => placement(poRows, openQ.data, picked, manual), [poRows, openQ.data, picked, manual]);
+  const open = custom ? openQ.data : undefined;
+  const place = useMemo(() => placement(poRows, open, choice.picks, choice.manual), [poRows, open, choice]);
 
   /* What the save will number each line — kept numbers for the lines already
      on the invoice, the next free ones for a line added here. */
@@ -111,7 +111,7 @@ export default function InvoiceEditModal({ inv, onClose }) {
         allocation,
         lines: lines.map((l) => ({
           item_id: l.item_id, supplier_id: l.supplier_id, boxes: Number(l.boxes) || 0,
-          ...(custom ? { po_alloc: toPins(place.byItem[l.item_id]?.cells) } : {}),
+          ...(custom ? { po_alloc: toPins(place.byItem[l.item_id]) } : {}),
         })),
         ...(renumber ? { renumber: true } : {}),
       },
@@ -149,7 +149,7 @@ export default function InvoiceEditModal({ inv, onClose }) {
           <Field label="Serial (carton) start" hint="The first carton number on this invoice. Changing it moves every line's numbers by the same amount; each line keeps its place.">
             <NumberInput value={serialStart} onChange={setSerialStart} placeholder="e.g. 2001" />
           </Field>
-          <Field label="Deduct boxes from" hint="FIFO clears the oldest open order first. Custom PO comes off the orders you choose below.">
+          <Field label="Deduct boxes from" hint="FIFO clears the oldest open order first. Custom PO comes off the order you choose under each item.">
             <Select value={allocation} onChange={(e) => setAllocation(e.target.value)} aria-label="Deduct boxes from">
               <option value="fifo">FIFO — oldest order first</option>
               <option value="custom">Custom PO</option>
@@ -185,6 +185,12 @@ export default function InvoiceEditModal({ inv, onClose }) {
         </Note>
       )}
 
+      {custom && (
+        <PoForAll rows={poRows} open={open} place={place}
+          onPick={(po) => setChoice((c) => pickForAll(c, poRows, open, po))}
+          onFillAll={() => setChoice((c) => poRows.reduce((x, r) => fillOldest(x, r.item_id, open?.[r.item_id], r.boxes), c))} />
+      )}
+
       {itemsQ.data === undefined ? (
         itemsQ.isError ? <ErrorState error={itemsQ.error} onRetry={itemsQ.refetch} /> : <Spinner label="Loading the invoice lines…" />
       ) : lines.length ? (
@@ -201,8 +207,10 @@ export default function InvoiceEditModal({ inv, onClose }) {
           <tbody>
             {lines.map((l) => {
               const it = byId[l.item_id] || {};
+              const placed = custom && Number(l.boxes) > 0 ? place.byItem[l.item_id] : null;
               return (
-                <tr key={l.key}>
+                <Fragment key={l.key}>
+                <tr>
                   <td>
                     <Mono>{it.gd}</Mono>{" "}
                     <span style={{ color: "var(--ink)", whiteSpace: "pre-line" }}>{it.description}</span>
@@ -223,6 +231,17 @@ export default function InvoiceEditModal({ inv, onClose }) {
                     </button>
                   </td>
                 </tr>
+                {placed && (
+                  <tr className="po-pick-row">
+                    <td colSpan={5}>
+                      <PoPicker name={it.gd || "this item"} boxes={Number(l.boxes) || 0} legs={open?.[l.item_id]} query={openQ} placed={placed} buyerId={inv.buyer_id}
+                        onToggle={(po) => setChoice((c) => togglePick(c, l.item_id, po))}
+                        onCell={(po, val, max) => setChoice((c) => typeCell(c, l.item_id, placed, po, val, max))}
+                        onFill={() => setChoice((c) => fillOldest(c, l.item_id, open?.[l.item_id], l.boxes))} />
+                    </td>
+                  </tr>
+                )}
+                </Fragment>
               );
             })}
           </tbody>
@@ -232,13 +251,6 @@ export default function InvoiceEditModal({ inv, onClose }) {
         <Empty icon={FileText} title="Every line has been removed">
           An invoice needs at least one item. Add one above{isAdmin ? ", or delete the invoice outright" : ""}.
         </Empty>
-      )}
-
-      {custom && poRows.length > 0 && (
-        <div style={{ marginTop: 16 }}>
-          <CustomPoPanel n="PO" rows={poRows} query={openQ} picked={picked} onPicked={setPicked}
-            manual={manual} onManual={setManual} place={place} buyerId={inv.buyer_id} />
-        </div>
       )}
     </Modal>
   );

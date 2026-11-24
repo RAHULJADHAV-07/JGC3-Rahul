@@ -13,13 +13,13 @@ import { todayISO, num } from "../../lib/format.js";
 import { useDebounced } from "../../lib/useDebounced.js";
 import { transportsFor } from "../../lib/transports.js";
 import { sortBySequence, blockOf, blockHeads } from "../../lib/sequence.js";
-import { placement, toPins } from "../../lib/poAlloc.js";
+import { fillOldest, forget as forgetPicks, leftAfter, pickForAll, placement, toPins, togglePick, typeCell } from "../../lib/poAlloc.js";
 import ShipTermsFields, { ModePicker } from "../shipments/ShipTermsFields.jsx";
 import { shipMode } from "../../lib/modes.js";
-import CustomPoPanel from "./CustomPoPanel.jsx";
+import { PoForAll, PoFrom, PoPicker } from "./PoPicker.jsx";
 
 /* Record packing — boxes clear the oldest open order first (FIFO), or come off
-   the orders picked for them (Custom PO).
+   the orders chosen for each item, under the item itself (Custom PO).
 
    The RBI reference rate lives here, not at order entry: it is the rate on
    the day the goods were packed, which is what the customs invoice and the
@@ -43,10 +43,9 @@ export default function RecordPackingDrawer({ onClose }) {
   /* The shipment's terms, known when the goods are packed — they are written
      to the invoice's shipment details, where they can still be changed. */
   const [ship, setShip] = useState({});
-  /* FIFO, or the orders ticked once the boxes are in (lib/poAlloc.js). */
+  /* FIFO, or the orders chosen for each item (lib/poAlloc.js). */
   const [allocation, setAllocation] = useState("fifo");
-  const [picked, setPicked] = useState([]);
-  const [manual, setManual] = useState({});
+  const [choice, setChoice] = useState({ picks: {}, manual: {} });
   const custom = allocation === "custom";
   const items = useItems().data || [];
   const opts = useOptions().data;
@@ -120,24 +119,13 @@ export default function RecordPackingDrawer({ onClose }) {
     return { legs, spare: left };
   };
 
-  /* Pending projected AFTER the boxes typed in this draft. Each supplier's
-     row is its own master item, so the group's outstanding balance is the sum
-     across its variants, less whatever has been typed against them. */
-  const projPending = (variants) => {
-    let boxes = 0;
-    const pos = new Set();
-    variants.forEach((v) => {
-      const base = owed[v.item_id] || { boxes: 0, pos: [] };
-      const left = Math.max(0, base.boxes - (Number(boxesBy[v.item_id]) || 0));
-      boxes += left;
-      if (left) base.pos.forEach((p) => pos.add(p));
-    });
-    return { boxes, pos: [...pos] };
+  /* Changing a line's boxes undoes any split typed for the old figure; the
+     orders chosen for it stand — a box emptied to be typed again included.
+     Taking the line off lets those go as well. */
+  const setB = (id, v) => {
+    setBoxesBy((p) => ({ ...p, [id]: v }));
+    setChoice((c) => forgetPicks(c, [id]));
   };
-
-  /* Changing a line's boxes undoes any split typed for the old figure. */
-  const forget = (...ids) => setManual((p) => Object.fromEntries(Object.entries(p).filter(([k]) => !ids.includes(k))));
-  const setB = (id, v) => { setBoxesBy((p) => ({ ...p, [id]: v })); forget(id); };
 
   /* Retyping the boxes in the summary is the same edit as retyping them in
      step 2 — one piece of state, so the two can never disagree. Switching the
@@ -145,7 +133,7 @@ export default function RecordPackingDrawer({ onClose }) {
      what decides who we book the goods in from. */
   const moveSupplier = (fromId, toId) => {
     if (!toId || toId === fromId) return;
-    forget(fromId, toId);
+    setChoice((c) => forgetPicks(forgetPicks(c, [fromId], true), [toId]));
     setBoxesBy((p) => {
       const next = { ...p };
       const moved = Number(next[fromId]) || 0;
@@ -154,7 +142,10 @@ export default function RecordPackingDrawer({ onClose }) {
       return next;
     });
   };
-  const dropLine = (id) => { setBoxesBy((p) => { const n = { ...p }; delete n[id]; return n; }); forget(id); };
+  const dropLine = (id) => {
+    setBoxesBy((p) => { const n = { ...p }; delete n[id]; return n; });
+    setChoice((c) => forgetPicks(c, [id], true));
+  };
 
   /* What is still owed goes to the top — that is the work. Items with nothing
      pending sink below, most-owed first within each block, so the list reads
@@ -216,8 +207,40 @@ export default function RecordPackingDrawer({ onClose }) {
   }, [rows]);
   const supIds = supAgg.map((s) => s.supplierId);
 
-  const place = useMemo(() => placement(rows, openQ.data, picked, manual), [rows, openQ.data, picked, manual]);
+  const open = custom ? openQ.data : undefined;
+  const place = useMemo(() => placement(rows, open, choice.picks, choice.manual), [rows, open, choice]);
   const canSave = !!invoiceNo && rows.length > 0 && !create.isPending && (!custom || place.ok);
+  /* Why "Create invoice" is not ready, in the order it would be put right. */
+  const missing = !rows.length ? "Enter the boxes packed first"
+    : !invoiceNo ? "Give the invoice a number"
+      : !custom || place.ok ? ""
+        : !place.known ? "Still finding the purchase orders that hold these items"
+          : place.short ? `Choose the purchase order for ${num(place.short, 0)} more box${place.short === 1 ? "" : "es"}`
+            : `${num(place.over, 0)} more box${place.over === 1 ? "" : "es"} placed on orders than were packed`;
+
+  /* Pending projected AFTER the boxes typed in this draft — the boxes, and the
+     orders that will still hold some. Each supplier's row is its own master
+     item, so the group's outstanding balance is the sum across its variants. */
+  const projPending = (variants) => {
+    let boxes = 0;
+    const pos = new Set();
+    variants.forEach((v) => {
+      const base = owed[v.item_id] || { boxes: 0, pos: [], detail: [] };
+      const typed = Math.max(0, Math.floor(Number(boxesBy[v.item_id]) || 0));
+      boxes += Math.max(0, base.boxes - typed);
+      if (!typed) { base.pos.forEach((p) => pos.add(p)); return; }
+      if (custom && Array.isArray(open?.[v.item_id])) {
+        leftAfter(open[v.item_id], place.byItem[v.item_id]).filter((o) => o.left > 0).forEach((o) => pos.add(o.po));
+        return;
+      }
+      const taken = {};
+      fifoFor(v.item_id, typed).legs.forEach((l) => { taken[l.po] = (taken[l.po] || 0) + l.boxes; });
+      const held = {};
+      base.detail.forEach((d) => { held[d.po] = (held[d.po] || 0) + d.remaining; });
+      base.pos.filter((p) => (held[p] || 0) > (taken[p] || 0)).forEach((p) => pos.add(p));
+    });
+    return { boxes, pos: boxes ? [...pos] : [] };
+  };
 
   const save = () => {
     if (!canSave) return;
@@ -230,7 +253,7 @@ export default function RecordPackingDrawer({ onClose }) {
         allocation,
         lines: rows.map((r) => ({
           item_id: r.item_id, supplier_id: r.supplier_id, boxes: r.boxes,
-          ...(custom ? { po_alloc: toPins(place.byItem[r.item_id]?.cells) } : {}),
+          ...(custom ? { po_alloc: toPins(place.byItem[r.item_id]) } : {}),
         })),
       },
       {
@@ -244,7 +267,7 @@ export default function RecordPackingDrawer({ onClose }) {
 
   return (
     <Drawer title="Record packing"
-      subtitle={custom ? "Enter the boxes, then choose the orders they come off." : "Boxes you enter here clear the oldest open order first."}
+      subtitle={custom ? "Enter an item's boxes, then choose the order they come off — right under the item." : "Boxes you enter here clear the oldest open order first."}
       icon={PackageCheck} onClose={onClose}
       footer={<>
         {/* The summary table's own totals, plus the serial block the invoice
@@ -257,7 +280,7 @@ export default function RecordPackingDrawer({ onClose }) {
         ] : []} />
         <div className="row" style={{ gap: 8 }}>
           <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
-          <Btn icon={Check} disabled={!canSave} onClick={save}>
+          <Btn icon={Check} disabled={!canSave} onClick={save} title={canSave ? undefined : missing}>
             {create.isPending ? "Saving…" : "Create invoice"}
           </Btn>
         </div>
@@ -285,7 +308,7 @@ export default function RecordPackingDrawer({ onClose }) {
             {/* The mode decides which ports and terms are offered beside it. */}
             <ModePicker value={shipMode(ship)} onChange={(mode) => setShip((p) => ({ ...p, mode }))} />
             <ShipTermsFields ship={ship} onSet={(patch) => setShip((p) => ({ ...p, ...patch }))} buyer={buyer} />
-            <Field label="Deduct boxes from" hint="FIFO clears the oldest open order first. Custom PO lets you choose the orders once the boxes are entered.">
+            <Field label="Deduct boxes from" hint="FIFO clears the oldest open order first. Custom PO lets you choose, for each item, the order its boxes come off.">
               <Select value={allocation} onChange={(e) => setAllocation(e.target.value)} aria-label="Deduct boxes from">
                 <option value="fifo">FIFO — oldest order first</option>
                 <option value="custom">Custom PO</option>
@@ -297,7 +320,7 @@ export default function RecordPackingDrawer({ onClose }) {
         <section>
           <div className="row wrap" style={{ justifyContent: "space-between", alignItems: "flex-end", gap: 10 }}>
             <Step n="2" title="How many boxes did each supplier pack?" hint={custom
-              ? "Everything still pending is listed first. Type the boxes for every item — the orders holding them are offered below."
+              ? "Everything still pending is listed first. Type an item's boxes and the orders holding it open under it — choose the one they come off."
               : "Everything still pending is listed first. Type a figure and the line beneath it names the orders those boxes clear — oldest first."} />
             <div className="row" style={{ gap: 8, marginBottom: 10 }}>
               <Select className="input-sm" style={{ width: 210 }} value={supFilter} onChange={(e) => setSupFilter(e.target.value)}>
@@ -307,8 +330,13 @@ export default function RecordPackingDrawer({ onClose }) {
               <div style={{ width: 220, maxWidth: "100%" }}><SearchInput value={q} onChange={setQ} placeholder="Find an item…" /></div>
             </div>
           </div>
+          {custom && (
+            <PoForAll rows={rows} open={open} place={place}
+              onPick={(po) => setChoice((c) => pickForAll(c, rows, open, po))}
+              onFillAll={() => setChoice((c) => rows.reduce((x, r) => fillOldest(x, r.item_id, open?.[r.item_id], r.boxes), c))} />
+          )}
           <Card>
-            <div style={{ maxHeight: 340, overflowY: "auto" }}>
+            <div style={{ maxHeight: custom ? 520 : 340, overflowY: "auto" }}>
               {/* Nothing is called "clear" or "no match" before both the item
                   list and the pending balances have actually arrived. */}
               {balance === undefined ? (
@@ -346,15 +374,12 @@ export default function RecordPackingDrawer({ onClose }) {
                     </div>
                     <div className="stack-sm">
                       {g.variants.map((v, si) => {
-                        const placed = custom ? place.byItem[v.item_id] : null;
-                        const fifo = custom
-                          ? {
-                            legs: toPins(placed?.cells).map((l) => ({ po: l.po, boxes: l.boxes })),
-                            spare: placed?.spare || 0,
-                          }
-                          : fifoFor(v.item_id, boxesBy[v.item_id]);
+                        const typed = Math.max(0, Math.floor(Number(boxesBy[v.item_id]) || 0));
+                        const placed = custom && typed ? place.byItem[v.item_id] : null;
+                        const fifo = custom ? { legs: [], spare: 0 } : fifoFor(v.item_id, typed);
                         return (
-                          <div key={v.item_id} className="row" style={{ justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
+                          <div key={v.item_id}>
+                          <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
                             <span className="row" style={{ minWidth: 0, gap: 8, paddingTop: 5 }}>
                               <Pill tone={si ? "" : "teal"}>{supCode(v.supplier_id)}</Pill>
                               <span style={{ fontSize: 11.5, color: "var(--faint)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
@@ -366,18 +391,13 @@ export default function RecordPackingDrawer({ onClose }) {
                                 boxes clear, oldest first, live as you type. */}
                             <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4, minWidth: 110 }}>
                               <NumberInput className={`input-sm num-in${boxesBy[v.item_id] ? " filled" : ""}`} style={{ width: 110 }}
-                                placeholder="0" aria-label={`Boxes packed by ${supCode(v.supplier_id)}`}
+                                placeholder="0" aria-label={`Boxes of ${g.gd} packed by ${supCode(v.supplier_id)}`}
                                 value={boxesBy[v.item_id] || ""} onChange={(val) => setB(v.item_id, val)} />
                               {fifo.legs.length > 0 && (
                                 <span className="fifo-tag">
                                   <Pill tone="green">
-                                    {custom ? "From" : "Cleared"} : {fifo.legs.map((l) => `PO ${l.po}(${l.boxes})`).join(", ")}
+                                    Cleared : {fifo.legs.map((l) => `PO ${l.po}(${l.boxes})`).join(", ")}
                                   </Pill>
-                                </span>
-                              )}
-                              {placed?.short > 0 && (
-                                <span className="fifo-tag">
-                                  <Pill tone="amber">{placed.short} to place on an order</Pill>
                                 </span>
                               )}
                               {fifo.spare > 0 && (
@@ -388,6 +408,15 @@ export default function RecordPackingDrawer({ onClose }) {
                                 </span>
                               )}
                             </span>
+                          </div>
+                          {/* Custom PO: the orders holding this very item, and the
+                              one its boxes come off. */}
+                          {placed && (
+                            <PoPicker name={g.gd} boxes={typed} legs={open?.[v.item_id]} query={openQ} placed={placed} buyerId={buyerId}
+                              onToggle={(po) => setChoice((c) => togglePick(c, v.item_id, po))}
+                              onCell={(po, val, max) => setChoice((c) => typeCell(c, v.item_id, placed, po, val, max))}
+                              onFill={() => setChoice((c) => fillOldest(c, v.item_id, open?.[v.item_id], typed))} />
+                          )}
                           </div>
                         );
                       })}
@@ -402,13 +431,8 @@ export default function RecordPackingDrawer({ onClose }) {
           </Card>
         </section>
 
-        {custom && rows.length > 0 && (
-          <CustomPoPanel n="3" rows={rows} query={openQ} picked={picked} onPicked={setPicked}
-            manual={manual} onManual={setManual} place={place} buyerId={buyerId} />
-        )}
-
         <section>
-          <Step n={custom && rows.length ? "4" : "3"} title="Check before you create the invoice"
+          <Step n="3" title="Check before you create the invoice"
             hint="Edit the boxes or switch the supplier right here — step 2 follows along." />
           {rows.length ? (
             <div className="stack-sm">
@@ -445,6 +469,7 @@ export default function RecordPackingDrawer({ onClose }) {
                       ),
                     },
                     { key: "vol", w: 104, label: "Volume m³", align: "r", render: (r) => num(r.volume, 3) },
+                    ...(custom ? [{ key: "po", w: 260, label: "Deducted from", render: (r) => <PoFrom placed={place.byItem[r.item_id]} /> }] : []),
                     {
                       key: "_x", w: 48, label: "", align: "r",
                       render: (r) => (
@@ -455,7 +480,7 @@ export default function RecordPackingDrawer({ onClose }) {
                     },
                   ]}
                   rows={rows} rowKey={(r) => r.key} section={(r) => r.head}
-                  footer={[{ v: "Total", span: 4 }, { v: totalBoxes, align: "r" }, { v: num(totalVol, 3), align: "r" }, { v: "" }]}
+                  footer={[{ v: "Total", span: 4 }, { v: totalBoxes, align: "r" }, { v: num(totalVol, 3), align: "r" }, ...(custom ? [{ v: "" }] : []), { v: "" }]}
                 />
               </Card>
               <Card>
@@ -477,7 +502,7 @@ export default function RecordPackingDrawer({ onClose }) {
 
         {supIds.length > 0 && (
           <section>
-            <Step n={custom ? "5" : "4"} title="Who is the transporter for each supplier?" hint="Pick the carrier that will move each supplier's boxes. Added under Setup → Transport." />
+            <Step n="4" title="Who is the transporter for each supplier?" hint="Pick the carrier that will move each supplier's boxes. Added under Setup → Transport." />
             <Card>
               <div className="stack-sm" style={{ padding: 14 }}>
                 {supIds.map((sid) => {

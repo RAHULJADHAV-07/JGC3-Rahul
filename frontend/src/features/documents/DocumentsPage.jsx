@@ -1,13 +1,14 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import {
-  FileText, Download, Check, AlertTriangle, Search, ArrowRight, Layers, Ship, Truck,
-  ClipboardList, FileSpreadsheet, FileDown, FileType,
+  FileText, Check, AlertTriangle, Search, ArrowRight, Layers, Ship, Truck,
+  ClipboardList,
 } from "lucide-react";
 import {
   Card, CardHead, Btn, Field, Input, Select, Pill, Mono, Empty, Note, SearchInput, Info,
-  Spinner, ErrorState, DownloadPair,
+  Spinner, ErrorState,
 } from "../../components/ui/index.jsx";
+import DownloadMenu from "../../components/ui/DownloadMenu.jsx";
 import {
   useInvoices, useItems, useBuyers, useSuppliers, useTransports, usePoLines,
   useInvoiceMutations, usePoList, useOptions,
@@ -18,8 +19,8 @@ import { useIsMobile } from "../../lib/useIsMobile.js";
 import { docCtx, poCtx } from "../../lib/docCtx.js";
 import {
   renderDocument, DOC_META, DOC_GROUPS, PREVIEW_CSS, isPoDoc, PO_DOCS,
-  supplierSplitDocs, downloadSupplierDoc, downloadDocumentExcel, downloadDocumentPDF, isWordDoc,
-  downloadStageExcel, downloadStagePDF,
+  supplierSplitDocs, downloadSupplierDoc, downloadDocumentExcel, downloadDocumentPDF, downloadDocumentWord,
+  downloadStageExcel, downloadStagePDF, downloadStageWord,
 } from "../../lib/docs.js";
 import { safeHtml } from "../../lib/safeHtml.js";
 import { fitCells } from "../../lib/fitCells.js";
@@ -287,26 +288,34 @@ export default function DocumentsPage({ group }) {
   const supTag = sup ? `_${supCodeOf(sup).replace(/[^A-Za-z0-9]+/g, "")}` : "";
   const stamp = (poMode ? `PO_${po.po}` : (inv?.invoice_no || "").replace(/\//g, "-")) + supTag;
 
-  /* The same button on every document: a workbook for the papers that are
-     worksheets, and the Word document itself for the ones that are typed. */
-  const grabExcel = (no) => {
-    const fmt = isWordDoc(no) ? "Word" : "Excel";
-    if (downloadDocumentExcel(no, isPoDoc(no) ? orderCtx : invCtx)) toast(`Document ${no} · ${DOC_META[no]} — ${fmt}`);
-  };
-  const grabPDF = (no) => {
-    if (downloadDocumentPDF(no, isPoDoc(no) ? orderCtx : invCtx)) toast(`Document ${no} · ${DOC_META[no]} — opening print dialog`);
-  };
-  /* A stage downloads as one workbook (a sheet per document) or one print
-     job, rather than a dozen separate files. Each document is built from its
-     own source, so a mixed set still comes out right. */
   const ctxFor = (no) => (isPoDoc(no) ? orderCtx : invCtx);
-  const grabStageExcel = (g) => {
-    if (downloadStageExcel(`${g.t.replace(/[^A-Za-z0-9]+/g, "_")}_${stamp}`, g.docs, ctxFor)) toast(`${g.t} — Excel`);
-    else toast(`Nothing to build for ${g.t} yet`);
-  };
-  const grabStagePDF = (g) => {
-    if (downloadStagePDF(g.t, g.docs, ctxFor)) toast(`${g.t} — opening print dialog`);
-    else toast(`Nothing to build for ${g.t} yet`);
+  /* What each paper, each supplier's copy and each stage offers behind its
+     three dots: the same three formats, off the same source. */
+  const docMenu = (no) => ({
+    name: `${no} · ${DOC_META[no]}`,
+    onExcel: () => { if (downloadDocumentExcel(no, ctxFor(no))) toast(`Document ${no} · ${DOC_META[no]} — Excel`); },
+    onPDF: () => { if (downloadDocumentPDF(no, ctxFor(no))) toast(`Document ${no} · ${DOC_META[no]} — opening print dialog`); },
+    onWord: async () => { if (await downloadDocumentWord(no, ctxFor(no))) toast(`Document ${no} · ${DOC_META[no]} — Word`); },
+  });
+  const supplierMenu = (d) => ({
+    name: `${open} · ${d.code}`,
+    onExcel: () => { if (downloadSupplierDoc(open, ctx, d.supplierId, "excel")) toast(`Document ${open} · ${d.code} — Excel`); },
+    onPDF: () => { if (downloadSupplierDoc(open, ctx, d.supplierId, "pdf")) toast(`Document ${open} · ${d.code} — opening print dialog`); },
+    onWord: async () => { if (await downloadSupplierDoc(open, ctx, d.supplierId, "word")) toast(`Document ${open} · ${d.code} — Word`); },
+  });
+  /* A stage downloads as one workbook (a sheet per document), one print job or
+     one Word document, rather than a dozen separate files. Each paper is built
+     from its own source, so a mixed set still comes out right. */
+  const stageMenu = (title, nums) => {
+    const file = `${title.replace(/[^A-Za-z0-9]+/g, "_").replace(/^_|_$/g, "")}_${stamp}`;
+    const none = () => toast(`Nothing to build for ${title} yet`);
+    const many = `${title} — ${nums.length} documents`;
+    return {
+      name: `all ${nums.length} — ${title}`,
+      onExcel: () => (downloadStageExcel(file, nums, ctxFor) ? toast(`${many}, one workbook`) : none()),
+      onPDF: () => (downloadStagePDF(title, nums, ctxFor) ? toast(`${many}, opening print dialog`) : none()),
+      onWord: async () => (await downloadStageWord(file, nums, ctxFor) ? toast(`${many}, one Word file`) : none()),
+    };
   };
 
   return (
@@ -372,33 +381,21 @@ export default function DocumentsPage({ group }) {
               <div key={g.k}>
                 <div className="doc-group-head">
                   <span className="g">
-                    <span style={{ fontFamily: "var(--mono)", color: "var(--amber-2)", fontWeight: 700, fontSize: 11 }}>{g.k}</span>
-                    {g.t}
-                    <span style={{ fontWeight: 400, color: "var(--faint)", fontSize: 11 }}>· {g.docs.length}</span>
+                    <span className="doc-group-k">{g.k}</span>
+                    <span className="doc-group-t">{g.t}</span>
+                    <span className="doc-group-n">{g.docs.length}</span>
                   </span>
-                  <span className="row" style={{ gap: 4 }}>
-                    <button className="btn btn-quiet btn-sm" title={`${g.hint} — one workbook, a sheet per document`}
-                      onClick={() => grabStageExcel(g)} style={{ height: 24 }}>
-                      <FileSpreadsheet size={12} /> all
-                    </button>
-                    <button className="btn btn-quiet btn-sm" title={`${g.hint} — one print job`}
-                      onClick={() => grabStagePDF(g)} style={{ height: 24 }}>
-                      <FileDown size={12} />
-                    </button>
-                  </span>
+                  <DownloadMenu size="sm" {...stageMenu(g.t, g.docs)} />
                 </div>
                 {g.docs.map((no) => (
-                  <button key={no} className={`doc-item${!mobile && open === no ? " on" : ""}`} onClick={() => setOpen(no)}>
-                    <span className="doc-no">{no}</span>
-                    <span className="doc-name">{DOC_META[no]}</span>
-                    <span className="icon-btn bare" onClick={(e) => { e.stopPropagation(); grabExcel(no); }}
-                      title={isWordDoc(no) ? "Download Word" : "Download Excel"} style={{ width: 24, height: 24 }}>
-                      {isWordDoc(no) ? <FileType size={14} /> : <FileSpreadsheet size={14} />}
-                    </span>
-                    <span className="icon-btn bare" onClick={(e) => { e.stopPropagation(); grabPDF(no); }} title="Download PDF" style={{ width: 24, height: 24 }}>
-                      <FileDown size={14} />
-                    </span>
-                  </button>
+                  <div key={no} className={`doc-item${!mobile && open === no ? " on" : ""}`}>
+                    <button type="button" className="doc-pick" onClick={() => setOpen(no)}
+                      aria-current={!mobile && open === no ? "true" : undefined}>
+                      <span className="doc-no">{no}</span>
+                      <span className="doc-name">{DOC_META[no]}</span>
+                    </button>
+                    <DownloadMenu size="sm" {...docMenu(no)} />
+                  </div>
                 ))}
               </div>
             ))}
@@ -422,10 +419,7 @@ export default function DocumentsPage({ group }) {
                       <Pill tone="teal">{d.code}</Pill>
                       <span style={{ fontSize: 12 }}>{d.name}</span>
                     </span>
-                    <DownloadPair
-                      onExcel={() => { downloadSupplierDoc(open, ctx, d.supplierId, "excel"); toast(`Document ${open} · ${d.code} — Excel`); }}
-                      onPDF={() => { downloadSupplierDoc(open, ctx, d.supplierId, "pdf"); toast(`Document ${open} · ${d.code} — opening print dialog`); }}
-                    />
+                    <DownloadMenu size="sm" {...supplierMenu(d)} />
                   </div>
                 ))}
               </div>
@@ -438,7 +432,7 @@ export default function DocumentsPage({ group }) {
               {poMode ? <>PO {po.po} · {dmyNum(po.date)}</> : <>{inv.invoice_no} · {dmy(inv.date)}</>}
               {sup ? <> · {supCodeOf(sup)} only</> : null}
             </span>
-            <DownloadPair word={isWordDoc(open)} onExcel={() => grabExcel(open)} onPDF={() => grabPDF(open)} />
+            <DownloadMenu {...docMenu(open)} />
           </CardHead>
           <div className="docprev-shell">
             {split.length > 0 && (
@@ -452,10 +446,7 @@ export default function DocumentsPage({ group }) {
                           <Pill tone="teal">{d.code}</Pill>
                           <span style={{ fontSize: 12 }}>{d.name}</span>
                         </span>
-                        <DownloadPair
-                          onExcel={() => { downloadSupplierDoc(open, ctx, d.supplierId, "excel"); toast(`Document ${open} · ${d.code} — Excel`); }}
-                          onPDF={() => { downloadSupplierDoc(open, ctx, d.supplierId, "pdf"); toast(`Document ${open} · ${d.code} — opening print dialog`); }}
-                        />
+                        <DownloadMenu size="sm" {...supplierMenu(d)} />
                       </div>
                     ))}
                   </div>
@@ -486,19 +477,10 @@ export default function DocumentsPage({ group }) {
           <div className="row" style={{ gap: 10 }}>
             <span className="stat-i" style={{ width: 30, height: 30 }}><Layers size={15} /></span>
             <div>
-              <div style={{ fontSize: 13, fontWeight: 650, color: "var(--ink)" }}>Download all</div>
+              <div style={{ fontSize: 13, fontWeight: 650, color: "var(--ink)" }}>Download all {allDocs.length} documents</div>
             </div>
           </div>
-          <DownloadPair size="md" variant="dark"
-            onExcel={() => {
-              const nums = allDocs;
-              if (downloadStageExcel(`${heading.replace(/[^A-Za-z0-9]+/g, "_")}_${stamp}`, nums, ctxFor)) toast(`Downloading all ${nums.length} documents`);
-            }}
-            onPDF={() => {
-              const nums = allDocs;
-              if (downloadStagePDF(heading, nums, ctxFor)) toast(`Opening the print dialog for ${nums.length} documents`);
-            }}
-          />
+          <DownloadMenu {...stageMenu(heading, allDocs)} />
         </div>
       </Card>
 

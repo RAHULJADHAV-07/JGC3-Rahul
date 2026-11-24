@@ -23,7 +23,7 @@ connect_timeout matters more than it looks: libpq waits indefinitely by
 default, so an unreachable database presents as a request that never answers.
 A cold Neon endpoint takes several seconds to wake, hence 15 rather than 5.
 """
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import declarative_base, sessionmaker
 
@@ -69,6 +69,23 @@ engine = create_engine(
 )
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 Base = declarative_base()
+
+
+# Any two processes writing the order book agree on this number.
+_LEDGER_LOCK = 7_800_001
+
+
+def lock_ledger(db) -> None:
+    """Hold the order book for the rest of this transaction.
+
+    Saving a packing reads what every order still has open, checks the boxes
+    against it and writes. Two people saving in the same second would both read
+    the same boxes as free and both take them, and two invoices could be given
+    one number. Whoever comes second waits here until the first has committed,
+    then reads what that left. Released by the commit or the rollback, so it
+    cannot be left held. SQLite has one writer at a time and needs no help."""
+    if db.get_bind().dialect.name == "postgresql":
+        db.execute(text("SELECT pg_advisory_xact_lock(:k)"), {"k": _LEDGER_LOCK})
 
 
 def get_db():

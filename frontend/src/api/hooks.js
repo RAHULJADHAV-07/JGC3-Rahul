@@ -148,10 +148,19 @@ export function useInvoiceMutations() {
   const qc = useQueryClient();
   // "options": an unsaved list of terms or ports is read off the invoices.
   const invalidate = () => [...LEDGER, "options"].forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
+  /* Refused because the order book has moved — somebody else packed the boxes
+     in the meantime. The figures on screen are read again, so what the form
+     offers next is what is really left. */
+  const refused = (e) => {
+    notifyError(e);
+    if (e?.status === 400 || e?.status === 409) {
+      ["open-orders", "alloc-preview", "balance", "invoices"].forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
+    }
+  };
   return {
-    create: useMutation({ mutationFn: api.invoices.create, onSuccess: invalidate, ...loud }),
-    update: useMutation({ mutationFn: ({ id, body }) => api.invoices.update(id, body), onSuccess: invalidate, ...loud }),
-    remove: useMutation({ mutationFn: (id) => api.invoices.remove(id), onSuccess: invalidate, ...loud }),
+    create: useMutation({ mutationFn: api.invoices.create, onSuccess: invalidate, onError: refused }),
+    update: useMutation({ mutationFn: ({ id, body }) => api.invoices.update(id, body), onSuccess: invalidate, onError: refused }),
+    remove: useMutation({ mutationFn: (id) => api.invoices.remove(id), onSuccess: invalidate, onError: refused }),
   };
 }
 
@@ -178,6 +187,7 @@ export const useOpenOrders = (itemIds, excludeInvoiceId) =>
     enabled: Array.isArray(itemIds) && itemIds.length > 0,
     placeholderData: (prev) => prev,
     staleTime: 0,
+    ...LIVE,
   });
 
 // Derived / reports
@@ -199,7 +209,8 @@ export function useHiddenPoMutations() {
    could move them, so a badge never lies about what is still open. */
 export const useBadges = () => useQuery({ queryKey: ["badges"], queryFn: api.dashboard.badges });
 export const useItemDetail = () => useQuery({ queryKey: ["item-detail"], queryFn: api.reports.itemDetail });
-export const useBalance = () => useQuery({ queryKey: ["balance"], queryFn: api.reports.balance });
+/* `enabled` is false for somebody granted only another tab of the page. */
+export const useBalance = (enabled = true) => useQuery({ queryKey: ["balance"], queryFn: api.reports.balance, enabled });
 
 /* Doc 38 — supply details, item wise / supplier wise. The filters are part of
    the cache key, so flipping between PO and invoice is instant once seen. */

@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..deps import require
+from ..permissions import READ_BALANCE, READ_ITEM_DETAIL
 from .. import models, calc, options
 
 router = APIRouter(prefix="/api/reports", tags=["reports"])
@@ -17,7 +18,7 @@ def _ctx(db: Session):
     return items, po_lines, invoices
 
 
-@router.get("/item-detail", dependencies=[Depends(_read)])
+@router.get("/item-detail", dependencies=[Depends(require(*READ_ITEM_DETAIL))])
 def item_order_detail(db: Session = Depends(get_db)):
     """Item-wise order detail with a column per PO, plus the boxes received
     and still pending against each item (doc 37)."""
@@ -49,7 +50,7 @@ def supply_details(
     )
 
 
-@router.get("/balance", dependencies=[Depends(_read)])
+@router.get("/balance", dependencies=[Depends(require(*READ_BALANCE))])
 def balance_register(db: Session = Depends(get_db)):
     """PO / item / supplier balance register, recomputed from the ledger."""
     items, po_lines, invoices = _ctx(db)

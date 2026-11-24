@@ -99,6 +99,75 @@ class RecordCustom(ApiCase):
         self.assertEqual(inv["status"], "Ready to dispatch")
 
 
+class ItemByItem(ApiCase):
+    """Each item comes off the order chosen for it, whatever the others do."""
+
+    def setUp(self):
+        super().setUp()
+        # i1 is on three orders, the brief's p1, p2 and p3.
+        self.place_order("PO7", "2026-03-20", {1: 40})
+
+    def test_the_brief(self):
+        open_ = self.ok(self.client.post("/api/invoices/open-orders", json={"item_ids": [self.i[1]]}))[self.i[1]]
+        self.assertEqual([(o["po"], o["open"]) for o in open_], [("PO1", 20), ("PO2", 30), ("PO7", 40)])
+        inv = self.record("C1", {1: 25}, {1: {"PO2": 25}})
+        self.assertEqual(self.legs(inv, 1), {"PO2": 25})
+        self.assertEqual([self.pending(p, 1) for p in ("PO1", "PO2", "PO7")], [20, 5, 40])
+
+    def test_two_items_off_two_different_orders(self):
+        inv = self.record("C1", {1: 5, 2: 6}, {1: {"PO7": 5}, 2: {"PO1": 6}})
+        self.assertEqual(self.legs(inv, 1), {"PO7": 5})
+        self.assertEqual(self.legs(inv, 2), {"PO1": 6})
+        self.assertEqual((self.pending("PO1", 1), self.pending("PO1", 2)), (20, 14))
+
+    def test_the_order_of_choosing_is_kept(self):
+        inv = self.record("C1", {1: 45}, {1: {"PO7": 40, "PO1": 5}})
+        self.assertEqual(inv["lines"][0]["po_alloc"], [{"po": "PO7", "boxes": 40}, {"po": "PO1", "boxes": 5}])
+        # Cut later, it is the last chosen that gives way.
+        out = self.ok(self.client.put(f"/api/invoices/{inv['id']}", json={"lines": self.invoice_body("-", {1: 42})["lines"]}))
+        self.assertEqual(out["lines"][0]["po_alloc"], [{"po": "PO7", "boxes": 40}, {"po": "PO1", "boxes": 2}])
+
+    def test_moving_one_item_leaves_the_others_prices_and_orders(self):
+        self.ok(self.client.put(f"/api/items/{self.i[1]}", json={"unit_value": 300.0}))
+        self.place_order("PO9", "2026-04-20", {1: 10})
+        inv = self.record("C1", {1: 4, 2: 6}, {1: {"PO1": 4}, 2: {"PO2": 6}})
+        out = self.ok(self.client.put(f"/api/invoices/{inv['id']}", json={"lines": self.invoice_body("-", {1: 4, 2: 6}, {1: {"PO9": 4}, 2: {"PO2": 6}})["lines"]}))
+        by = {l["item_id"]: l for l in out["lines"]}
+        self.assertEqual((by[self.i[1]]["unit_value"], by[self.i[2]]["unit_value"]), (300.0, 100.0))
+        self.assertEqual((self.legs(inv, 1), self.legs(inv, 2)), ({"PO9": 4}, {"PO2": 6}))
+
+    def test_the_same_item_twice_cannot_take_the_same_boxes_twice(self):
+        body = self.invoice_body("X", {1: 15}, {1: {"PO1": 15}})
+        body["lines"] *= 2
+        r = self.client.post("/api/invoices", json=body)
+        self.assertEqual(r.status_code, 409)
+        self.assertIn("only 5 boxes", r.json()["detail"])
+        body["lines"][1] = {**body["lines"][1], "po_alloc": [{"po": "PO2", "boxes": 15}]}
+        inv = self.ok(self.client.post("/api/invoices", json=body), 201)
+        self.assertEqual(self.legs(inv, 1), {"PO1": 15, "PO2": 15})
+
+    def test_an_order_named_twice_on_a_line_is_added_up(self):
+        body = self.invoice_body("X", {1: 10}, {1: {"PO2": 10}})
+        body["lines"][0]["po_alloc"] = [{"po": "PO2", "boxes": 4}, {"po": "PO2", "boxes": 6}, {"po": "PO1", "boxes": 0}]
+        inv = self.ok(self.client.post("/api/invoices", json=body), 201)
+        self.assertEqual(inv["lines"][0]["po_alloc"], [{"po": "PO2", "boxes": 10}])
+
+    def test_every_screen_and_register_after_it(self):
+        self.record("C1", {1: 25, 4: 7}, {1: {"PO2": 25}, 4: {"PO2": 7}})
+        self.record("F1", {1: 22})                                  # FIFO goes round what was chosen
+        pend = {p: self.pending(p, 1) for p in ("PO1", "PO2", "PO7")}
+        self.assertEqual(pend, {"PO1": 0, "PO2": 3, "PO7": 40})
+        bal = next(r for r in self.ok(self.client.get("/api/reports/balance"))["item"] if r["item_id"] == self.i[1])
+        self.assertEqual(bal["pending"], 43)
+        self.assertEqual(bal["pending_pos"], ["PO2", "PO7"])
+        lists = {p["po"]: p for p in self.ok(self.client.get("/api/purchase-orders"))}
+        self.assertEqual(sum(p["pending"] for p in lists.values()), self.ok(self.client.get("/api/dashboard/badges"))["packing"])
+        open_ = self.ok(self.client.post("/api/invoices/open-orders", json={"item_ids": [self.i[1]]}))[self.i[1]]
+        self.assertEqual({o["po"]: o["open"] for o in open_}, {"PO2": 3, "PO7": 40})
+        supply = next(r for r in self.ok(self.client.get("/api/reports/supply-details"))["rows"] if r["item_id"] == self.i[1])
+        self.assertEqual(supply["per_col"], {"PO2": 30, "PO7": 400})
+
+
 class Refused(ApiCase):
     def refused(self, code, *args, **kw):
         r = self.client.post("/api/invoices", json=self.invoice_body(*args, **kw))

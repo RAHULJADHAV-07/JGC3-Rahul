@@ -128,7 +128,7 @@ def update_item(iid: str, body: schemas.ItemUpdate, db: Session = Depends(get_db
     obj = db.get(models.Item, iid)
     if not obj:
         raise HTTPException(404, "Item not found")
-    for k, v in body.model_dump(exclude_unset=True).items():
+    for k, v in schemas.changes(body, schemas.Item).items():
         setattr(obj, k, v)
     db.commit()
     db.refresh(obj)

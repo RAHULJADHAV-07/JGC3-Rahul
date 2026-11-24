@@ -1,11 +1,76 @@
 """Pydantic request/response schemas."""
-from datetime import datetime
-from typing import Literal, Optional, Any
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+from datetime import date as _date, datetime
+from typing import Annotated, Literal, Optional, Any
+from fastapi import HTTPException
+from pydantic import AfterValidator, BaseModel, BeforeValidator, ConfigDict, EmailStr, Field, field_validator
 
 
 class ORMModel(BaseModel):
     model_config = ConfigDict(from_attributes=True)
+
+
+# ---------- What an order or an invoice may say ----------
+# Counts are whole, never negative, and well inside what the database column
+# holds; a date is a real one, written the way every register sorts it; a
+# number something is filed under is never blank.
+
+def _iso_date(v: str) -> str:
+    v = str(v or "").strip()
+    try:
+        if len(v) != 10:
+            raise ValueError
+        _date.fromisoformat(v)
+    except ValueError:
+        raise ValueError("enter a date")
+    return v
+
+
+def _named(v: str) -> str:
+    v = " ".join(str(v or "").split())
+    if not v:
+        raise ValueError("cannot be blank")
+    return v
+
+
+def _blank_is_none(v):
+    return None if isinstance(v, str) and not v.strip() else v
+
+
+IsoDate = Annotated[str, AfterValidator(_iso_date)]
+DocNo = Annotated[str, Field(max_length=120), AfterValidator(_named)]
+Boxes = Annotated[int, Field(ge=0, le=1_000_000)]
+Pieces = Annotated[int, Field(ge=0, le=100_000_000)]
+Serial = Annotated[int, Field(ge=0, le=1_000_000_000)]
+Rate = Annotated[float, Field(ge=0, le=1_000_000)]
+# What an edit sends back as it read it. A number or a date on file from before
+# these rules must still save with the rest of the form, so only a *changed* one
+# is held to them (`restated`).
+OldDocNo = Annotated[str, Field(max_length=200_000)]
+# A reference to another record: "" from a form's "—" means none is chosen.
+Ref = Annotated[Optional[str], BeforeValidator(_blank_is_none)]
+
+
+def restated(what: str, new: str, old: str, rule) -> str:
+    """`new` as it may be stored: as it is if it is what is on file, held to
+    `rule` if it was changed."""
+    if new == old:
+        return old
+    try:
+        out = rule(new)
+    except ValueError as e:
+        raise HTTPException(422, f"{what}: {e}")
+    if len(out) > 120:
+        raise HTTPException(422, f"{what}: should have at most 120 characters")
+    return out
+
+
+def changes(body: BaseModel, out: type[BaseModel]) -> dict:
+    """What an edit really changes. A null sent for something that always has a
+    value is left as it was: stored, it would be a record nothing can read."""
+    def nullable(name: str) -> bool:
+        field = out.model_fields.get(name)
+        return field is not None and type(None) in getattr(field.annotation, "__args__", ())
+    return {k: v for k, v in body.model_dump(exclude_unset=True).items() if v is not None or nullable(k)}
 
 
 # Every address that enters the system is validated and lower-cased here, at
@@ -401,11 +466,26 @@ class ItemBase(BaseModel):
         return str(v or "").strip() or "Cartons"
 
 
-class ItemCreate(ItemBase):
+class _ItemFigures(BaseModel):
+    """Packings, weights and prices are never below nothing. Asked only of what
+    is being saved — a row already on file is still read as it stands."""
+    @field_validator("pack_unit", "packing", "volume", "net_per_box", "gross_per_box", "bg_per_box",
+                     "p_per_box", "type_up", "sticker_mult", "stickers_fixed", "label_spoilage",
+                     "unit_value", "unit_fob100", check_fields=False)
+    @classmethod
+    def _not_below_nothing(cls, v):
+        if v is not None and v < 0:
+            raise ValueError("cannot be less than 0")
+        if v is not None and v > 1_000_000_000:
+            raise ValueError("is too large")
+        return v
+
+
+class ItemCreate(_ItemFigures, ItemBase):
     pass
 
 
-class ItemUpdate(BaseModel):
+class ItemUpdate(_ItemFigures):
     model_config = ConfigDict(extra="ignore")
     code: Optional[str] = None
     gd: Optional[str] = None
@@ -487,36 +567,49 @@ class Transport(TransportBase, ORMModel):
 # ---------- Purchase orders ----------
 class POLineIn(BaseModel):
     item_id: str
-    qty: int
+    qty: Pieces
+
+
+class POLineEdit(BaseModel):
+    """A line of an order as it should now read. With its `id` it keeps that row."""
+    model_config = ConfigDict(extra="ignore")
+    id: Optional[str] = None
+    item_id: Optional[str] = None
+    qty: Pieces = 0
+
+    @field_validator("qty", mode="before")
+    @classmethod
+    def _none_is_nothing(cls, v):
+        return 0 if v is None else v
 
 
 class PurchaseOrderCreate(BaseModel):
-    po: str
-    date: str
-    buyer_id: Optional[str] = None
-    rbi: float = 0.0
-    lines: list[POLineIn]
+    po: DocNo
+    date: IsoDate
+    buyer_id: Ref = None
+    rbi: Rate = 0.0
+    lines: list[POLineIn] = Field(max_length=5000)
 
 
 class PurchaseOrderUpdate(BaseModel):
-    po: Optional[str] = None
-    date: Optional[str] = None
-    lines: Optional[list[dict]] = None  # [{id?, item_id, qty}]
+    po: Optional[OldDocNo] = None
+    date: Optional[OldDocNo] = None
+    lines: Optional[list[POLineEdit]] = Field(None, max_length=5000)
 
 
 # ---------- Invoices ----------
 class PoPin(BaseModel):
     """Custom PO: this many of a line's boxes come off this purchase order."""
     po: str
-    boxes: int
+    boxes: Boxes
 
 
 class InvoiceLineIn(BaseModel):
     item_id: str
-    supplier_id: Optional[str] = None
-    boxes: int = 0
+    supplier_id: Ref = None
+    boxes: Boxes = 0
     # Custom PO only — ignored on a FIFO invoice.
-    po_alloc: Optional[list[PoPin]] = None
+    po_alloc: Optional[list[PoPin]] = Field(None, max_length=1000)
 
 
 class InvoiceLineOut(ORMModel):
@@ -538,32 +631,32 @@ class InvoiceLineOut(ORMModel):
 
 
 class InvoiceCreate(BaseModel):
-    invoice_no: str
-    date: str
-    buyer_id: Optional[str] = None
-    rbi: float = 0.0
-    serial_start: int = 0
+    invoice_no: DocNo
+    date: IsoDate
+    buyer_id: Ref = None
+    rbi: Rate = 0.0
+    serial_start: Serial = 0
     packing_transports: dict[str, Any] = Field(default_factory=dict)
     # Shipment terms picked while recording the packing — delivery and payment
     # terms, ports, the bank, the carting date and the booking number. The
     # same `ship` block the shipment details screen edits later.
     ship: dict[str, Any] = Field(default_factory=dict)
     allocation: Literal["fifo", "custom"] = "fifo"
-    lines: list[InvoiceLineIn]
+    lines: list[InvoiceLineIn] = Field(max_length=5000)
 
 
 class InvoiceUpdate(BaseModel):
-    invoice_no: Optional[str] = None
-    date: Optional[str] = None
-    buyer_id: Optional[str] = None
-    rbi: Optional[float] = None
-    serial_start: Optional[int] = None
+    invoice_no: Optional[OldDocNo] = None
+    date: Optional[OldDocNo] = None
+    buyer_id: Ref = None
+    rbi: Optional[Rate] = None
+    serial_start: Optional[Serial] = None
     vehicles: Optional[dict[str, Any]] = None
     ship: Optional[dict[str, Any]] = None
     step_skip: Optional[dict[str, Any]] = None
     packing_transports: Optional[dict[str, Any]] = None
     allocation: Optional[Literal["fifo", "custom"]] = None
-    lines: Optional[list[InvoiceLineIn]] = None
+    lines: Optional[list[InvoiceLineIn]] = Field(None, max_length=5000)
     # True numbers every line afresh from the serial start, closing the gaps
     # removed lines left. Otherwise allotted carton numbers are kept.
     renumber: Optional[bool] = None
@@ -574,14 +667,14 @@ class AllocationPreviewIn(BaseModel):
     before the invoice exists. `exclude_invoice_id` is the invoice being
     edited, whose own boxes must not count as already delivered."""
     date: str
-    lines: list[InvoiceLineIn] = []
+    lines: list[InvoiceLineIn] = Field(default=[], max_length=5000)
     exclude_invoice_id: Optional[str] = None
 
 
 class OpenOrdersIn(BaseModel):
     """Which purchase orders still hold these items — what Custom PO offers.
     `exclude_invoice_id` hands the invoice being edited its own boxes back."""
-    item_ids: list[str] = []
+    item_ids: list[str] = Field(default=[], max_length=5000)
     exclude_invoice_id: Optional[str] = None
 
 
