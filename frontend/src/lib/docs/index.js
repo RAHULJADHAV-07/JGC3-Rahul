@@ -258,7 +258,8 @@ export function downloadDocumentPDF(no, ctx, report) {
   if (!parts.length) { alert(`${docTitle(no)} could not be built.`); return false; }
   // A document that copies a client workbook prints on that workbook's paper.
   const orientation = parts.every((p) => p.page === "portrait") ? "portrait" : undefined;
-  downloadPDF(docFullTitle(no), parts, { orientation });
+  // Named as its Excel download is, so the two files of a document match.
+  downloadPDF(documentFilename(no, ctx, report), parts, { orientation });
   return true;
 }
 
@@ -314,7 +315,8 @@ export function downloadSupplierDoc(no, ctx, supplierId, format = "excel") {
   // On the paper the form is set on: the order and the letter portrait, the e-way bill landscape.
   const orientation = d.page === "portrait" ? "portrait" : undefined;
   if (format === "word") return downloadDocsWord(filename, [{ html: d.html, page: d.page }]);
-  if (format === "pdf") { downloadPDF(`${docFullTitle(no)} · ${d.code}`, [{ html: d.html }], { orientation }); return true; }
+  // Named as its Excel download is, so the two files of a document match.
+  if (format === "pdf") { downloadPDF(filename, [{ html: d.html }], { orientation }); return true; }
   return downloadDocsExcel(filename, [{ name: d.code, html: d.html, sheets: d.sheets }]) !== false;
 }
 

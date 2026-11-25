@@ -8,16 +8,15 @@ export function origin16aSheet(ctx) {
   const E = ctx.EXPORTER;
   const G = formGrid(6);
   const { row, gap } = G;
-  letterheadRows(G, E);
+  letterheadRows(G, E, { a4: true });
+  // Spaced as the page spaces it (download.js · .dl.a4).
   row([[6, { v: LETTER_DATE(ctx.inv.date), s: DL.body }]]);
   gap();
   row([[6, { v: "DECLARATION", s: DL.midB }]]);
   row([[6, { v: "TO WHOMSOEVER IT MAY CONCERN", s: DL.midB }]]);
   gap();
   row([[6, { v: originLead(ctx), s: DL.just }]]);
-  gap();
-  ORIGIN_TERMS.forEach((t) => { row([[6, { v: t, s: DL.just }]]); gap(6); });
-  gap();
+  ORIGIN_TERMS.forEach((t) => { gap(); row([[6, { v: t, s: DL.just }]]); });
   // Dated at its head, the declaration is signed without a second date line.
   const sg = letterSignRows(G, ctx, E, { dated: false, signed: true });
   letterFootRows(G, E);

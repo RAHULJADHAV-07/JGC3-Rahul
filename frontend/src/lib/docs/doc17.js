@@ -1,4 +1,4 @@
-import { FOOT_PT, L, airOf, lenFamilies, PROFORMA_FAMILIES, PROFORMA_ROWS, SIGN_PT, USD, buyerLogoImage, commonOf, ddmm, deliveryMonth, esc, familyOf, fitSheet, fobModeOf, formGrid, num, perLabel, proformaDateOf, proformaNoOf, proformaRate, sum, usd } from "./common.js";
+import { FOOT_PT, L, airOf, lenFamilies, PROFORMA_FAMILIES, PROFORMA_ROWS, SIGN_PT, USD, buyerLogoImage, commonOf, ddmm, deliveryMonth, esc, familyOf, fitSheet, fobModeOf, oneIfClose, formGrid, num, perLabel, proformaDateOf, proformaNoOf, proformaRate, sum, usd } from "./common.js";
 
 /* A band per item group, in the order the invoice runs. A band whose goods have
    no length loses that column, as their moulded-fitting pages do. */
@@ -168,7 +168,8 @@ export function proforma17Sheet(ctx, bands) {
     row([[8, { v: l.text, s: P.foot }]], FOOT_PT);
   });
 
-  return fitSheet({
+  // A form that just runs over comes off one page, as the preview prints it.
+  return oneIfClose(fitSheet({
     name: "Proforma",
     rows: G.rows,
     merges: G.merges,
@@ -181,7 +182,7 @@ export function proforma17Sheet(ctx, bands) {
       paper: 9, orientation: "portrait", fit: true, fitH: 0,
       margins: { left: 0.5, right: 0.5, top: 0.5, bottom: 0.5, header: 0.3, footer: 0.3 },
     },
-  }, { widen: false });
+  }, { widen: false }), 1.25);
 }
 
 /* A blank line in the form, matching the worksheet's own gap rows. */

@@ -7,6 +7,22 @@
 
 export const RELEASES = [
   {
+    version: "7.8.2",
+    date: "2026-11-26",
+    notes: [
+      "Declarations (SCOMET, SDF, RoDTEP, declaration of origin): the Excel prints the same page as the PDF — the letterhead at full size, 12pt type, the same line spacing and the contact strip at the foot of the page.",
+      "Despatch instruction: the contact strip sits at the foot of the page, in the PDF and in the Excel, and the bold lines of the air letter are bold in Excel too.",
+      "VGM: the Excel carries the scanned letterhead, the stamp and the signature, laid out as the PDF.",
+      "E-way bill and buyer's proforma come out of Excel on the same number of pages as their PDF.",
+      "A PDF is saved under the document's own file name, the same as its Excel — no more “Jaikvin Global · Export System.pdf”. The Excel file carries the name too.",
+      "Barcode: Hansa and VP get a PP Fittings sheet and a Nylon Fittings sheet. All suppliers together: Oswin (a blank row before the PMF lines), PP Fittings and Nylon Fittings, each split supplier by supplier.",
+      "Buyers Summary: Total boxes and Received boxes are taken out of the Excel and the PDF.",
+      "Reports: the heading row repeats at the top of every page, in the PDF and when the Excel is printed.",
+      "Report PDFs: columns no longer break words a letter to a line — a wide report is set smaller to fit the page instead.",
+      "PO summary PDF: Delivered % is filled in, as in the Excel.",
+    ],
+  },
+  {
     version: "7.8.1",
     date: "2026-11-25",
     notes: [

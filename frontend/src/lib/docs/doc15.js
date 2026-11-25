@@ -10,7 +10,8 @@ export function sdf15Sheet(ctx) {
   const G = formGrid(6);
   const { row, gap } = G;
 
-  letterheadRows(G, E);
+  letterheadRows(G, E, { a4: true });
+  // Spaced as the page spaces it (download.js · .dl.a4).
   row([[6, { v: "D E C L A R A T I O N", s: DL.midB }]]);
   gap();
   row([[6, { v: "I/We declare that the particulars given herein above are true, correct and complete.", s: DL.body }]]);
@@ -19,26 +20,28 @@ export function sdf15Sheet(ctx) {
   gap();
 
   SDF_ENCLOSURES.forEach(([lines, answer, at], n) => lines.forEach((text, i) => {
-    row([[1, { v: i === 0 ? `${n + 1}.` : "", s: DL.n }],
+    row([[1, { v: i === 0 ? `${n + 1}.` : "", s: DL.dot }],
       [3, { v: text, s: DL.body }],
       [2, { v: i === at ? answer : "", s: DL.body }]]);
+    gap(6);
   }));
-  gap();
+  gap(7.5);
 
+  // The particulars box, its cells padded 4px over and under the line.
   sdfParticulars(ctx).forEach((cells) => row([
     [2, { v: cells[0], s: DL.bx }], [1, { v: cells[1], s: DL.bx }],
     [2, { v: cells[2], s: DL.bx }], [1, { v: cells[3], s: DL.bx }],
-  ]));
-  gap();
+  ], 25.2));
+  gap(13.5);
 
   row([[6, { v: SDF_FEMA, s: DL.just }]]);
   gap();
   row([[6, { v: "* To be submitted with the exports goods in the warehouse.", s: DL.body }]]);
-  gap();
 
-  const sg = letterSignRows(G, ctx, E, { signed: !!airOf(ctx) });
+  // By air: the stamp, then the signature block, as their copy carries them.
+  const sg = letterSignRows(G, ctx, E, { signed: !!airOf(ctx), order: "stamp-sign" });
   letterFootRows(G, E);
-  return letterSheet("SDF", G, undefined, sg && sg.map((im) => ({ ...im, col: im.name === "Stamp" ? 2 : 4 })));
+  return letterSheet("SDF", G, undefined, sg);
 }
 
 export const B_15 = (ctx) => {
