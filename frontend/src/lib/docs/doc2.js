@@ -66,7 +66,7 @@ export const B_2 = (ctx) => {
       <td class="r" data-t="int" data-f="${sheetFml}">${r.sheets}</td>
     </tr>`).join("");
 
-  const html = `<div class="title">2 · BARCODE</div>
+  const html = `<div class="title">BARCODE</div>
     <table class="wb fit">
       <colgroup><col style="width:14%"><col style="width:40.7%"><col style="width:17.6%">
         <col style="width:8.7%"><col style="width:8.7%"><col style="width:10.3%"></colgroup>
@@ -80,5 +80,5 @@ export const B_2 = (ctx) => {
         <td></td>
         <td class="r" data-t="int" data-sum="sheets">${sum(rows, "sheets")}</td></tr>
     </table>`;
-  return { name: "Barcode_2", html, sheet: barcodeSheet(ctx, rows), page: "portrait" };
+  return { name: "Barcode", html, sheet: barcodeSheet(ctx, rows), page: "portrait" };
 };

@@ -5,7 +5,7 @@ import {
   ClipboardList,
 } from "lucide-react";
 import {
-  Card, CardHead, Btn, Field, Input, Select, Pill, Mono, Empty, Note, SearchInput, Info,
+  Card, CardHead, Btn, Field, Input, Select, Pill, Empty, Note, SearchInput, Info,
   Spinner, ErrorState,
 } from "../../components/ui/index.jsx";
 import DownloadMenu from "../../components/ui/DownloadMenu.jsx";
@@ -18,7 +18,7 @@ import { useToast } from "../../providers/ToastProvider.jsx";
 import { useIsMobile } from "../../lib/useIsMobile.js";
 import { docCtx, poCtx } from "../../lib/docCtx.js";
 import {
-  renderDocument, DOC_META, DOC_GROUPS, PREVIEW_CSS, isPoDoc, PO_DOCS,
+  renderDocument, DOC_META, docTitle, docFullTitle, docMatches, DOC_GROUPS, PREVIEW_CSS, isPoDoc, PO_DOCS,
   supplierSplitDocs, downloadSupplierDoc, downloadDocumentExcel, downloadDocumentPDF, downloadDocumentWord,
   downloadStageExcel, downloadStagePDF, downloadStageWord,
 } from "../../lib/docs.js";
@@ -34,7 +34,7 @@ import { docInMode, listFor, modeLabel, shipComplete, shipMode } from "../../lib
 
    Two sources, and which one a document reads is not a preference:
 
-     PO Reports (1–6)  are raised off the purchase order. They exist the
+     PO Reports        are raised off the purchase order. They exist the
                        moment the buyer's order is entered and never wait on
                        a packing invoice.
      everything else   is raised off an invoice — the goods have to have been
@@ -186,7 +186,7 @@ export default function DocumentsPage({ group }) {
     if (!doc && !want) return;
     if (doc) {
       if (DOC_META[doc]) { setOpen(doc); setQ(""); }
-      else toast(`There is no document ${doc} — pick one from the list.`, { tone: "error" });
+      else toast("That document is not in the library — pick one from the list.", { tone: "error" });
     }
     if (want) setInvId(want);
     setParams({}, { replace: true });
@@ -214,9 +214,7 @@ export default function DocumentsPage({ group }) {
 
   const allDocs = allDocsAnyMode.filter(inMode);
   const groups = useMemo(() => {
-    const ql = q.trim().toLowerCase();
-    const match = (no) => !ql || no.toLowerCase().includes(ql) || (DOC_META[no] || "").toLowerCase().includes(ql);
-    return catalogue.map((g) => ({ ...g, docs: g.docs.filter((no) => inMode(no) && match(no)) })).filter((g) => g.docs.length);
+    return catalogue.map((g) => ({ ...g, docs: g.docs.filter((no) => inMode(no) && docMatches(no, q)) })).filter((g) => g.docs.length);
   }, [q, catalogue, invMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* A paper this mode does not use (VGM by air, say) gives way to the first
@@ -292,16 +290,16 @@ export default function DocumentsPage({ group }) {
   /* What each paper, each supplier's copy and each stage offers behind its
      three dots: the same three formats, off the same source. */
   const docMenu = (no) => ({
-    name: `${no} · ${DOC_META[no]}`,
-    onExcel: () => { if (downloadDocumentExcel(no, ctxFor(no))) toast(`Document ${no} · ${DOC_META[no]} — Excel`); },
-    onPDF: () => { if (downloadDocumentPDF(no, ctxFor(no))) toast(`Document ${no} · ${DOC_META[no]} — opening print dialog`); },
-    onWord: async () => { if (await downloadDocumentWord(no, ctxFor(no))) toast(`Document ${no} · ${DOC_META[no]} — Word`); },
+    name: docFullTitle(no),
+    onExcel: () => { if (downloadDocumentExcel(no, ctxFor(no))) toast(`${docFullTitle(no)} — Excel`); },
+    onPDF: () => { if (downloadDocumentPDF(no, ctxFor(no))) toast(`${docFullTitle(no)} — opening print dialog`); },
+    onWord: async () => { if (await downloadDocumentWord(no, ctxFor(no))) toast(`${docFullTitle(no)} — Word`); },
   });
   const supplierMenu = (d) => ({
-    name: `${open} · ${d.code}`,
-    onExcel: () => { if (downloadSupplierDoc(open, ctx, d.supplierId, "excel")) toast(`Document ${open} · ${d.code} — Excel`); },
-    onPDF: () => { if (downloadSupplierDoc(open, ctx, d.supplierId, "pdf")) toast(`Document ${open} · ${d.code} — opening print dialog`); },
-    onWord: async () => { if (await downloadSupplierDoc(open, ctx, d.supplierId, "word")) toast(`Document ${open} · ${d.code} — Word`); },
+    name: `${docFullTitle(open)} · ${d.code}`,
+    onExcel: () => { if (downloadSupplierDoc(open, ctx, d.supplierId, "excel")) toast(`${docFullTitle(open)} · ${d.code} — Excel`); },
+    onPDF: () => { if (downloadSupplierDoc(open, ctx, d.supplierId, "pdf")) toast(`${docFullTitle(open)} · ${d.code} — opening print dialog`); },
+    onWord: async () => { if (await downloadSupplierDoc(open, ctx, d.supplierId, "word")) toast(`${docFullTitle(open)} · ${d.code} — Word`); },
   });
   /* A stage downloads as one workbook (a sheet per document), one print job or
      one Word document, rather than a dozen separate files. Each paper is built
@@ -391,15 +389,14 @@ export default function DocumentsPage({ group }) {
                   <div key={no} className={`doc-item${!mobile && open === no ? " on" : ""}`}>
                     <button type="button" className="doc-pick" onClick={() => setOpen(no)}
                       aria-current={!mobile && open === no ? "true" : undefined}>
-                      <span className="doc-no">{no}</span>
-                      <span className="doc-name">{DOC_META[no]}</span>
+                      <span className="doc-name">{docTitle(no)}</span>
                     </button>
                     <DownloadMenu size="sm" {...docMenu(no)} />
                   </div>
                 ))}
               </div>
             ))}
-            {!groups.length && <Empty icon={Search} title={`Nothing matches “${q}”`}>Try a document number, or a word like “packing”, “VGM”, “invoice”.</Empty>}
+            {!groups.length && <Empty icon={Search} title={`Nothing matches “${q}”`}>Try a word like “packing”, “VGM”, “invoice”.</Empty>}
           </div>
         </Card>
 
@@ -411,7 +408,7 @@ export default function DocumentsPage({ group }) {
              the preview. */
           split.length > 0 && (
             <Card style={{ overflow: "hidden" }}>
-              <CardHead icon={Truck} title={<span>Document <Mono>{open}</Mono> · supplier-wise</span>} />
+              <CardHead icon={Truck} title={`${docFullTitle(open)} · supplier-wise`} />
               <div className="stack-sm" style={{ padding: "12px 14px" }}>
                 {split.map((d) => (
                   <div key={d.supplierId} className="row wrap" style={{ gap: 8, justifyContent: "space-between" }}>
@@ -427,7 +424,7 @@ export default function DocumentsPage({ group }) {
           )
         ) : (
         <Card style={{ overflow: "hidden" }}>
-          <CardHead icon={FileText} title={<span>Document <Mono>{open}</Mono> · {DOC_META[open]}</span>}>
+          <CardHead icon={FileText} title={docFullTitle(open)}>
             <span style={{ fontSize: 11.5, color: "var(--faint)" }}>
               {poMode ? <>PO {po.po} · {dmyNum(po.date)}</> : <>{inv.invoice_no} · {dmy(inv.date)}</>}
               {sup ? <> · {supCodeOf(sup)} only</> : null}

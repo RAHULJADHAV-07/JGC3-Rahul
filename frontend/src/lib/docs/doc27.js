@@ -76,7 +76,7 @@ export function vgmDeclaration(ctx) {
 }
 
 export const B_27 = (ctx) => ({
-  name: "VGM_27",
+  name: "VGM",
   html: vgmDeclaration(ctx),
   sheet: vgm27Sheet(ctx),
   page: "portrait",

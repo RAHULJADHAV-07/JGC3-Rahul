@@ -49,7 +49,7 @@ export function shippingInstructions(ctx, rowsOf = si26Rows) {
 }
 
 export const B_26 = (ctx) => ({
-  name: "Shipping_Instructions_26",
+  name: "Shipping_Instructions",
   html: shippingInstructions(ctx),
   sheet: si26Sheet(ctx, "Shipping Instructions"),
   page: "portrait",

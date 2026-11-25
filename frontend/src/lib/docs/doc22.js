@@ -51,7 +51,7 @@ export function letterToCha(ctx) {
 }
 
 export const B_22 = (ctx) => ({
-  name: "Letter_to_CHA_22",
+  name: "Letter_to_CHA",
   html: letterToCha(ctx),
   sheet: cha22Sheet(ctx, "Letter to CHA"),
   page: "portrait",

@@ -86,10 +86,13 @@ def range_key(item, supplier="") -> str:
 
 
 def _num(text) -> float | None:
+    """The number a master field holds. "nan" and "inf" are words, not sizes —
+    one NaN in a sort key leaves the whole list in no order at all."""
     try:
-        return float(str(text).strip())
+        n = float(str(text).strip())
     except (TypeError, ValueError):
         return None
+    return n if math.isfinite(n) else None
 
 
 def bore_mm(item) -> float:
@@ -111,6 +114,35 @@ def bore_mm(item) -> float:
         return float(_INCH_TO_MM.get(round(inches, 2), round(inches * 25.4)))
     g = re.search(r"(\d+(?:\.\d+)?)\s*MM", str(getattr(item, "group", "") or ""), re.I)
     return float(g.group(1)) if g else 1e9
+
+
+# A pipe's GD code spells out what it is: PE 25 24 is 25 MM by 24 inches, and a
+# PH after it is the same pipe cut to a round metric length.
+_PIPE_CODE = re.compile(r"^([A-Z]+)[\s-]*(\d{2})(\d{2})[\s-]*(PH)?$")
+
+
+def pipe_length(item) -> tuple:
+    """Where a pipe sits among those of its bore: (nominal length, the code it
+    shares with its PH twin, 0 plain / 1 PH).
+
+    The plain pipe leads and its PH twin follows. The length in the master
+    cannot decide that: up to 25 MM the plain ones are cut to inches and the
+    PH ones to a round metric figure (PE2524 is 610 mm, PE2524PH 600 mm), so
+    the twin sorted ahead of its own plain pipe — while from 32 MM up both are
+    the same and the code settled it. The inches in the code are the same for
+    both. A code that does not read as a length (PFH-1905 is five metres), or
+    does not agree with the master's to within a tenth, goes by the master."""
+    length = _num(getattr(item, "length", "")) or 0.0
+    gd = str(getattr(item, "gd", "") or getattr(item, "code", "") or "").strip().upper()
+    m = _PIPE_CODE.match(gd)
+    if not m:
+        return (length, gd, 0)
+    inches = int(m.group(3))
+    stem = m.group(1) + m.group(2) + m.group(3)
+    ph = 1 if m.group(4) else 0
+    if length and abs(inches * 25.4 - length) > length / 10:
+        return (length, stem, ph)
+    return (inches * 25.0, stem, ph)
 
 
 # ---------------- Item groups inside a range ----------------
@@ -180,10 +212,10 @@ def item_rank(item, supplier="", sequence=None, groups=None) -> tuple:
     gd = str(getattr(item, "gd", "") or getattr(item, "code", "") or "")
     code = str(getattr(item, "code", "") or "")
     if key == "Oswin":
-        length = _num(getattr(item, "length", "")) or 0.0
+        length, stem, ph = pipe_length(item)
         group = str(getattr(item, "group", "") or "")
-        return (at, blk["at"], blk["cat_at"], bore_mm(item), group, length, gd, code)
-    return (at, blk["at"], blk["cat_at"], 0.0, "", 0.0, gd, code)
+        return (at, blk["at"], blk["cat_at"], bore_mm(item), group, length, stem, ph, gd, code)
+    return (at, blk["at"], blk["cat_at"], 0.0, "", 0.0, gd, 0, gd, code)
 
 
 def rank_by(suppliers, sequence=None, groups=None):
@@ -1197,13 +1229,15 @@ def compute_costing(line, p) -> dict:
     profit_pc = fob_now * float(p.real_rate or 0) - per_pc
     profit_pct = (profit_pc * 100 / per_pc) if per_pc else 0.0
 
-    return {
+    out = {
         "diff": diff, "diffPct": diff_pct, "perBox": per_box, "sheets": sheets,
         "barcodeBox": barcode_box, "cartonBox": carton_box,
         "transportBox": transport_box, "otherBox": other_box,
         "totalBox": total_box, "perPc": per_pc, "fobCost": fob_cost,
         "fobDiff": fob_diff, "fobPct": fob_pct, "profitPc": profit_pc, "profitPct": profit_pct,
     }
+    # Divided by next to nothing, a percentage runs past what JSON can write.
+    return {k: v if math.isfinite(v) else 0.0 for k, v in out.items()}
 
 
 # One 20' container's usable volume — also what "boxes per FCL" defaults to

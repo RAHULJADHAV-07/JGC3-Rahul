@@ -1,4 +1,4 @@
-import { itemBlock, itemRank } from "./sequence.js";
+import { cmpKey, itemBlock, itemRank } from "./sequence.js";
 import { DOC_BLANKABLE } from "./columnPrefs.js";
 
 /* Adapter — API records into the shape the document engine reads.
@@ -50,14 +50,7 @@ export function itemComparator(suppliers = [], sequence, groups) {
     if (!keys.has(it)) keys.set(it, itemRank(it, supOf[it?.supplierId] || "", sequence, groups || undefined));
     return keys.get(it);
   };
-  return (a, b) => {
-    const x = keyOf(a), y = keyOf(b);
-    for (let i = 0; i < x.length; i++) {
-      if (x[i] === y[i]) continue;
-      return typeof x[i] === "number" && typeof y[i] === "number" ? x[i] - y[i] : String(x[i]).localeCompare(String(y[i]));
-    }
-    return 0;
-  };
+  return (a, b) => cmpKey(keyOf(a), keyOf(b));
 }
 
 /* Which block of its range a document item sits in (Setup → Item groups) —
@@ -179,7 +172,7 @@ export function docCtx({
 
 /* The purchase-order stage context.
 
-   The PO papers (1–6) are raised the moment the buyer's order is entered, so
+   The PO papers are raised the moment the buyer's order is entered, so
    they must not wait on a packing invoice the way every later document does.
    The engine still reads `ctx.inv` for the document date and the shipment
    block, so one is synthesised from the order: the PO's own date, its buyer,

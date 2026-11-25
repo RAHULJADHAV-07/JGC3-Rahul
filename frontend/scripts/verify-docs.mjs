@@ -185,6 +185,60 @@ Object.keys(docs.DOC_META).forEach((no) => {
 check("Custom PO", "every invoice paper renders", true);
 });
 
+/* A plain pipe, then its PH twin — the plain one is cut to inches up to 25 MM
+   and is the longer of the two, which is what used to put it second. */
+group("Plain then PH", () => {
+const A = "Plain then PH";
+const want = [["PE2524", "25", "610"], ["PE2524PH", '1"', "600"], ["PE2548", "25", "1220"], ["PE2548PH", '1"', "1200"],
+  ["PE3212", "32", "300"], ["PE3212PH", '1-1/4"', "300"]];
+const set = JSON.parse(JSON.stringify(D));
+const order = [3, 0, 5, 1, 4, 2];
+set.items = order.map((n) => want[n]).map(([gd, size, length]) => item(`i-${gd}`, {
+  code: gd.endsWith("PH") ? `9044${gd.slice(2, 6)}` : gd, gd, size, length, packing: 10, group: size.startsWith("1-") || size === "32" ? '32 MM (1.1/4")' : '25 MM (1")',
+  description: `${gd} P/RISER M X M`, unit_value: 9, unit_fob100: 0.2, supplier_id: OSW,
+}));
+set.poLines = PO("PO-Z", "2026-01-08", set.items.map((x) => [x.id, 100]));
+set.invoices = [{ ...set.invoices[1], lines: set.items.map((x) => line(x.id, OSW, 2)) }];
+poLegs(set.invoices, set.poLines, set.items);
+const c = ctxOf(set), o = poCtx({ po: "PO-Z", items: set.items, buyers: set.buyers, suppliers: set.suppliers, poLines: set.poLines, transports: [] });
+const gds = want.map((w) => w[0]);
+check(A, "invoice lines", C.L(c).map((r) => r.it.gd).join() === gds.join(), C.L(c).map((r) => r.it.gd).join());
+check(A, "order lines", C.orderAgg(o).map((r) => r.it.gd).join() === gds.join(), C.orderAgg(o).map((r) => r.it.gd).join());
+/* And as printed: wherever a paper lists the goods by GD code, in that order. */
+let listed = 0;
+Object.keys(docs.DOC_META).forEach((no) => {
+  const t = text(html(no, docs.isPoDoc(no) ? o : c));
+  const hits = gds.map((g) => [...t.matchAll(new RegExp(`\\b${g}\\b`, "g"))].map((m) => m.index));
+  if (hits.some((x) => !x.length)) return;
+  listed += 1;
+  // A paper of several tabs names a plain pipe on each (its code is its GD
+  // code) and a PH pipe, coded otherwise, on the last — where both are listed.
+  const at = hits.map((x) => x[x.length - 1]);
+  check(A, `doc ${no} prints them in order`, at.every((x, i) => !i || at[i - 1] < x), at.join(", "));
+});
+check(A, "the papers that list goods were all looked at", listed >= 15, String(listed));
+});
+
+/* Papers go by their names: no number heads one, names a file or a tab. */
+group("No numbers", () => {
+const A = "No numbers";
+const o = poCtx({ po: "PO-B", items: D.items, buyers: D.buyers, suppliers: D.suppliers, poLines: D.poLines, transports: D.transports });
+check(A, "the Buyers Order is gone", !docs.DOC_META["1"] && !docs.PO_DOCS.includes("1") && !docs.hasBuilder("1"));
+const files = {};
+Object.keys(docs.DOC_META).forEach((no) => {
+  const c = docs.isPoDoc(no) ? o : ctx;
+  const title = /<div class="title">([^<]*)/.exec(html(no, c))?.[1] || "";
+  check(A, `doc ${no}: its heading`, !/^\s*\d/.test(title), title);
+  const file = docs.documentFilename(no, c);
+  check(A, `doc ${no}: its file name`, !/^Doc_|^\d/.test(file) && !new RegExp(`_${no}(_|$)`).test(file.replace(/_(PO-B|DEMO-2)$/, "")), file);
+  (files[file] ||= []).push(no);
+});
+const shared = Object.entries(files).filter(([, nos]) => nos.length > 1);
+check(A, "no two papers are saved under one name", !shared.length, JSON.stringify(shared));
+const tabs = docs.DOC_GROUPS.flatMap((g) => g.docs).map(docs.docFullTitle);
+check(A, "no tab is named by a number", tabs.every((t) => !/\d/.test(t)), tabs.join(", "));
+});
+
 group("Transporter", () => {
 const renamed = JSON.parse(JSON.stringify(D));
 const inv = renamed.invoices[1];
@@ -295,7 +349,7 @@ const heads = C.L(ctx).filter((r) => r.blockHead).map((r) => r.blockHead);
 check("Item groups", "each block opens under its own heading", heads.join(" | ") === "Oswin | Oswin · PMF | Hansa — PP | Hansa — GRN", heads.join(" | "));
 const t7 = text(html("7"));
 check("Item groups", "doc 7 rules a band in for the PMF block", /Oswin · PMF \d+-\d+ PO-C PMF2524/.test(t7));
-check("Item groups", "doc 1 (the order) heads the PMF block too", text(html("1")).includes("Oswin · PMF"));
+check("Item groups", "the order's purchase sheet heads the PMF block too", text(html("4")).includes("Oswin · PMF"));
 check("Item groups", "doc 6 gives the PMF pipes an annexure of their own",
   C.supplierPoDocs(ctx).find((d) => d.supplierId === OSW)?.sheets.some((sh) => /PMF/.test(sh.name)));
 const one = JSON.parse(JSON.stringify(D));

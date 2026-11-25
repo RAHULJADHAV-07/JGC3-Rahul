@@ -7,7 +7,7 @@ import { packagingDeclaration, pkd21Sheet } from "./doc21.js";
 const BUYER = { buyer: true };
 
 export const B_33 = (ctx) => ({
-  name: "Packing_Declaration_Buyer_33",
+  name: "Packing_Declaration_Buyer",
   html: packagingDeclaration(ctx, BUYER),
   sheet: pkd21Sheet(ctx, "Declaration", BUYER),
   page: "portrait",

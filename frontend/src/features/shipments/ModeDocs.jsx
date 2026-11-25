@@ -1,7 +1,7 @@
 import { FileText, ExternalLink, Inbox } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { Pill } from "../../components/ui/index.jsx";
-import { DOC_META } from "../../lib/docs.js";
+import { DOC_META, docFullTitle } from "../../lib/docs.js";
 import { MODE_CHECKLIST, modeLabel } from "../../lib/modes.js";
 
 /* The papers a shipment of this mode needs — the ones the app generates (each
@@ -23,9 +23,8 @@ export default function ModeDocs({ mode, invId, onOpen }) {
       </div>
       <div className="mode-docs-grid">
         {list.generated.filter((no) => DOC_META[no]).map((no) => (
-          <button key={no} type="button" className="mode-doc" onClick={() => open(no)} title={`Open document ${no} in Documents`}>
-            <span className="doc-no">{no}</span>
-            <span className="grow">{DOC_META[no]}</span>
+          <button key={no} type="button" className="mode-doc" onClick={() => open(no)} title={`Open ${docFullTitle(no)} in Documents`}>
+            <span className="grow">{docFullTitle(no)}</span>
             <ExternalLink size={12} />
           </button>
         ))}

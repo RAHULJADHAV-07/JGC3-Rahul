@@ -68,5 +68,5 @@ export const B_15 = (ctx) => {
 
     ${letterFootBlock(E)}
   </div>`;
-  return { name: "SDF_Declaration_15", html, sheet: sdf15Sheet(ctx), page: "portrait" };
+  return { name: "SDF_Declaration", html, sheet: sdf15Sheet(ctx), page: "portrait" };
 };

@@ -7,6 +7,19 @@
 
 export const RELEASES = [
   {
+    version: "7.8.1",
+    date: "2026-11-25",
+    notes: [
+      "Item order: the plain pipe comes first and its PH pipe right after it, at every bore — 15, 20 and 25 MM (PE2524, PE2524PH …) now read as 32 MM and above always did. Every list, report, document and download follows it.",
+      "PO Reports: Buyers Order is taken out.",
+      "Documents are called by their names only — the numbers are gone from the lists, the headings, the papers, the workbook tabs and the file names. Typing an old number in the search still finds its paper.",
+      "Packing, Purchase and Sales of the suppliers are saved as “… Supplier” and the buyer's packing list as “Packing Buyer”, so no two files share a name.",
+      "Costing: a price or charge that is not a number is refused with a plain message, and one already on file no longer stops the sheet from opening.",
+      "Setup → Document columns: “Also in … other documents” counts documents, not columns.",
+      "When a new update goes up while you are working, the app says “New update available” with a Reload button. Nothing reloads by itself.",
+    ],
+  },
+  {
     version: "7.8.0",
     date: "2026-11-24",
     notes: [

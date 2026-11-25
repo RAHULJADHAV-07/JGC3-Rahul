@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Columns3, Eye, EyeOff, Trash2, RotateCcw, Save, Search, Copy, FileText, AlertTriangle } from "lucide-react";
 import {
-  Card, CardHead, Btn, Pill, Mono, Note, Empty, Spinner, Modal, SearchInput,
+  Card, CardHead, Btn, Pill, Note, Empty, Spinner, Modal, SearchInput,
 } from "../../components/ui/index.jsx";
 import {
   useInvoices, usePoList, useItems, useBuyers, useSuppliers, useTransports, usePoLines, useOptions,
@@ -10,7 +10,7 @@ import {
 import { useToast } from "../../providers/ToastProvider.jsx";
 import { useIsMobile } from "../../lib/useIsMobile.js";
 import { docCtx, poCtx } from "../../lib/docCtx.js";
-import { renderDocument, DOC_META, DOC_GROUPS, PREVIEW_CSS, isPoDoc } from "../../lib/docs.js";
+import { renderDocument, docFullTitle, docMatches, DOC_GROUPS, PREVIEW_CSS, isPoDoc } from "../../lib/docs.js";
 import { discoverColumns, rulesByDoc, sameColumn } from "../../lib/docColumns.js";
 import { safeHtml } from "../../lib/safeHtml.js";
 import { FitPaper } from "../documents/DocumentsPage.jsx";
@@ -109,7 +109,10 @@ export default function DocColumnsPanel({ leave = null, onLeave = () => {}, onDi
   const saved = useDocColumns();
   const save = useSaveDocColumns();
   const [draft, setDraft] = useState(null);       // Map id → { doc, key, label, mode }
-  const fromSaved = () => new Map((saved.data?.rules || []).map((r) => [id(r.doc, r.key), r]));
+  /* Rules of a paper that has since left the library (the Buyers Order) are
+     dropped: nothing here could show or clear them. */
+  const known = (rules) => new Map((rules || []).filter((r) => DOCS.includes(r.doc)).map((r) => [id(r.doc, r.key), r]));
+  const fromSaved = () => known(saved.data?.rules);
   useEffect(() => { if (saved.data && !draft) setDraft(fromSaved()); }, [saved.data]); // eslint-disable-line react-hooks/exhaustive-deps
   const dirty = useMemo(() => {
     if (!draft || !saved.data) return false;
@@ -145,10 +148,7 @@ export default function DocColumnsPanel({ leave = null, onLeave = () => {}, onDi
   const [open, setOpen] = useState("31");
   const [q, setQ] = useState("");
   const [colQ, setColQ] = useState("");
-  const docs = DOCS.filter((no) => {
-    const ql = q.trim().toLowerCase();
-    return !ql || no.toLowerCase().includes(ql) || (DOC_META[no] || "").toLowerCase().includes(ql);
-  });
+  const docs = DOCS.filter((no) => docMatches(no, q));
   const cols = useMemo(() => {
     const found = catalog?.[open] || [];
     const known = new Set(found.map((c) => c.key));
@@ -205,7 +205,7 @@ export default function DocColumnsPanel({ leave = null, onLeave = () => {}, onDi
 
   const commit = (then) => save.mutate([...draft.values()], {
     onSuccess: (data) => {
-      setDraft(new Map((data.rules || []).map((r) => [id(r.doc, r.key), r])));
+      setDraft(known(data.rules));
       toast("Document columns saved — every preview and download now follows them");
       if (typeof then === "function") then();
     },
@@ -269,8 +269,7 @@ export default function DocColumnsPanel({ leave = null, onLeave = () => {}, onDi
                     textAlign: "left", background: open === no ? "var(--teal-bg)" : "transparent",
                     color: "var(--ink)",
                   }}>
-                  <Mono>{no}</Mono>
-                  <span style={{ flex: 1, fontSize: 13 }}>{DOC_META[no]}</span>
+                  <span style={{ flex: 1, fontSize: 13 }}>{docFullTitle(no)}</span>
                   {n > 0 ? <Pill tone="amber">{n}</Pill>
                     : has === 0 ? <span style={{ fontSize: 11, color: "var(--faint)" }}>no columns</span> : null}
                 </button>
@@ -281,7 +280,7 @@ export default function DocColumnsPanel({ leave = null, onLeave = () => {}, onDi
 
         {/* ---------- the open document's columns ---------- */}
         <Card>
-          <CardHead icon={Columns3} title={`${open} · ${DOC_META[open] || ""}`}>
+          <CardHead icon={Columns3} title={docFullTitle(open)}>
             <Btn size="sm" variant="ghost" icon={Eye} onClick={() => setPreview(true)} disabled={!ctxFor(open)}>Preview</Btn>
             <Btn size="sm" variant="ghost" icon={RotateCcw} disabled={!countOf(open)}
               title={countOf(open) ? "Print every column of this document again" : "Every column of this document already prints"}
@@ -306,7 +305,7 @@ export default function DocColumnsPanel({ leave = null, onLeave = () => {}, onDi
               ) : cols.map((c, i) => {
                 const mode = modeOf(open, c.key);
                 const also = elsewhere(c);
-                const same = also.filter((m) => m.rel === "same").length;
+                const same = new Set(also.filter((m) => m.rel === "same").map((m) => m.doc)).size;
                 return (
                   <div key={c.key} className="row wrap"
                     style={{ gap: 10, padding: "9px 14px", borderTop: "1px solid var(--border)", justifyContent: "space-between" }}>
@@ -323,7 +322,7 @@ export default function DocColumnsPanel({ leave = null, onLeave = () => {}, onDi
                       {also.length > 0 && (
                         <div className="row" style={{ gap: 5, fontSize: 11.5, color: "var(--faint)", marginTop: 2 }}>
                           <Copy size={11} style={{ flexShrink: 0 }} />
-                          {same ? `Also in ${[...new Set(also.filter((m) => m.rel === "same").map((m) => m.doc))].length} other document${same === 1 ? "" : "s"}` : "Similar columns elsewhere"}
+                          {same ? `Also in ${same} other document${same === 1 ? "" : "s"}` : "Similar columns elsewhere"}
                         </div>
                       )}
                     </div>
@@ -374,7 +373,7 @@ export default function DocColumnsPanel({ leave = null, onLeave = () => {}, onDi
 
       {/* ---------- reset ---------- */}
       {resetting && (
-        <Modal size="sm" title={resetting === "all" ? "Reset every document?" : `Reset document ${resetting}?`}
+        <Modal size="sm" title={resetting === "all" ? "Reset every document?" : `Reset ${docFullTitle(resetting)}?`}
           icon={RotateCcw} onClose={() => setResetting(null)}
           footer={<>
             <Btn variant="ghost" onClick={() => setResetting(null)}>Cancel</Btn>
@@ -383,7 +382,7 @@ export default function DocColumnsPanel({ leave = null, onLeave = () => {}, onDi
           <div style={{ fontSize: 13 }}>
             {resetting === "all"
               ? "Every document goes back to printing all its columns."
-              : <>{DOC_META[resetting]} goes back to printing all its columns ({countOf(resetting)} hidden or deleted now).</>}
+              : <>{docFullTitle(resetting)} goes back to printing all its columns ({countOf(resetting)} hidden or deleted now).</>}
             {" "}Nothing changes on the papers until you save.
           </div>
         </Modal>
@@ -394,7 +393,7 @@ export default function DocColumnsPanel({ leave = null, onLeave = () => {}, onDi
         <Modal title={`${suggest.mode === "show" ? "Show" : suggest.mode === "hide" ? "Hide" : "Delete"} “${suggest.col.label}” in other documents too?`}
           icon={Search} onClose={() => setSuggest(null)}
           footer={<>
-            <Btn variant="ghost" onClick={() => setSuggest(null)}>Only document {open}</Btn>
+            <Btn variant="ghost" onClick={() => setSuggest(null)}>Only {docFullTitle(open)}</Btn>
             <Btn icon={suggest.mode === "delete" ? Trash2 : suggest.mode === "hide" ? EyeOff : Eye}
               disabled={!suggest.ticked.size} onClick={applySuggest}>
               {`${suggest.mode === "show" ? "Show" : suggest.mode === "hide" ? "Hide" : "Delete"} in ${suggest.ticked.size} more`}
@@ -423,9 +422,8 @@ export default function DocColumnsPanel({ leave = null, onLeave = () => {}, onDi
                       if (t.has(k)) t.delete(k); else t.add(k);
                       return { ...s, ticked: t };
                     })} />
-                    <Mono>{m.doc}</Mono>
                     <span style={{ flex: 1, fontSize: 13 }}>
-                      {DOC_META[m.doc]} — <b>{m.label}</b>
+                      {docFullTitle(m.doc)} — <b>{m.label}</b>
                     </span>
                     {now !== "show" && <Pill tone={MODE_TONE[now]}>{now === "hide" ? "Hidden" : "Deleted"} now</Pill>}
                     <Pill tone={m.rel === "same" ? "teal" : ""}>{m.rel === "same" ? "same name" : "similar"}</Pill>
@@ -439,7 +437,7 @@ export default function DocColumnsPanel({ leave = null, onLeave = () => {}, onDi
 
       {/* ---------- preview ---------- */}
       {preview && (
-        <Modal title={`${open} · ${DOC_META[open]} — with these columns`} icon={Eye} onClose={() => setPreview(false)}
+        <Modal title={`${docFullTitle(open)} — with these columns`} icon={Eye} onClose={() => setPreview(false)}
           footer={<Btn variant="ghost" onClick={() => setPreview(false)}>Close</Btn>}>
           <div style={{ fontSize: 12, color: "var(--faint)", marginBottom: 8 }}>
             The changes as they stand{dirty ? " (not yet saved)" : ""}, on {sample(open)}.

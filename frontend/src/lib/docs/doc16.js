@@ -40,5 +40,5 @@ export const B_16 = (ctx) => {
 
     ${letterFootBlock(E)}
   </div>`;
-  return { name: "RoDTEP_Declaration_16", html, sheet: rodtep16Sheet(ctx), page: "portrait" };
+  return { name: "RoDTEP_Declaration", html, sheet: rodtep16Sheet(ctx), page: "portrait" };
 };

@@ -179,7 +179,7 @@ export const B_12 = (ctx) => {
   const rates = [...new Set(all.map((g) => g.gst))];
   const one = rates.length <= 1 ? (rates[0] ?? 0.18) : null;
   const rateTh = one != null ? pctOf(one) : "GST";
-  const html = `<div class="title">12 · SHIPMENT BOXES &amp; VOLUME</div>
+  const html = `<div class="title">SHIPMENT BOXES &amp; VOLUME</div>
     <div class="sub">Invoice ${esc(ctx.inv.invoiceNo)} DT ${ddmm(ctx.inv.date)} · GST ${one != null ? pctOf(one) : "as per supplier"} · Rate @ Rs. ${ex}/$</div>
     <table class="wb">
       <tr>
@@ -193,5 +193,5 @@ export const B_12 = (ctx) => {
       ${footRow("CAPACITY", CONTAINER_CBM)}
       ${footRow("BALANCE", CONTAINER_CBM - volume)}
     </table>`;
-  return { name: "Shipment_Boxes_Volume_12", html, sheet: boxesVolumeSheet(ctx, blocks, ex) };
+  return { name: "Shipment_Boxes_Volume", html, sheet: boxesVolumeSheet(ctx, blocks, ex) };
 };

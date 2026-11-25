@@ -94,7 +94,7 @@ const BUYER_SCHEMA = (portOpts) => [
      whose form we do not print. */
   {
     key: "logo", label: "Logo", type: "image", span: 2,
-    hint: "The mark above their name on their letterhead, as it prints at the top of document 17.",
+    hint: "The mark above their name on their letterhead, as it prints at the top of the proforma.",
   },
   { key: "tagline", label: "Tagline", span: 2, hint: "The line under their name on their letterhead — e.g. Plumbing & Irrigation." },
   { key: "ac_code", label: "A/C code", hint: "The account code they file us under, as it prints on their purchase order." },

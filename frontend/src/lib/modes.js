@@ -110,16 +110,16 @@ export const MODE_CHECKLIST = {
   air: {
     generated: ["11", "10", "12", "13", "14", "15", "16A", "17", "18", "19", "21", "23", "26A", "30", "31", "33"],
     external: [
-      ["Air waybill (AWB)", "Issued by the airline / forwarder against the AWB instructions (26A)."],
+      ["Air waybill (AWB)", "Issued by the airline / forwarder against the AWB instructions."],
       ["Shipping bill", "Filed by the CHA at the air cargo complex — its number and date go on step 3."],
-      ["Freight certificate", "The forwarder's statement of the air freight — sent to the buyer with the originals (30)."],
-      ["Certificate of origin", "From the chamber / DGFT portal — listed on the letter to the buyer (30)."],
+      ["Freight certificate", "The forwarder's statement of the air freight — sent to the buyer with the originals."],
+      ["Certificate of origin", "From the chamber / DGFT portal — listed on the letter to the buyer."],
     ],
   },
   water: {
     generated: ["11", "10", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23", "24", "26", "27", "29", "30", "31", "33", "34"],
     external: [
-      ["Bill of lading", "Issued by the shipping line against the shipping instructions (26)."],
+      ["Bill of lading", "Issued by the shipping line against the shipping instructions."],
       ["Shipping bill", "Filed by the CHA — its number and date go on step 3."],
     ],
   },

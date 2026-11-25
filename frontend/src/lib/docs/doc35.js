@@ -21,6 +21,6 @@ export const B_35 = (ctx) => {
     { v: num(sum(rows, "fobTotal") * ex), r: 1, sum: "real", t: "inr" },
     { v: num(sum(rows, "valTotal")), r: 1, sum: "pur", t: "inr" },
     { v: "", span: 2 }, { v: num(gp), r: 1, sum: "gp", t: "inr" }];
-  const html = `<div class="title">35 · COSTING</div><div class="sub">Invoice ${esc(ctx.inv.invoiceNo)} DT ${ddmm(ctx.inv.date)} · Rate @ Rs. ${ex}</div>${tableOf(cols, rows, foot)}`;
-  return { name: "Costing_35", html };
+  const html = `<div class="title">COSTING</div><div class="sub">Invoice ${esc(ctx.inv.invoiceNo)} DT ${ddmm(ctx.inv.date)} · Rate @ Rs. ${ex}</div>${tableOf(cols, rows, foot)}`;
+  return { name: "Costing", html };
 };

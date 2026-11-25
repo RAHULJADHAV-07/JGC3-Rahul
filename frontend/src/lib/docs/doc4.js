@@ -95,7 +95,7 @@ export const B_4 = (ctx) => {
     </tr>`;
   }).join("");
 
-  const html = `<div class="title">4 · PURCHASE</div>
+  const html = `<div class="title">PURCHASE</div>
     <table class="wb">
       <tr class="sec po rule"><td colspan="13">PO NO : ${esc(poHeaderList(ctx))}</td></tr>
       <tr><th>CODE</th><th>GD CODE</th><th>SIZE</th><th>LENGTH</th>
@@ -112,5 +112,5 @@ export const B_4 = (ctx) => {
         <td></td>
         <td class="r" data-t="inr" data-sum="valtot">${wbRupee(sum(rows, "valTotal"))}</td></tr>
     </table>`;
-  return { name: "Purchase_4", html, sheet: purchaseSheet(ctx, rows), page: "portrait" };
+  return { name: "Purchase", html, sheet: purchaseSheet(ctx, rows), page: "portrait" };
 };

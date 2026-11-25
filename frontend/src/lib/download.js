@@ -10,7 +10,7 @@
              typed into.
 
    `downloadCSV` stays for the plain machine-readable dump. */
-import { buildXLSX } from "./xlsx.js";
+import { buildXLSX, safeName } from "./xlsx.js";
 import { buildDOCXPacked } from "./docx.js";
 import { readSections } from "./htmlDocx.js";
 import { safeHtml } from "./safeHtml.js";
@@ -62,15 +62,17 @@ export function downloadGridExcel(filename, sheetName, columns, rows, opts) {
  *  worksheet ready-built (`d.sheet`) — that layout is the client's, down to the
  *  column widths, so it is written as it stands rather than derived from the
  *  HTML. Its tab still takes the name the caller gave the document, so a
- *  whole-stage workbook stays numbered the way the others are. */
+ *  whole-stage workbook says which paper each tab is. */
 /* Renaming a document's tabs moves the ground under its own formulas: the
    packing list's second page reads its first by name, so a page prefixed into
-   "20 Page1" leaves the reference behind pointing at nothing. Every reference a
-   document makes to its own tabs is rewritten with them — quoted, because the
-   prefixed name carries a space. Only whole names followed by "!" are matched,
-   so a sheet called Page never rewrites one called Page1. */
-function renameSheets(sheets, prefix) {
-  const named = sheets.map((s) => [String(s.name), `${prefix} ${s.name}`]);
+   "Packing list Page1" leaves the reference behind pointing at nothing. Every
+   reference a document makes to its own tabs is rewritten with them — quoted,
+   because the prefixed name carries a space. Only whole names followed by "!"
+   are matched, so a sheet called Page never rewrites one called Page1. The
+   name is the one the tab ends up with: Excel's 31 characters, and not one
+   another tab of the workbook already has (`taken`). */
+function renameSheets(sheets, prefix, taken) {
+  const named = sheets.map((s) => [String(s.name), safeName(`${prefix} ${s.name}`, taken)]);
   const ref = (name) => (/^[A-Za-z0-9_]+$/.test(name) ? `${name}!` : `'${name.replace(/'/g, "''")}'!`);
   const fix = (f) => named.reduce((out, [from, to]) => out.split(`${from}!`).join(ref(to)), String(f));
   return sheets.map((s, i) => ({
@@ -84,17 +86,24 @@ function renameSheets(sheets, prefix) {
 export function downloadDocsExcel(filename, docs) {
   const list = (Array.isArray(docs) ? docs : [docs]).filter((d) => d && (d.html || d.sheet || d.sheets?.length));
   if (!list.length) return false;
+  return downloadWorkbook(filename, docSheets(list));
+}
+
+/* The tabs of one or more documents, each under the name it is saved with. */
+export function docSheets(list) {
   const many = list.length > 1;
-  return downloadWorkbook(filename, list.flatMap((d, i) => {
+  const taken = new Set();
+  return list.flatMap((d, i) => {
     const name = d.name || `Sheet${i + 1}`;
     // A document may be a whole workbook of its own — the supplier purchase
     // order is a letter plus an annexure per range, the packing list two pages
     // and its item-wise details. Taken on its own it keeps the tab names its
     // source file uses; gathered with others, each tab is prefixed so one
     // supplier's annexure can't be mistaken for another's.
-    if (d.sheets?.length) return many ? renameSheets(d.sheets, name) : d.sheets;
-    return [d.sheet ? { ...d.sheet, name } : htmlToSheet(d.html, name)];
-  }));
+    if (d.sheets?.length) return many ? renameSheets(d.sheets, name, taken) : d.sheets;
+    const tab = safeName(name, taken);
+    return [d.sheet ? { ...d.sheet, name: tab } : htmlToSheet(d.html, tab)];
+  });
 }
 
 /** Print one of the app's own tables, for the client to save as PDF. */

@@ -503,7 +503,7 @@ export function commercialInvoiceHtml(ctx) {
 }
 
 export const B_31 = (ctx) => ({
-  name: "Commercial_Invoice_31",
+  name: "Commercial_Invoice",
   html: commercialInvoiceHtml(ctx),
   sheets: commercialInvoiceSheets(ctx),
   page: "portrait",

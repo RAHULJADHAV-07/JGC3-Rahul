@@ -86,7 +86,7 @@ export function bla24Docx(ctx) {
 }
 
 export const B_24 = (ctx) => ({
-  name: "BL_Annexure_24",
+  name: "BL_Annexure",
   html: blAnnexure(ctx),
   sheet: bla24Sheet(ctx, "Attached Sheet"),
   docx: bla24Docx(ctx),

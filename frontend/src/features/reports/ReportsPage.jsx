@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { BarChart3, ClipboardList, Layers, Truck, Boxes, Check, Calculator } from "lucide-react";
 import {
-  Card, CardHead, Btn, Seg, Pill, Mono, DataTable, Input, Note, Info, Empty, Stat,
+  Card, CardHead, Btn, Seg, Mono, DataTable, Input, Note, Info, Empty, Stat,
   Spinner, ErrorState, Select,
 } from "../../components/ui/index.jsx";
 import { useAuth } from "../../auth/AuthProvider.jsx";
@@ -21,7 +21,7 @@ export default function ReportsPage() {
   const { has } = useAuth();
   const canBalance = has("reports.balance");
   const canCosting = has("reports.costing");
-  /* By item (Report 38) leads: it already carries what the PO-wise register
+  /* By item (supply details) leads: it already carries what the PO-wise register
      shows, so that one sits last and is opened only when asked for. */
   const [tab, setTab] = useState(canBalance ? "item" : "costing");
   const [remarks, setRemarks] = useState({});
@@ -74,7 +74,7 @@ export default function ReportsPage() {
     { key: "rem", label: "Remarks", render: (p) => <Input className="input-sm" style={{ width: 150 }} value={remarks[p.key] || ""} onChange={(e) => setRemarks((x) => ({ ...x, [p.key]: e.target.value }))} placeholder="add note" /> },
   ];
   const cfg = {
-    po: { cols: hidePriceCols(poCols), rows: poRows, key: (p) => p.key, doc: "37", title: "Balance order · PO wise (buyer)", foot: "Received = boxes delivered against that PO. The invoice column shows which invoice cleared it — remarks are typed here and travel into the download." },
+    po: { cols: hidePriceCols(poCols), rows: poRows, key: (p) => p.key, title: "Balance order · PO wise (buyer)", foot: "Received = boxes delivered against that PO. The invoice column shows which invoice cleared it — remarks are typed here and travel into the download." },
   }[tab];
 
   /* The download carries every column, prices included, with the arithmetic
@@ -95,7 +95,7 @@ export default function ReportsPage() {
     { h: "Remarks", key: "rem", f: (p) => remarks[p.key] || "" },
   ], hidden);
 
-  const exportTitle = `37 · Balance order — PO wise (buyer)${sup ? ` · ${supCode(sup)}` : ""}`;
+  const exportTitle = `Balance order — PO wise (buyer)${sup ? ` · ${supCode(sup)}` : ""}`;
   const exportOpts = { title: exportTitle, subtitle: `${sup ? supCode(sup) : "All suppliers · in supplier sequence"} · as on ${todayISO()}` };
 
   const segOptions = [
@@ -108,8 +108,6 @@ export default function ReportsPage() {
     <div className="stack">
       <div className="tabbar">
         {segOptions.length > 1 && <Seg options={segOptions} value={tab} onChange={setTab} />}
-        {tab === "po" && <Pill tone="teal">Report 37</Pill>}
-        {tab === "item" && <Pill tone="teal">Report 38</Pill>}
         {tab === "po" && (
           <Select className="tab-filter" value={sup} onChange={(e) => setSup(e.target.value)} aria-label="Supplier">
             <option value="">All suppliers</option>
@@ -118,10 +116,10 @@ export default function ReportsPage() {
         )}
         <span className="grow" />
         {tab === "po" && (
-          <DownloadMenu name="Report 37" disabled={!cfg.rows.length}
-            onExcel={() => downloadGridExcel(`Report_37_PO_wise_Buyer${sup ? `_${supCode(sup).replace(/[^A-Za-z0-9]+/g, "")}` : ""}_${todayISO()}`, "PO wise", poExport, poRows, exportOpts)}
+          <DownloadMenu name="Balance order — PO wise" disabled={!cfg.rows.length}
+            onExcel={() => downloadGridExcel(`Balance_Order_PO_wise_Buyer${sup ? `_${supCode(sup).replace(/[^A-Za-z0-9]+/g, "")}` : ""}_${todayISO()}`, "PO wise", poExport, poRows, exportOpts)}
             onPDF={() => downloadGridPDF(exportTitle, poExport, poRows, exportOpts)}
-            onWord={() => downloadGridWord(`Report_37_PO_wise_Buyer${sup ? `_${supCode(sup).replace(/[^A-Za-z0-9]+/g, "")}` : ""}_${todayISO()}`, exportTitle, poExport, poRows, exportOpts)} />
+            onWord={() => downloadGridWord(`Balance_Order_PO_wise_Buyer${sup ? `_${supCode(sup).replace(/[^A-Za-z0-9]+/g, "")}` : ""}_${todayISO()}`, exportTitle, poExport, poRows, exportOpts)} />
         )}
       </div>
 

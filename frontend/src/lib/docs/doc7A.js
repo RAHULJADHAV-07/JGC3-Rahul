@@ -37,5 +37,5 @@ export const B_7A = (ctx) => {
     { v: "" }, { v: num(sum(rows, "valTotal")), r: 1, sum: "costtot", t: "inr" }, { v: "" },
     { v: usd(sum(rows, "fobTotal")), r: 1, sum: "fobtot", t: "usd" },
     { v: num(sum(rows, "rbiTotal")), r: 1, sum: "rbi", t: "inr" }];
-  return { name: "Supplier_Master_7A", html: supplierTable(ctx, cols, foot, "7A · MOULDED ORDER MASTER (Supplier)", `PO NO : ${poHeaderList(ctx)} · Rate @ Rs. ${ex}`) };
+  return { name: "Supplier_Master", html: supplierTable(ctx, cols, foot, "MOULDED ORDER MASTER (Supplier)", `PO NO : ${poHeaderList(ctx)} · Rate @ Rs. ${ex}`) };
 };

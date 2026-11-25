@@ -438,7 +438,7 @@ function drawingXml(imgs, frames = []) {
 }
 
 /* Excel forbids : \ / ? * [ ] in a sheet name, and caps it at 31 characters. */
-function safeName(name, taken) {
+export function safeName(name, taken) {
   let n = String(name || "Sheet").replace(/[\\/?*[\]:]/g, " ").trim().slice(0, 31) || "Sheet";
   let i = 2;
   while (taken.has(n.toLowerCase())) {

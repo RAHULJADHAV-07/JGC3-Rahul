@@ -7,7 +7,7 @@ import { useToast } from "../../providers/ToastProvider.jsx";
 import { dmy, num } from "../../lib/format.js";
 import { hidePriceCols } from "../../lib/priceCols.js";
 import { docCtx } from "../../lib/docCtx.js";
-import { buildDocument, DOC_META } from "../../lib/docs.js";
+import { buildDocument, docFullTitle } from "../../lib/docs.js";
 import { INV_STATUS_TONE } from "../../lib/constants.js";
 import { serialBase, savedFroms } from "../../lib/serials.js";
 import { sortBySequence, blockOf, blockHeads } from "../../lib/sequence.js";
@@ -81,7 +81,7 @@ export default function InvoiceModal({ inv, onEditShip, onClose }) {
   }), { boxes: 0, pieces: 0, volume: 0, buyerAmt: 0, supAmt: 0 });
 
   const ctx = () => docCtx({ invoice: inv, items, buyers, suppliers, poLines, invoices, sequence, groups: itemGroups, hidden, colRules });
-  const grab = (no) => { buildDocument(no, ctx()); toast(`Document ${no} · ${DOC_META[no]} downloaded`); };
+  const grab = (no) => { buildDocument(no, ctx()); toast(`${docFullTitle(no)} downloaded`); };
 
   /* Rates and amounts are held off screen like everywhere else; the invoice
      documents carry them in full. */
@@ -143,7 +143,7 @@ export default function InvoiceModal({ inv, onEditShip, onClose }) {
       <div style={{ marginBottom: 12 }}>
         {done
           ? <Note tone="teal" icon={CheckCircle2}>Shipment details complete.</Note>
-          : <Note tone="amber" icon={AlertTriangle}>The <b>customs invoice (18)</b> needs {shipMode(inv.ship) === "air"
+          : <Note tone="amber" icon={AlertTriangle}>The <b>customs invoice</b> needs {shipMode(inv.ship) === "air"
             ? "the AWB number, airline, a flight and the port of discharge"
             : "the BL number, vessel, container and port of discharge"} — use <b>Edit shipment details</b> below.</Note>}
       </div>

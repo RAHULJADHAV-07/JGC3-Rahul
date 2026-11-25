@@ -35,5 +35,5 @@ export const B_16A = (ctx) => {
     ${signedHtml() || `<p class="sign">For M/s. ${esc(E.name)}<br>Proprietor- ${esc(SIGNATORY)}</p>`}
     ${letterFootBlock(E)}
   </div>`;
-  return { name: "Origin_Declaration_16A", html, sheet: origin16aSheet(ctx), page: "portrait" };
+  return { name: "Origin_Declaration", html, sheet: origin16aSheet(ctx), page: "portrait" };
 };

@@ -289,7 +289,7 @@ export function cwd34Docx(ctx) {
 }
 
 export const B_34 = (ctx) => ({
-  name: "CWD_34",
+  name: "CWD",
   html: cwd34Html(ctx),
   sheet: cwd34Sheet(ctx, "CWD"),
   docx: cwd34Docx(ctx),
