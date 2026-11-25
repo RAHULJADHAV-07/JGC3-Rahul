@@ -103,9 +103,9 @@ export default function SupplyDetailsPanel() {
     { h: "Volume m³", key: "vol", t: "num3", sum: true, v: (r) => r.volume, fml: "{boxes}*{volbox}" },
   ], hidden), [cols, suppliers, hidden]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const title = `38 · Supply details — ${label} wise`;
+  const title = `Supply details — ${label} wise`;
   const subtitle = `${supLabel} · ${ranged ? `${from || "start"} to ${to || todayISO()}` : (mode === "po" ? "currently pending orders" : "all invoices")} · as on ${todayISO()}`;
-  const fileStem = `Supply_Details_38_${label}_${(sup ? supCode(sup) : "All").replace(/[^A-Za-z0-9]+/g, "")}_${todayISO()}`;
+  const fileStem = `Supply_Details_${label}_${(sup ? supCode(sup) : "All").replace(/[^A-Za-z0-9]+/g, "")}_${todayISO()}`;
 
   return (
     <div className="stack">

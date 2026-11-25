@@ -24,7 +24,7 @@ export const VIEWS = [
   { id: "pre-shipment", to: "/pre-shipment", label: "Pre-Shipment Reports", icon: FileText, title: "Pre-Shipment Reports", crumb: "Reports", desc: "Everything customs needs before loading", group: "PRE", perm: "pre-shipment" },
   { id: "post-shipment", to: "/post-shipment", label: "Post Shipment Reports", icon: FileCheck2, title: "Post Shipment Reports", crumb: "Reports", desc: "Sent after the container sails", group: "POST", perm: "post-shipment" },
   { id: "reports", to: "/reports", label: "Other Reports", icon: BarChart3, title: "Other Reports", crumb: "Anytime", desc: "Balance registers & costing", perm: ["reports.balance", "reports.costing"] },
-  { id: "documents", to: "/documents", label: "All Documents", icon: FileText, title: "Documents", crumb: "Library", desc: "All 40 export papers", perm: ["orders.reports", "shipment.reports", "pre-shipment", "post-shipment", "reports.balance"] },
+  { id: "documents", to: "/documents", label: "All Documents", icon: FileText, title: "Documents", crumb: "Library", desc: "Every export paper", perm: ["orders.reports", "shipment.reports", "pre-shipment", "post-shipment", "reports.balance"] },
   { id: "setup", to: "/setup", label: "Setup", icon: Settings2, title: "Setup", crumb: "Configure", desc: "Items, buyers, suppliers, users", perm: ["setup.items", "setup.parties"] },
 ];
 

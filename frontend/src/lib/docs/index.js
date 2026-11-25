@@ -1,4 +1,3 @@
-import { B_1 } from "./doc1.js";
 import { B_2A } from "./doc2A.js";
 import { B_2 } from "./doc2.js";
 import { B_3 } from "./doc3.js";
@@ -82,11 +81,11 @@ function autoColumns(ctx) {
 /* Base filename, no extension — the download helper adds the right one.
    A PO-stage document is stamped with its purchase order, an invoice-stage
    one with its invoice. */
-function fnameFor(no, name, ctx) {
+function fnameFor(name, ctx) {
   const stamp = String(ctx.po || ctx.inv.invoiceNo || "").replace(/[^A-Za-z0-9]+/g, "-").replace(/^-|-$/g, "");
   // A paper narrowed to one supplier says so in its name.
   const sup = ctx.supplierId && ctx.supCode ? String(ctx.supCode(ctx.supplierId)).replace(/[^A-Za-z0-9]+/g, "") : "";
-  return `Doc_${no}_${String(name).replace(/[^A-Za-z0-9]+/g, "_")}${stamp ? `_${stamp}` : ""}${sup ? `_${sup}` : ""}`;
+  return `${String(name).replace(/[^A-Za-z0-9]+/g, "_")}${stamp ? `_${stamp}` : ""}${sup ? `_${sup}` : ""}`;
 }
 
 /* ============================================================================
@@ -94,7 +93,6 @@ function fnameFor(no, name, ctx) {
    one, so a paper can be read and reworked without the other thirty-nine.
    ============================================================================ */
 const B = {
-  "1": B_1,
   "2A": B_2A,
   "2": B_2,
   "3": B_3,
@@ -149,7 +147,7 @@ const B = {
 export const DOC_GROUPS = [
   // PO Reports are raised off the purchase order itself, so they exist the
   // moment the buyer's order is entered — nothing here waits on an invoice.
-  { k: "PO", t: "PO Reports", hint: "Raised when the buyer places an order", docs: ["1", "2", "3", "4", "5", "6"], source: "po" },
+  { k: "PO", t: "PO Reports", hint: "Raised when the buyer places an order", docs: ["2", "3", "4", "5", "6"], source: "po" },
   { k: "SUP", t: "Suppliers' Reports", hint: "Raised when suppliers deliver boxes", docs: ["7", "8", "9", "10", "11"] },
   /* 23 · Suppliers' details is filed under Other Reports in the client's own
      menu, but it also travels with the pre-shipment set, so it is listed under
@@ -160,14 +158,37 @@ export const DOC_GROUPS = [
   { k: "OTH", t: "Other Reports", hint: "Costing, supplier details and balance registers", docs: ["35", "23", "38", "36", "37", "39"] },
 ];
 
+/* Every paper's name, by the number the code (and the links and the saved
+   column rules) know it by. The numbers themselves are not shown anywhere: a
+   paper is called by its name, and where two papers share one (the packing
+   sheet of the order, of the suppliers and of the buyer) the menu head it is
+   listed under tells them apart — or docFullTitle, off the menu. */
 export const DOC_META = {
-  "1": "Buyers Order", "2A": "Master", "2": "Barcode", "3": "Packing", "4": "Purchase", "5": "Sales", "6": "Suppliers’ PO",
+  "2A": "Master", "2": "Barcode", "3": "Packing", "4": "Purchase", "5": "Sales", "6": "Suppliers’ PO",
   "7A": "Master (7A)", "7": "Packing", "8": "Purchase", "9": "Sales", "10": "E-way (inward)", "11A": "Delivery order", "11": "Delivery instr.",
   "12": "Boxes & volume", "13": "Export value decl.", "14": "SCOMET", "15": "SDF", "16": "RoDTEP", "16A": "Origin decl. (air)", "17": "Proforma", "18": "Custom invoice",
   "19": "Packing list", "20": "Packing itemwise", "21": "Packaging decl.", "22": "Letter to CHA", "23": "Supplier details", "24": "BL annexure",
   "25": "E-invoice", "26": "Shipping instr.", "26A": "AWB instr. (air)", "27": "VGM", "28": "Cost sheets", "29": "E-way (export)", "30": "Letter to buyer",
   "31": "Commercial invoice", "32": "Packing", "33": "Packaging decl.", "34": "CWD", "35": "Costing", "36": "Balance, supplier",
   "37": "Balance, item", "38": "Supply details", "39": "Balance boxes/vol", "40": "Bill regularisation",
+};
+
+/* What a paper is called where its menu head stands over it. */
+export const docTitle = (no) => DOC_META[no] || "Document";
+
+/* What it is called on its own — in a search, a workbook's tabs, a file — where
+   a name two papers share would not say which. */
+const DOC_FULL = {
+  "7": "Packing (Supplier)", "8": "Purchase (Supplier)", "9": "Sales (Supplier)",
+  "32": "Packing (Buyer)", "33": "Packaging decl. (Buyer)",
+};
+export const docFullTitle = (no) => DOC_FULL[no] || docTitle(no);
+
+/* Does a paper answer a search? By its name — and by its number, typed whole,
+   for whoever still knows the old one. */
+export const docMatches = (no, q) => {
+  const s = String(q || "").trim().toLowerCase();
+  return !s || docFullTitle(no).toLowerCase().includes(s) || String(no).toLowerCase() === s;
 };
 
 /* Which documents belong to the purchase-order stage — they are built from a
@@ -209,7 +230,7 @@ export function documentParts(no, ctx, report) {
 
 export function documentFilename(no, ctx, report) {
   const out = buildOne(no, ctx, report);
-  return fnameFor(no, out ? out.name : `Document_${no}`, ctx);
+  return fnameFor(out ? out.name : docTitle(no), ctx);
 }
 
 export function hasBuilder(no) { return !!B[no] || ["36", "37", "38", "39"].includes(no); }
@@ -222,22 +243,22 @@ export function hasBuilder(no) { return !!B[no] || ["36", "37", "38", "39"].incl
    one their builder typed. */
 export function downloadDocumentExcel(no, ctx, report) {
   const parts = documentParts(no, ctx, report);
-  if (!parts.length) { alert(`Document ${no} generator not available.`); return false; }
+  if (!parts.length) { alert(`${docTitle(no)} could not be built.`); return false; }
   return downloadDocsExcel(documentFilename(no, ctx, report), parts) !== false;
 }
 
 export async function downloadDocumentWord(no, ctx, report) {
   const parts = documentParts(no, ctx, report);
-  if (!parts.length) { alert(`Document ${no} generator not available.`); return false; }
+  if (!parts.length) { alert(`${docTitle(no)} could not be built.`); return false; }
   return downloadDocsWord(documentFilename(no, ctx, report), parts);
 }
 
 export function downloadDocumentPDF(no, ctx, report) {
   const parts = documentParts(no, ctx, report);
-  if (!parts.length) { alert(`Document ${no} generator not available.`); return false; }
+  if (!parts.length) { alert(`${docTitle(no)} could not be built.`); return false; }
   // A document that copies a client workbook prints on that workbook's paper.
   const orientation = parts.every((p) => p.page === "portrait") ? "portrait" : undefined;
-  downloadPDF(`${no} · ${DOC_META[no] || ""}`, parts, { orientation });
+  downloadPDF(docFullTitle(no), parts, { orientation });
   return true;
 }
 
@@ -262,7 +283,7 @@ export function downloadStageExcel(filename, numbers, ctxFor, report) {
     if (!ctx) return [];
     let p = [];
     try { p = documentParts(no, ctx, report); } catch (e) { return []; }
-    return p.map((x, i) => ({ ...x, name: `${no}${i || p.length > 1 ? ` ${x.name}` : ""}` }));
+    return p.map((x) => ({ ...x, name: p.length > 1 ? `${docFullTitle(no)} ${x.name}` : docFullTitle(no) }));
   });
   if (!parts.length) return false;
   return downloadDocsExcel(filename, parts) !== false;
@@ -293,7 +314,7 @@ export function downloadSupplierDoc(no, ctx, supplierId, format = "excel") {
   // On the paper the form is set on: the order and the letter portrait, the e-way bill landscape.
   const orientation = d.page === "portrait" ? "portrait" : undefined;
   if (format === "word") return downloadDocsWord(filename, [{ html: d.html, page: d.page }]);
-  if (format === "pdf") { downloadPDF(`${no} · ${DOC_META[no] || ""} · ${d.code}`, [{ html: d.html }], { orientation }); return true; }
+  if (format === "pdf") { downloadPDF(`${docFullTitle(no)} · ${d.code}`, [{ html: d.html }], { orientation }); return true; }
   return downloadDocsExcel(filename, [{ name: d.code, html: d.html, sheets: d.sheets }]) !== false;
 }
 

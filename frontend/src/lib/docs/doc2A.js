@@ -35,6 +35,6 @@ export const B_2A = (ctx) => {
     { v: "" }, { v: num(sum(rows, "valTotal")), r: 1, sum: "valtot", t: "inr" },
     { v: "" }, { v: usd(sum(rows, "fobTotal")), r: 1, sum: "fobtot", t: "usd" },
     { v: num(sum(rows, "rbiTotal")), r: 1, sum: "rbi", t: "inr" }];
-  const html = `<div class="title">2A · MASTER (Buyer Order)</div><div class="sub">PO NO : ${esc(poHeaderList(ctx))} &nbsp;— &nbsp;Rate @ Rs. ${ex}/US$</div>${tableOf(cols, rows, foot)}`;
-  return { name: "Master_2A", html };
+  const html = `<div class="title">MASTER (Buyer Order)</div><div class="sub">PO NO : ${esc(poHeaderList(ctx))} &nbsp;— &nbsp;Rate @ Rs. ${ex}/US$</div>${tableOf(cols, rows, foot)}`;
+  return { name: "Order_Master", html };
 };

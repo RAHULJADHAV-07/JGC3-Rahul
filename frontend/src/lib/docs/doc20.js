@@ -134,7 +134,7 @@ export const B_20 = (ctx) => {
   const form = PL_FORMS[20];
   const tabs = detailTabs(ctx);
   return {
-    name: "Packing_List_Itemwise_20",
+    name: "Packing_List_Itemwise",
     html: `${packingListHtml(ctx, form)}${tabs.map(({ tab, rows }) => `<div class="pgbrk"></div>
       <div class="dth">${esc(tab.name.toUpperCase())}</div>${detailHtml(ctx, tab, rows)}`).join("")}`,
     sheets: [...packingListSheets(ctx, form), ...tabs.map(({ tab, rows }) => detailSheet(ctx, tab, rows))],

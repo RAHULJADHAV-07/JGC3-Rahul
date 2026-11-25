@@ -246,7 +246,7 @@ export default function ShipmentWizard({ inv, onClose }) {
               <Field label="Gross wt (kg)" hint={totalWt && ship.skidWt ? `Total with skids: ${totalWt.toFixed(3)} kg` : undefined}>
                 <Input type="number" step="0.001" value={ship.grossWt || ""} onChange={(e) => setSh("grossWt", e.target.value)} placeholder="from the packing list" />
               </Field>
-              <Field label="Carton dimensions" hint="For the AWB instructions (26A).">
+              <Field label="Carton dimensions" hint="For the AWB instructions.">
                 <Input value={ship.dims || ""} onChange={(e) => setSh("dims", e.target.value)} placeholder="40 X 40 X 40 CMS" />
               </Field>
             </div>
@@ -281,11 +281,11 @@ export default function ShipmentWizard({ inv, onClose }) {
               </div>
               {/* The two letters carry the client's own letter number and date at their head. */}
               <div className="grid-2">
-                <Field label="Despatch letter No. (11)" hint="Printed at the head of the despatch instructions.">
+                <Field label="Despatch letter No." hint="Printed at the head of the despatch instructions.">
                   <Input value={ship.diRef || ""} onChange={(e) => setSh("diRef", e.target.value)} placeholder="e.g. JG/2026/1151" />
                 </Field>
                 <Field label="Despatch letter date"><Input type="date" value={ship.diDate || ""} onChange={(e) => setSh("diDate", e.target.value)} /></Field>
-                <Field label="Letter to buyer No. (30)" hint="Printed at the head of the letter sending the originals.">
+                <Field label="Letter to buyer No." hint="Printed at the head of the letter sending the originals.">
                   <Input value={ship.ltbRef || ""} onChange={(e) => setSh("ltbRef", e.target.value)} placeholder="e.g. JG/2026/1155" />
                 </Field>
                 <Field label="Letter to buyer date"><Input type="date" value={ship.ltbDate || ""} onChange={(e) => setSh("ltbDate", e.target.value)} /></Field>

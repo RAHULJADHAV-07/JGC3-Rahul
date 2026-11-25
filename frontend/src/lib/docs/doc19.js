@@ -593,7 +593,7 @@ export function packingListHtml(ctx, form) {
 }
 
 export const B_19 = (ctx) => ({
-  name: "Packing_List_19",
+  name: "Packing_List",
   html: packingListHtml(ctx, PL_FORMS[19]),
   sheets: packingListSheets(ctx, PL_FORMS[19]),
   page: "portrait",

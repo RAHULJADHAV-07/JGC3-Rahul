@@ -93,7 +93,7 @@ function scometAirHtml(ctx) {
 
 export const B_14 = (ctx) => {
   const E = ctx.EXPORTER;
-  if (airOf(ctx)) return { name: "Scomet_Declaration_14", html: scometAirHtml(ctx), sheet: scomet14AirSheet(ctx), page: "portrait" };
+  if (airOf(ctx)) return { name: "Scomet_Declaration", html: scometAirHtml(ctx), sheet: scomet14AirSheet(ctx), page: "portrait" };
   const html = `<div class="dl just a4">
     ${letterheadBlock(E)}
 
@@ -110,5 +110,5 @@ export const B_14 = (ctx) => {
 
     ${letterFootBlock(E)}
   </div>`;
-  return { name: "Scomet_Declaration_14", html, sheet: scomet14Sheet(ctx), page: "portrait" };
+  return { name: "Scomet_Declaration", html, sheet: scomet14Sheet(ctx), page: "portrait" };
 };

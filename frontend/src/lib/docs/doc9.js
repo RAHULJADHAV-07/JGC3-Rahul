@@ -141,7 +141,7 @@ export const B_9 = (ctx) => {
     </tr>`;
   }).join("");
 
-  const html = `<div class="title">9 · SALES (Supplier)</div>
+  const html = `<div class="title">SALES (Supplier)</div>
     <table class="wb">
       <tr class="sec po rule"><td colspan="13">PO NO. ${esc(poBannerList(ctx))}</td>
         <td class="red c" colspan="2">${esc(ddmm(ctx.inv.date))}</td><td colspan="2"></td></tr>
@@ -165,5 +165,5 @@ export const B_9 = (ctx) => {
         <td class="nb"></td>
         <td class="r" data-t="inr" data-sum="rbi">${wbRupee(sum(rows, "rbiTotal"))}</td></tr>
     </table>`;
-  return { name: "Sales_9", html, sheet: supplierSalesSheet(ctx, rows) };
+  return { name: "Sales_Supplier", html, sheet: supplierSalesSheet(ctx, rows) };
 };

@@ -404,5 +404,5 @@ export const B_17 = (ctx) => {
     </table></div>`;
   }).join("");
 
-  return { name: "Proforma_Invoice_17", html, sheet: proforma17Sheet(ctx, bands), page: "portrait" };
+  return { name: "Proforma_Invoice", html, sheet: proforma17Sheet(ctx, bands), page: "portrait" };
 };

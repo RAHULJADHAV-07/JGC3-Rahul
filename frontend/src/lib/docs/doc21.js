@@ -70,7 +70,7 @@ export function packagingDeclaration(ctx, opts) {
 }
 
 export const B_21 = (ctx) => ({
-  name: "Packing_Declaration_21",
+  name: "Packing_Declaration",
   html: packagingDeclaration(ctx),
   sheet: pkd21Sheet(ctx, "Declaration"),
   page: "portrait",

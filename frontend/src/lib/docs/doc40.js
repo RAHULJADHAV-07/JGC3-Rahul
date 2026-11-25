@@ -82,7 +82,7 @@ export function billRegularisation(ctx) {
 }
 
 export const B_40 = (ctx) => ({
-  name: "Bill_Regularisation_40",
+  name: "Bill_Regularisation",
   html: billRegularisation(ctx),
   sheet: ebr40Sheet(ctx, "Regularisation"),
   page: "portrait",

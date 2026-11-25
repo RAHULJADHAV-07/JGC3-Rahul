@@ -75,7 +75,7 @@ export function letterToBuyer(ctx) {
 }
 
 export const B_30 = (ctx) => ({
-  name: "Letter_to_Buyer_30",
+  name: "Letter_to_Buyer",
   html: letterToBuyer(ctx),
   sheet: ltb30Sheet(ctx, "Letter to Buyer"),
   page: "portrait",

@@ -55,7 +55,7 @@ function csHtml(rows) {
 export const B_28 = (ctx) => {
   const docs = cs28Docs(ctx);
   return {
-    name: "Cost_Sheets_28",
+    name: "Cost_Sheets",
     // One paper per factory, each starting a page of its own.
     html: docs.map((d) => csHtml(d.rows)).join('<div class="pgbrk"></div>'),
     sheets: docs.map((d) => csSheet(ctx, d.code, d.rows)),

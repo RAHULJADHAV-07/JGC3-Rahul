@@ -34,7 +34,7 @@ export function ewayExport(ctx) {
 }
 
 export const B_29 = (ctx) => ({
-  name: "Eway_Export_29",
+  name: "Eway_Export",
   html: ewayExport(ctx),
   sheet: ewx29Sheet(ctx, "E-way Export"),
   page: "portrait",

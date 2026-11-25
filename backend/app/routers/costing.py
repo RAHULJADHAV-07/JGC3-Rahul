@@ -3,6 +3,7 @@
 Every row is returned with its `computed` block already worked out server-side,
 so the sheet, the reports and any future export all quote the same figures.
 """
+import math
 from types import SimpleNamespace
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -21,7 +22,11 @@ _read = _write = require("reports.costing")
 
 def get_params(db: Session) -> schemas.CostParams:
     row = db.get(models.Setting, PARAMS_KEY)
-    return schemas.CostParams(**(row.value or {})) if row else schemas.CostParams()
+    # A figure on file that is not one gives way to the default, rather than
+    # closing the sheet.
+    kept = {k: v for k, v in ((row.value or {}) if row else {}).items()
+            if isinstance(v, (int, float)) and math.isfinite(v) and abs(v) <= 1e9}
+    return schemas.CostParams(**kept)
 
 
 def _out(line: models.CostingLine, params: schemas.CostParams) -> schemas.CostingLineOut:

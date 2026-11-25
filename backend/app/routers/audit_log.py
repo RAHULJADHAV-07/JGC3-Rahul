@@ -27,7 +27,7 @@ def list_events(
     outcome: str | None = Query(None, description="ok | denied | error"),
     days: int = Query(30, ge=1, le=365, description="How far back to look"),
     limit: int = Query(200, ge=1, le=1000),
-    offset: int = Query(0, ge=0),
+    offset: int = Query(0, ge=0, le=10_000_000),
 ):
     q = db.query(models.AuditLog).filter(
         models.AuditLog.at >= datetime.utcnow() - timedelta(days=days)

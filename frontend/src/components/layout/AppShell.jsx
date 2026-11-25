@@ -7,7 +7,7 @@ import {
 import { useAuth } from "../../auth/AuthProvider.jsx";
 import { useBadges } from "../../api/hooks.js";
 import { VIEWS, MENU, SETUP, ROUTE_TITLES } from "../../lib/nav.js";
-import { DOC_GROUPS, DOC_META } from "../../lib/docs.js";
+import { DOC_GROUPS, docFullTitle } from "../../lib/docs.js";
 import { APP_VERSION, versionLabel } from "../../lib/releases.js";
 import ErrorBoundary from "./ErrorBoundary.jsx";
 import { TEXT_SIZES, textSizeOf, readTextSize, applyTextSize } from "../../lib/textSize.js";
@@ -126,12 +126,12 @@ function Palette({ onClose, go, has }) {
        one of the other reports) answers the search once, under the first. */
     const docs = has(VIEWS.find((v) => v.id === "documents").perm)
       ? DOC_GROUPS.flatMap((g) => g.docs.map((no) => ({
-        kind: "doc", id: no, label: `${no} · ${DOC_META[no] || ""}`, sub: g.t, icon: FileText,
+        kind: "doc", id: no, label: docFullTitle(no), sub: g.t, icon: FileText,
       }))).filter((e, i, a) => a.findIndex((x) => x.id === e.id) === i)
       : [];
     const all = [...pages, ...docs];
     const s = q.trim().toLowerCase();
-    return (s ? all.filter((e) => `${e.label} ${e.sub}`.toLowerCase().includes(s)) : all).slice(0, 40);
+    return (s ? all.filter((e) => `${e.label} ${e.sub}`.toLowerCase().includes(s) || (e.kind === "doc" && e.id.toLowerCase() === s)) : all).slice(0, 40);
   }, [q, has]);
 
   useEffect(() => setSel(0), [q]);
@@ -156,7 +156,7 @@ function Palette({ onClose, go, has }) {
     <div className="backdrop" style={{ alignItems: "flex-start" }} onClick={onClose}>
       <div className="palette" onClick={(e) => e.stopPropagation()}>
         <input autoFocus value={q} onChange={(e) => setQ(e.target.value)}
-          placeholder="Go to a page, or find any of the 40 documents…" />
+          placeholder="Go to a page, or find any document…" />
         <div className="palette-list">
           {entries.map((e, i) => (
             <div key={e.kind + e.id} className={`p-item${i === sel ? " on" : ""}`}

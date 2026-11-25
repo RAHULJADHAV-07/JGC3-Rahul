@@ -1242,7 +1242,7 @@ export function supplierPoDocs(ctx) {
     const groups = rangesOf(arr);
     return {
       supplierId: sid, code: sp.code || sid, name: sp.name || sid,
-      docName: `Suppliers_PO_6_${(sp.code || sid).replace(/[^A-Za-z0-9]+/g, "_")}`,
+      docName: `Suppliers_PO_${(sp.code || sid).replace(/[^A-Za-z0-9]+/g, "_")}`,
       html: supplierPoBlock(ctx, sid, arr)
         + groups.map((g) => `<div class="pgbrk">${supplierAnnexBlock(ctx, g)}</div>`).join(""),
       sheets: [supplierLetterSheet(ctx, sp, arr), ...groups.map((g) => supplierAnnexSheet(ctx, g))],
@@ -1595,7 +1595,7 @@ export function ewaySupplierDocs(ctx) {
     const sp = supFor(ctx, sid);
     return {
       supplierId: sid, code: sp.code || sid, name: sp.name || sid,
-      docName: `Eway_Purchase_10_${(sp.code || sid).replace(/[^A-Za-z0-9]+/g, "_")}`,
+      docName: `Eway_Purchase_${(sp.code || sid).replace(/[^A-Za-z0-9]+/g, "_")}`,
       html: eway10Block(ctx, sid, arr),
       sheets: [eway10Sheet(ctx, sid, arr)],
     };
@@ -1989,7 +1989,7 @@ export function despatchSupplierDocs(ctx) {
     const sp = supFor(ctx, sid);
     return {
       supplierId: sid, code: sp.code || sid, name: sp.name || sid,
-      docName: `Despatch_Instructions_11_${(sp.code || sid).replace(/[^A-Za-z0-9]+/g, "_")}`,
+      docName: `Despatch_Instructions_${(sp.code || sid).replace(/[^A-Za-z0-9]+/g, "_")}`,
       html: despatch11Block(ctx, sid, arr),
       sheets: [despatch11Sheet(ctx, sid, arr)],
       page: "portrait",
@@ -5000,7 +5000,7 @@ export function balanceItem(ctx, data) {
   const foot = [{ v: "TOTAL", span: 5 }, { v: sum(rows, "qty").toLocaleString("en-IN"), r: 1, sum: "qty", t: "int" }, { v: "" },
     { v: sum(rows, "ordered"), r: 1, sum: "ordered", t: "int" }, { v: sum(rows, "recd"), r: 1, sum: "recd", t: "int" },
     { v: sum(rows, "pending"), r: 1, sum: "pending", t: "int" }, { v: num(sum(rows, "volume"), 2), r: 1, sum: "vol", t: "num" }];
-  return { name: "Balance_Order_Itemwise_37", html: `<div class="title">37 · BALANCE ORDER ITEM WISE</div><div class="sub">As on ${dmy(ctx.inv.date)}</div>${tableOf(cols, rows, foot)}` };
+  return { name: "Balance_Order_Itemwise", html: `<div class="title">BALANCE ORDER ITEM WISE</div><div class="sub">As on ${dmy(ctx.inv.date)}</div>${tableOf(cols, rows, foot)}` };
 }
 
 export function balanceSupplier(ctx, data, no) {
@@ -5013,12 +5013,12 @@ export function balanceSupplier(ctx, data, no) {
     { h: "Total Vol m³", r: 1, key: "vol", t: "num", fml: (r) => `{recd}*${Number(r.it.volume) || 0}`, f: (r) => num(r.volume, 2) },
     { h: "Invoice Value ₹", r: 1, key: "value", t: "inr", v: (r) => r.value, f: (r) => num(r.value) },
   ];
-  const title = no === "38" ? "38 · SUPPLY DETAILS (Item wise / Supplier wise)" : "36 · BALANCE ORDER SUPPLIER WISE";
+  const title = no === "38" ? "SUPPLY DETAILS (Item wise / Supplier wise)" : "BALANCE ORDER SUPPLIER WISE";
   const foot = [{ v: "TOTAL", span: 5 }, { v: sum(rows, "recd"), r: 1, sum: "recd", t: "int" },
     { v: sum(rows, "pending"), r: 1, sum: "pending", t: "int" },
     { v: num(sum(rows, "volume"), 2), r: 1, sum: "vol", t: "num" },
     { v: num(sum(rows, "value")), r: 1, sum: "value", t: "inr" }];
-  return { name: `Balance_Supplierwise_${no}`, html: `<div class="title">${title}</div><div class="sub">As on ${dmy(ctx.inv.date)}</div>${tableOf(cols, rows, foot)}` };
+  return { name: no === "38" ? "Supply_Details" : "Balance_Supplierwise", html: `<div class="title">${title}</div><div class="sub">As on ${dmy(ctx.inv.date)}</div>${tableOf(cols, rows, foot)}` };
 }
 
 export function balanceBoxes(ctx, data) {
@@ -5034,7 +5034,7 @@ export function balanceBoxes(ctx, data) {
   const pendVol = rows.reduce((a, r) => a + r.pending * (r.it.volume || 0), 0), pendNet = rows.reduce((a, r) => a + r.pending * (r.it.netPerBox || 0), 0);
   const foot = [{ v: "TOTAL", span: 2 }, { v: sum(rows, "pending"), r: 1, sum: "pending", t: "int" }, { v: "" },
     { v: num(pendVol, 2), r: 1, sum: "pendvol", t: "num" }, { v: "" }, { v: num(pendNet, 3), r: 1, sum: "pendnet", t: "num3" }];
-  return { name: "Balance_Boxes_Volume_39", html: `<div class="title">39 · BALANCE ORDERS — BOXES &amp; VOLUME</div><div class="sub">As on ${dmy(ctx.inv.date)}</div>${tableOf(cols, rows, foot)}` };
+  return { name: "Balance_Boxes_Volume", html: `<div class="title">BALANCE ORDERS — BOXES &amp; VOLUME</div><div class="sub">As on ${dmy(ctx.inv.date)}</div>${tableOf(cols, rows, foot)}` };
 }
 
 // Fallback for 36–39 when the live balance register isn't supplied (context = this invoice only).

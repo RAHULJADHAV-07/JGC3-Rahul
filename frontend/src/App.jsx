@@ -7,6 +7,7 @@ import LoginPage from "./auth/LoginPage.jsx";
 import ForcePasswordChange from "./auth/ForcePasswordChange.jsx";
 import AppShell from "./components/layout/AppShell.jsx";
 import NotFound from "./components/layout/NotFound.jsx";
+import UpdateNotice from "./components/layout/UpdateNotice.jsx";
 import { Spinner, Empty } from "./components/ui/index.jsx";
 import { ROUTE_PERMS, firstAllowedRoute } from "./lib/nav.js";
 
@@ -81,6 +82,7 @@ export default function App() {
         <AuthProvider>
           <ToastProvider>
             <Routed />
+            <UpdateNotice />
           </ToastProvider>
         </AuthProvider>
       </HashRouter>

@@ -113,6 +113,31 @@ export function boreMm(it) {
   return g ? Number(g[1]) : 1e9;
 }
 
+/* Where a pipe sits among those of its bore: [nominal length, the code it
+   shares with its PH twin, 0 plain / 1 PH].
+
+   A pipe's GD code spells out what it is — PE 25 24 is 25 MM by 24 inches, and
+   a PH after it is the same pipe cut to a round metric length. The plain pipe
+   leads and its PH twin follows; the master's length cannot decide that, since
+   up to 25 MM the plain ones are cut to inches (PE2524 is 610 mm) and the PH
+   ones are shorter (600 mm). A code that does not read as a length, or does
+   not agree with the master's to within a tenth, goes by the master.
+   Mirrors calc.pipe_length. */
+const PIPE_CODE = /^([A-Z]+)[\s-]*(\d{2})(\d{2})[\s-]*(PH)?$/;
+
+export function pipeLength(it) {
+  const n = Number(String(it?.length ?? "").trim());
+  const length = Number.isFinite(n) ? n : 0;
+  const gd = String(it?.gd || it?.code || "").trim().toUpperCase();
+  const m = PIPE_CODE.exec(gd);
+  if (!m) return [length, gd, 0];
+  const inches = Number(m[3]);
+  const stem = m[1] + m[2] + m[3];
+  const ph = m[4] ? 1 : 0;
+  if (length && Math.abs(inches * 25.4 - length) > length / 10) return [length, stem, ph];
+  return [inches * 25, stem, ph];
+}
+
 /* ---- Item groups inside a range ----
    A range can be split into blocks that print as tables of their own — Oswin's
    M/F threaded pipes (PMF…) below the rest of Oswin, for one. An item's
@@ -166,7 +191,7 @@ export function itemBlock(it, supplier = "", groups = DEFAULT_GROUPS) {
 }
 
 /* A sort key: [range place, block, category in block, bore, group, length,
-   GD code, code]. */
+   code shared with the PH twin, PH, GD code, code]. */
 export function itemRank(it, supplier = "", sequence = DEFAULT_SEQUENCE, groups = DEFAULT_GROUPS) {
   const seq = (sequence?.length ? sequence : DEFAULT_SEQUENCE).map((s) => String(s).toLowerCase());
   const key = rangeKey(it, supplier);
@@ -176,18 +201,22 @@ export function itemRank(it, supplier = "", sequence = DEFAULT_SEQUENCE, groups 
   const gd = String(it?.gd || it?.code || "");
   const code = String(it?.code || "");
   if (key === "Oswin") {
-    const len = Number(String(it?.length ?? "").trim()) || 0;
-    return [at, blk.at, blk.catAt, boreMm(it), String(it?.group || ""), len, gd, code];
+    const [len, stem, ph] = pipeLength(it);
+    return [at, blk.at, blk.catAt, boreMm(it), String(it?.group || ""), len, stem, ph, gd, code];
   }
-  return [at, blk.at, blk.catAt, 0, "", 0, gd, code];
+  return [at, blk.at, blk.catAt, 0, "", 0, gd, 0, gd, code];
 }
 
-const cmpKey = (a, b) => {
+/* Letter by letter, as the server compares them — not localeCompare, which
+   passes over a hyphen or a capital, so that the papers could list two codes
+   the other way round from the cartons the server numbered. */
+export const cmpKey = (a, b) => {
   for (let i = 0; i < a.length; i++) {
     const x = a[i], y = b[i];
     if (x === y) continue;
     if (typeof x === "number" && typeof y === "number") return x - y;
-    return String(x).localeCompare(String(y));
+    const s = String(x), t = String(y);
+    if (s !== t) return s < t ? -1 : 1;
   }
   return 0;
 };

@@ -123,7 +123,7 @@ export const B_7 = (ctx) => {
     </tr>`;
   }).join("");
 
-  const html = `<div class="title">7 · PACKING (Supplier)</div>
+  const html = `<div class="title">PACKING (Supplier)</div>
     <table class="wb">
       <tr class="sec po rule"><td colspan="18">PO NO. ${esc(poBannerList(ctx))}</td></tr>
       <tr><th rowspan="2">SR. NO.</th><th rowspan="2">PO NO.</th><th>CODE</th><th>GD CODE</th><th>OSWIN CODE</th>
@@ -145,5 +145,5 @@ export const B_7 = (ctx) => {
         <td class="r" data-t="num3" data-sum="nettot">${wbFixed(sum(rows, "netTotal"), 3)}</td>
         <td class="r" data-t="num3" data-sum="grosstot">${wbFixed(sum(rows, "grossTotal"), 3)}</td></tr>
     </table>`;
-  return { name: "Packing_7", html, sheet: supplierPackingSheet(ctx, rows) };
+  return { name: "Packing_Supplier", html, sheet: supplierPackingSheet(ctx, rows) };
 };

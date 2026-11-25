@@ -176,7 +176,7 @@ shipment's own exchange rate (₹/$) is step 3 of the shipment wizard.
 
 ## Documents
 
-`frontend/src/lib/docs.js` generates all 40 export papers as Excel workbooks
+`frontend/src/lib/docs.js` generates all the export papers as Excel workbooks
 from one invoice, previewed on screen before download. The four report pages
 (PO / Suppliers' / Pre-Shipment / Post Shipment) are the same page narrowed to
 one menu head.

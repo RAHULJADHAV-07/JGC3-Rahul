@@ -2,7 +2,15 @@
 from datetime import date as _date, datetime
 from typing import Annotated, Literal, Optional, Any
 from fastapi import HTTPException
-from pydantic import AfterValidator, BaseModel, BeforeValidator, ConfigDict, EmailStr, Field, field_validator
+from pydantic import AfterValidator, BeforeValidator, ConfigDict, EmailStr, Field, field_validator
+from pydantic import BaseModel as _BaseModel
+
+
+class BaseModel(_BaseModel):
+    """Every schema. A figure written as text is read as a figure, and "nan"
+    and "inf" read as ones too — past app/bodyguard.py, which sees only text.
+    Stored, they close the list they are on to everybody, so none is taken."""
+    model_config = ConfigDict(allow_inf_nan=False)
 
 
 class ORMModel(BaseModel):
@@ -42,6 +50,10 @@ Boxes = Annotated[int, Field(ge=0, le=1_000_000)]
 Pieces = Annotated[int, Field(ge=0, le=100_000_000)]
 Serial = Annotated[int, Field(ge=0, le=1_000_000_000)]
 Rate = Annotated[float, Field(ge=0, le=1_000_000)]
+# The costing sheet's prices and charges, and the counts they are spread over:
+# inside what the arithmetic and the column can hold.
+Money = Annotated[float, Field(ge=-1e9, le=1e9)]
+Count = Annotated[int, Field(ge=0, le=100_000_000)]
 # What an edit sends back as it read it. A number or a date on file from before
 # these rules must still save with the rest of the form, so only a *changed* one
 # is held to them (`restated`).
@@ -392,7 +404,9 @@ class BuyerBase(BaseModel):
     @field_validator("ports", mode="before")
     @classmethod
     def _ports_none_is_empty(cls, v):
-        return [str(p).strip() for p in (v or []) if str(p).strip()]
+        if v and not isinstance(v, (list, tuple)):
+            raise ValueError("send the ports as a list")
+        return [str(p).strip() for p in (v or []) if p is not None and str(p).strip()]
 
 
 class BuyerCreate(BuyerBase):
@@ -716,7 +730,14 @@ class CostingLineBase(BaseModel):
 
 
 class CostingLineCreate(CostingLineBase):
-    pass
+    unit: Count = 0
+    box: Count = 0
+    price_old: Money = 0.0
+    price_new: Money = 0.0
+    boxes_fcl: Count = 0
+    fob_now: Money = 0.0
+    fob_old: Money = 0.0
+    item_id: Ref = None
 
 
 class CostingLineUpdate(BaseModel):
@@ -724,37 +745,48 @@ class CostingLineUpdate(BaseModel):
     code: Optional[str] = None
     dia: Optional[str] = None
     length: Optional[str] = None
-    unit: Optional[int] = None
-    box: Optional[int] = None
-    price_old: Optional[float] = None
-    price_new: Optional[float] = None
-    boxes_fcl: Optional[int] = None
-    fob_now: Optional[float] = None
-    fob_old: Optional[float] = None
-    item_id: Optional[str] = None
+    unit: Optional[Count] = None
+    box: Optional[Count] = None
+    price_old: Optional[Money] = None
+    price_new: Optional[Money] = None
+    boxes_fcl: Optional[Count] = None
+    fob_now: Optional[Money] = None
+    fob_old: Optional[Money] = None
+    item_id: Ref = None
 
 
 class CostingLineOut(CostingLineBase, ORMModel):
     id: str
     computed: dict[str, Any] = {}
 
+    # A row left without a figure reads as nil rather than closing the sheet.
+    @field_validator("gd", "code", "dia", "length", mode="before")
+    @classmethod
+    def _none_is_blank(cls, v):
+        return "" if v is None else v
+
+    @field_validator("unit", "box", "price_old", "price_new", "boxes_fcl", "fob_now", "fob_old", mode="before")
+    @classmethod
+    def _none_is_nil(cls, v):
+        return v if v is not None and v == v else 0
+
 
 class CostParams(BaseModel):
     model_config = ConfigDict(extra="ignore")
-    barcode_sheet: float = 20.0    # ₹ per sheet of 125 stickers
-    carton_price: float = 0.0      # ₹ for the carton one box is packed in
-    transport_fcl: float = 15000.0  # ₹ inland transport per container
-    other_fcl: float = 50000.0      # ₹ clearing & other charges per container
-    ex_rate: float = 90.0           # ₹/$ used to express our cost in USD
-    real_rate: float = 94.5         # ₹/$ actually realised on the FOB price
+    barcode_sheet: Money = 20.0    # ₹ per sheet of 125 stickers
+    carton_price: Money = 0.0      # ₹ for the carton one box is packed in
+    transport_fcl: Money = 15000.0  # ₹ inland transport per container
+    other_fcl: Money = 50000.0      # ₹ clearing & other charges per container
+    ex_rate: Money = 90.0           # ₹/$ used to express our cost in USD
+    real_rate: Money = 94.5         # ₹/$ actually realised on the FOB price
 
 
 class CostingPreviewIn(BaseModel):
     """Cost one item at a typed price without saving anything — the live
     working behind the costing screen's summary."""
     item_id: str
-    price_new: float = 0.0
-    price_old: Optional[float] = None
-    boxes_fcl: Optional[int] = None
-    fob_now: Optional[float] = None
-    fob_old: Optional[float] = None
+    price_new: Money = 0.0
+    price_old: Optional[Money] = None
+    boxes_fcl: Optional[Count] = None
+    fob_now: Optional[Money] = None
+    fob_old: Optional[Money] = None

@@ -59,7 +59,7 @@ export function suppliersDetails(ctx) {
 }
 
 export const B_23 = (ctx) => ({
-  name: "Suppliers_Details_23",
+  name: "Suppliers_Details",
   html: suppliersDetails(ctx),
   sheet: sup23Sheet(ctx, "Suppliers Details"),
   page: "portrait",

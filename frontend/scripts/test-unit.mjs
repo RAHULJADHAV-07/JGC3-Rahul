@@ -560,3 +560,211 @@ test("every nginx location that sets a header carries the security headers too",
   ["Content-Security-Policy", "X-Frame-Options", "X-Content-Type-Options", "Referrer-Policy", "Cross-Origin-Opener-Policy"].forEach((k) => assert.equal(sent[k], vercel[k], k));
   assert.match(sent["Content-Security-Policy"], /script-src 'self';/);
 });
+
+/* ---- the item sequence: a plain pipe, then its PH twin --------------------- */
+const { sortBySequence, pipeLength } = await import("../src/lib/sequence.js");
+const seedItems = async () => {
+  const fs = await import("node:fs");
+  const { items } = JSON.parse(fs.readFileSync(new URL("../../backend/app/data/masters_seed.json", import.meta.url), "utf8"));
+  return items.map((x) => ({ ...x, supplier_id: x.supplier_code }));
+};
+const shuffle = (list) => { let n = 11; return list.map((x) => [(n = (n * 1103515245 + 12345) % 2147483648), x]).sort((a, b) => a[0] - b[0]).map(([, x]) => x); };
+const suppliersOf = (items) => [...new Set(items.map((x) => x.supplier_code))].map((c) => ({ id: c, code: c, name: c }));
+
+test("25 MM as photographed: the plain pipe leads, its PH pipe follows", () => {
+  const want = [["PE2524", "610"], ["PE2524PH", "600"], ["PE2530", "760"], ["PE2530PH", "750"], ["PE2536", "915"], ["PE2536PH", "900"],
+    ["PE2548", "1220"], ["PE2548PH", "1200"], ["PE2572", "1800"], ["PE2572PH", "1800"]];
+  const items = want.map(([gd, length]) => ({ gd, code: gd, size: "25", length, group: '25 MM (1")', source_sheet: "Oswin" }));
+  assert.deepEqual(sortBySequence(shuffle(items)).map((x) => x.gd), want.map((w) => w[0]));
+});
+
+test("every bore reads as the client's own sheet does", async () => {
+  const items = await seedItems();
+  const groups = {};
+  sortBySequence(shuffle(items), { suppliers: suppliersOf(items) }).filter((x) => x.source_sheet === "Oswin")
+    .forEach((x) => (groups[x.group] ||= []).push(x.source_row));
+  assert.equal(Object.keys(groups).length, 10);
+  Object.entries(groups).forEach(([g, at]) => assert.deepEqual(at, [...at].sort((a, b) => a - b), g));
+});
+
+test("a code that is not a bore and inches goes by the master's length", () => {
+  assert.deepEqual(pipeLength({ gd: "PFH-1905", length: "5" }), [5, "PFH1905", 0]);
+  assert.deepEqual(pipeLength({ gd: "PEL-153", length: "3000" }), [3000, "PEL-153", 0]);
+  assert.equal(pipeLength({ gd: "PE2524", length: "1500" })[0], 1500);
+  assert.equal(pipeLength({ gd: "PE2536", length: "" })[0], 900);
+  assert.deepEqual(pipeLength({ gd: "pe 2524-ph", length: "600" }), [600, "PE2524", 1]);
+  ["nan", "Infinity", "1,220", null, undefined].forEach((length) => assert.ok(Number.isFinite(pipeLength({ gd: "X", length })[0])));
+});
+
+test("codes are compared letter by letter, as the server does", () => {
+  const items = ["b1", "A-2", "A1", "B1"].map((gd) => ({ gd, code: gd, source_sheet: "Kiran" }));
+  assert.deepEqual(sortBySequence(items).map((x) => x.gd), ["A-2", "A1", "B1", "b1"]);
+});
+
+/* ---- the documents carry names, not numbers -------------------------------- */
+const docsLib = await import("../src/lib/docs.js");
+const { docSheets } = await import("../src/lib/download.js");
+
+test("PO Reports no longer holds the Buyers Order", () => {
+  const { DOC_GROUPS, DOC_META, PO_DOCS, hasBuilder, isPoDoc } = docsLib;
+  assert.deepEqual(PO_DOCS, ["2", "3", "4", "5", "6"]);
+  assert.ok(!DOC_GROUPS.some((g) => g.docs.includes("1")));
+  assert.ok(!DOC_META["1"] && !hasBuilder("1") && !isPoDoc("1"));
+  DOC_GROUPS.flatMap((g) => g.docs).forEach((no) => { assert.ok(DOC_META[no], no); assert.ok(hasBuilder(no), no); });
+});
+
+test("a paper's own name tells it apart from every other", () => {
+  const { DOC_GROUPS, docFullTitle, docTitle } = docsLib;
+  const nos = [...new Set(DOC_GROUPS.flatMap((g) => g.docs))];
+  const names = nos.map(docFullTitle);
+  assert.deepEqual(names.length, new Set(names).size);
+  names.forEach((n) => assert.doesNotMatch(n, /\d/));
+  // Under one menu head the short name is enough.
+  DOC_GROUPS.forEach((g) => assert.equal(new Set(g.docs.map(docTitle)).size, g.docs.length, g.t));
+});
+
+test("a search finds a paper by its name, or by its old number typed whole", () => {
+  const { docMatches } = docsLib;
+  assert.ok(docMatches("18", "custom") && docMatches("18", "18") && docMatches("16A", "16a") && docMatches("27", " vgm "));
+  assert.ok(!docMatches("18", "8") && !docMatches("18", "1") && docMatches("18", "") && docMatches("7", "supplier"));
+});
+
+test("no screen, file name or title prints a document number", async () => {
+  const fs = await import("node:fs");
+  const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(new URL(`${e.name}/`, d)) : [new URL(e.name, d)]));
+  const files = walk(new URL("../src/", import.meta.url)).filter((f) => /\.jsx?$/.test(f.pathname) && !f.pathname.endsWith("releases.js"));
+  const bad = [];
+  files.forEach((f) => {
+    // Comments may still speak of the papers by number; what is printed may not.
+    const code = fs.readFileSync(f, "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|\s)\/\/.*$/gm, "");
+    [/["'`>](\d{1,2}A?) · [A-Z]/, /\$\{(no|open)\} · /, /Document \$\{(no|open)\}/, /Report 3\d/, /Doc_\$\{/, /document \d{1,2}\b/i,
+      /name: "[A-Za-z_]+_\d{1,2}A?"/, /[a-z] \((\d{2}A?|[1-9])\)[."<]/, /className="doc-no"/].forEach((re) => {
+      const m = re.exec(code);
+      if (m) bad.push(`${f.pathname.split("/src/")[1]}: ${m[0]}`);
+    });
+  });
+  assert.deepEqual(bad, []);
+});
+
+test("gathered tabs keep Excel's limits, and the formulas between them follow", () => {
+  const book = (cell) => [{ name: "Page1", rows: [[{ v: 1 }]] }, { name: "Page2", rows: [[{ f: cell }]] }];
+  const long = "A paper with a very long name indeed";
+  const tabs = docSheets([{ name: long, sheets: book("Page1!A1") }, { name: long, sheets: book("Page1!A1*2") }, { name: "Packing", sheet: { name: "x", rows: [] } },
+    { name: "Packing", sheet: { name: "x", rows: [] } }]);
+  const names = tabs.map((t) => t.name);
+  assert.equal(new Set(names.map((n) => n.toLowerCase())).size, names.length);
+  names.forEach((n) => assert.ok(n.length <= 31 && !/[\\/?*[\]:]/.test(n), n));
+  assert.equal(tabs[1].rows[0][0].f, `'${names[0]}'!A1`);
+  assert.equal(tabs[3].rows[0][0].f, `'${names[2]}'!A1*2`);
+  // On its own a paper keeps the tab names its source file uses.
+  assert.deepEqual(docSheets([{ name: long, sheets: book("Page1!A1") }]).map((t) => t.name), ["Page1", "Page2"]);
+});
+
+/* ---- "new update available" ------------------------------------------------ */
+const { latestBuild, runningBuild, watchForUpdate, CHECK_GAP, VERSION_URL } = await import("../src/lib/appUpdate.js");
+const target = () => {
+  const on = {};
+  return { on, addEventListener: (k, f) => { (on[k] ||= new Set()).add(f); }, removeEventListener: (k, f) => on[k]?.delete(f), fire: async (k) => { for (const f of on[k] || []) await f(); } };
+};
+function bench(build, answers) {
+  const win = target(), doc = { ...target(), visibilityState: "visible" };
+  let clock = 0, tick = null, calls = 0;
+  win.setInterval = (f) => { tick = f; return 1; };
+  win.clearInterval = () => { tick = null; };
+  const seen = [];
+  const fetchFn = async (url, opt) => {
+    calls += 1;
+    assert.equal(url, VERSION_URL);
+    assert.equal(opt.cache, "no-store");
+    const a = answers[Math.min(calls, answers.length) - 1];
+    if (a instanceof Error) throw a;
+    return { ok: a.ok ?? true, json: async () => { if (a.html) throw new SyntaxError("<!doctype"); return a.body; } };
+  };
+  const stop = watchForUpdate({ build, onChange: (x) => seen.push(x), fetchFn, win, doc, now: () => clock });
+  const settle = () => new Promise((r) => setTimeout(r, 0));
+  return { win, doc, seen, stop, settle, get calls() { return calls; }, get ticking() { return !!tick; },
+    later: async (ms, how = "tick") => { clock += ms; if (how === "tick") await tick?.(); else if (how === "visible") await doc.fire("visibilitychange"); else await win.fire(how); await settle(); } };
+}
+const V = (build, version = "9.9.9") => ({ body: { build, version } });
+
+test("a tab on the latest build says nothing; a newer one is announced with its version", async () => {
+  const b = bench("aaa", [V("aaa"), V("bbb")]);
+  await b.settle();
+  assert.deepEqual(b.seen, [null]);
+  await b.later(CHECK_GAP);
+  assert.deepEqual(b.seen[1], { build: "bbb", version: "9.9.9" });
+  b.stop();
+});
+
+test("a deploy taken back takes the notice back too", async () => {
+  const b = bench("aaa", [V("bbb"), V("aaa")]);
+  await b.settle();
+  await b.later(CHECK_GAP);
+  assert.deepEqual(b.seen, [{ build: "bbb", version: "9.9.9" }, null]);
+  b.stop();
+});
+
+test("coming back to the tab checks, but not more often than the gap", async () => {
+  const b = bench("aaa", [V("aaa")]);
+  await b.settle();
+  await b.later(10, "visible");
+  await b.later(10, "focus");
+  assert.equal(b.calls, 1);
+  await b.later(CHECK_GAP, "focus");
+  assert.equal(b.calls, 2);
+  await b.later(CHECK_GAP, "online");
+  assert.equal(b.calls, 3);
+  b.doc.visibilityState = "hidden";
+  await b.later(CHECK_GAP);
+  assert.equal(b.calls, 3, "a tab nobody is looking at does not ask");
+  b.stop();
+});
+
+test("a check that fails says nothing, and the next one still works", async () => {
+  const b = bench("aaa", [new TypeError("offline"), { ok: false, body: {} }, { html: true }, { body: null }, { body: { build: "" } }, { body: { build: 5 } }, V("bbb")]);
+  await b.settle();
+  for (let i = 0; i < 6; i++) await b.later(CHECK_GAP);
+  assert.deepEqual(b.seen, [{ build: "bbb", version: "9.9.9" }]);
+  b.stop();
+});
+
+test("once stopped nothing is listened to, and development never asks", async () => {
+  const b = bench("aaa", [V("bbb")]);
+  b.stop();
+  await b.settle();
+  assert.deepEqual(b.seen, [], "an answer that lands after it was stopped is dropped");
+  assert.equal(b.ticking, false);
+  [...Object.values(b.win.on), ...Object.values(b.doc.on)].forEach((s) => assert.equal(s.size, 0));
+  const dev = bench("", [V("bbb")]);
+  await dev.settle();
+  assert.equal(dev.calls, 0);
+  assert.equal(runningBuild({ querySelector: () => null }), "");
+  assert.equal(await latestBuild(async () => { throw new Error("x"); }), null);
+});
+
+test("the build stamps the page and version.json alike, and only when something changed", async () => {
+  const { buildStamp } = await import("../vite.config.js");
+  const run = (files, html = "<html><head><title>x</title></head><body></body></html>") => {
+    const bundle = { "index.html": { source: html }, ...Object.fromEntries(files.map((f) => [f, {}])) };
+    const out = {};
+    buildStamp().generateBundle.call({ emitFile: (f) => { out[f.fileName] = f.source; } }, {}, bundle);
+    const json = JSON.parse(out["version.json"]);
+    assert.match(bundle["index.html"].source, new RegExp(`<meta name="app-build" content="${json.build}" />\\s*</head>`));
+    return json;
+  };
+  const { APP_VERSION } = await import("../src/lib/releases.js");
+  const a = run(["assets/index-1.js", "assets/index-1.css"]);
+  assert.equal(a.version, APP_VERSION);
+  assert.equal(run(["assets/index-1.css", "assets/index-1.js"]).build, a.build);
+  assert.notEqual(run(["assets/index-2.js", "assets/index-1.css"]).build, a.build);
+  assert.notEqual(run(["assets/index-1.js", "assets/index-2.css"]).build, a.build);
+  assert.throws(() => run([], ""), /index\.html/);
+});
+
+test("version.json is never cached, on either host", async () => {
+  const fs = await import("node:fs");
+  const conf = fs.readFileSync(new URL("../nginx.conf", import.meta.url), "utf8");
+  assert.match(conf, /location = \/version\.json \{[^}]*no-store[^}]*\}/);
+  const v = JSON.parse(fs.readFileSync(new URL("../vercel.json", import.meta.url), "utf8"));
+  assert.match(JSON.stringify(v.headers.find((h) => h.source === "/version.json")), /no-store/);
+});

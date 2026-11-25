@@ -776,7 +776,7 @@ export function customsInvoiceHtml(ctx) {
 }
 
 export const B_18 = (ctx) => ({
-  name: "Custom_Invoice_18",
+  name: "Custom_Invoice",
   html: customsInvoiceHtml(ctx),
   sheets: customsInvoiceSheets(ctx),
   page: "portrait",

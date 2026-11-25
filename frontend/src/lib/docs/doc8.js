@@ -178,7 +178,7 @@ export const B_8 = (ctx) => {
     </tr>`;
   }).join("");
 
-  const html = `<div class="title">8 · PURCHASE (Supplier)</div>
+  const html = `<div class="title">PURCHASE (Supplier)</div>
     <table class="wb">
       <tr class="sec po rule"><td colspan="16">PO NO. ${esc(poBannerList(ctx))}</td></tr>
       <tr><th rowspan="2">SR. NO.</th><th rowspan="2">PO NO.</th><th>CODE</th><th>GD CODE</th><th>OSWIN CODE</th>
@@ -202,5 +202,5 @@ export const B_8 = (ctx) => {
       <tr class="tot"><td class="nb" colspan="14"></td><td>INV VALUE</td>
         <td class="r" data-t="inr" data-v="${value + gstTotal}">${wbRupee(value + gstTotal)}</td></tr>
     </table>`;
-  return { name: "Purchase_8", html, sheet: supplierPurchaseSheet(ctx, rows) };
+  return { name: "Purchase_Supplier", html, sheet: supplierPurchaseSheet(ctx, rows) };
 };
