@@ -768,3 +768,41 @@ test("version.json is never cached, on either host", async () => {
   const v = JSON.parse(fs.readFileSync(new URL("../vercel.json", import.meta.url), "utf8"));
   assert.match(JSON.stringify(v.headers.find((h) => h.source === "/version.json")), /no-store/);
 });
+
+/* ---- Price list (V-7.9.0) ------------------------------------------------- */
+test("a margin is worked out as the API works it: half up, ₹ to the paisa, $ to four places", async () => {
+  const { roundTo, markedUp, marginOf, figure, sameFig } = await import("../src/lib/prices.js");
+  assert.equal(roundTo(5.175, 2), 5.18);
+  assert.equal(roundTo(1.005, 2), 1.01);
+  assert.equal(roundTo(0.00005, 4), 0.0001);
+  // The brief: ₹100 and $1 at 50% are ₹150 and $1.50.
+  assert.deepEqual(markedUp({ unit_value: 100, value_mode: "piece", unit_fob100: 1, fob_mode: "piece" }, 50),
+    { unit_value: 150, value_mode: "piece", unit_fob100: 1.5, fob_mode: "piece" });
+  assert.deepEqual(markedUp({ unit_value: 3.45, value_mode: "piece", unit_fob100: 3.6, fob_mode: "100" }, 50),
+    { unit_value: 5.18, value_mode: "piece", unit_fob100: 5.4, fob_mode: "100" });
+  assert.equal(marginOf(150, 100), 50);
+  assert.equal(marginOf(1, 0), null);
+  assert.equal(figure(""), null);
+  assert.equal(figure("1."), 1);
+  assert.equal(figure("-2"), null);
+  assert.ok(sameFig(0.1 + 0.2, 0.3));
+});
+
+test("leaving a screen with unsaved work asks it first, and goes on once it agrees", async () => {
+  const { guardedLeave, setLeaveGuard, clearLeaveGuard, hasLeaveGuard } = await import("../src/lib/leaveGuard.js");
+  let went = 0;
+  guardedLeave(() => { went += 1; });
+  assert.equal(went, 1);
+  let asked = null;
+  const guard = { ask: (proceed) => { asked = proceed; } };
+  setLeaveGuard(guard);
+  assert.ok(hasLeaveGuard());
+  guardedLeave(() => { went += 1; });
+  assert.equal(went, 1);              // held until the screen answers
+  asked();
+  assert.equal(went, 2);
+  clearLeaveGuard({ ask: () => {} });  // somebody else's guard does not clear this one
+  assert.ok(hasLeaveGuard());
+  clearLeaveGuard(guard);
+  assert.ok(!hasLeaveGuard());
+});

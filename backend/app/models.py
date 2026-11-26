@@ -223,6 +223,14 @@ class Item(Base):
     # What the item travels in — one of Setup → Additional settings →
     # Packaging types. Every row in the master started out in cartons.
     packaging_type = Column(String, default="Cartons")
+    # When the four price fields above took their present figures — the date
+    # the prices hold from (Other Reports → Price list asks for it, since a
+    # price agreed in April may only be typed in in June) and the moment they
+    # were saved. NULL on both means the price came in with the master and has
+    # never been revised. Kept here, rather than read off price_versions, so the
+    # item list every screen reads costs no extra query.
+    price_from = Column(String, nullable=True)        # ISO yyyy-mm-dd
+    price_set_at = Column(DateTime, nullable=True)
 
 
 class Transport(Base):
@@ -333,6 +341,68 @@ class InvoiceLine(Base):
     # (calc.compute_ledger), so a later or back-dated invoice cannot take them.
     po_alloc = Column(JSON(none_as_null=True), nullable=True)
     invoice = relationship("Invoice", back_populates="lines")
+
+
+class PriceRevision(Base):
+    """One save of Other Reports → Price list: a set of prices that hold from
+    one date. The supplier list (`scope` "supplier") sets what the item master
+    carries; a buyer's list (`scope` "buyer", with `buyer_id`) sets what that
+    buyer is sold at. Its rows are `PriceVersion`s; withdrawing the revision
+    withdraws every one of them, which is how a whole price change is undone."""
+    __tablename__ = "price_revisions"
+    id = Column(String, primary_key=True, default=new_id)
+    scope = Column(String, nullable=False, default="supplier")   # supplier | buyer
+    buyer_id = Column(String, ForeignKey("buyers.id"), nullable=True, index=True)
+    effective = Column(String, nullable=False)                    # ISO date the prices hold from
+    margin_pct = Column(Float, nullable=True)                     # buyer list: the margin asked for
+    note = Column(String, default="")
+    created_at = Column(DateTime, default=datetime.utcnow)
+    created_by = Column(String, default="")
+
+
+class PriceVersion(Base):
+    """One item's price from one date — the history every price list keeps.
+
+    The price that applies on a day is the latest `active` version dated on or
+    before it, so an order back-dated to March is priced at March's figures.
+    Withdrawing a version ("go back to the January price") clears `active`
+    rather than deleting the row, so the history stays readable and a
+    withdrawal can itself be undone.
+
+    Supplier versions carry the purchase price and FOB the item master shows.
+    The first one an item is given is preceded by a `baseline` version holding
+    what the master said until then (`effective` ""), so going back past every
+    revision returns the item to its original figures.
+
+    Buyer versions are either `margin` — the supplier's price on the day,
+    marked up by `margin_pct` (so a later supplier revision carries through) —
+    `manual`, figures typed for that buyer, or `none`, back to the supplier's
+    price. `unit_value` there is the ₹ sell price and `unit_fob100` the $ FOB
+    the buyer pays; on a margin version they record what the margin came to
+    when it was saved.
+
+    Orders and invoices never read this table back: each line keeps the price
+    it was placed or invoiced at (PurchaseOrderLine / InvoiceLine), so nothing
+    agreed before a revision moves because of it.
+    """
+    __tablename__ = "price_versions"
+    id = Column(String, primary_key=True, default=new_id)
+    revision_id = Column(String, ForeignKey("price_revisions.id"), nullable=True, index=True)
+    scope = Column(String, nullable=False, default="supplier")   # supplier | buyer
+    buyer_id = Column(String, ForeignKey("buyers.id"), nullable=True, index=True)
+    item_id = Column(String, ForeignKey("items.id"), nullable=False, index=True)
+    effective = Column(String, nullable=False, default="")       # "" = baseline
+    mode = Column(String, nullable=False, default="set")         # set | baseline | margin | manual | none
+    unit_value = Column(Float, nullable=True)
+    value_mode = Column(String, nullable=True)
+    unit_fob100 = Column(Float, nullable=True)
+    fob_mode = Column(String, nullable=True)
+    margin_pct = Column(Float, nullable=True)
+    active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    created_by = Column(String, default="")
+    withdrawn_at = Column(DateTime, nullable=True)
+    withdrawn_by = Column(String, nullable=True)
 
 
 class CostingLine(Base):

@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..deps import require, active_user
-from .. import models, schemas, calc, options
+from .. import models, schemas, calc, options, prices as P
 
 router = APIRouter(prefix="/api/items", tags=["items"])
 
@@ -123,13 +123,36 @@ def create_item(body: schemas.ItemCreate, db: Session = Depends(get_db)):
     return _out(obj)
 
 
-@router.put("/{iid}", response_model=schemas.Item, dependencies=[Depends(_write)])
-def update_item(iid: str, body: schemas.ItemUpdate, db: Session = Depends(get_db)):
+@router.put("/{iid}", response_model=schemas.Item)
+def update_item(iid: str, body: schemas.ItemUpdate, db: Session = Depends(get_db),
+                user: models.User = Depends(_write)):
     obj = db.get(models.Item, iid)
     if not obj:
         raise HTTPException(404, "Item not found")
-    for k, v in schemas.changes(body, schemas.Item).items():
-        setattr(obj, k, v)
+    before = P.master_prices(obj)
+    edits = schemas.changes(body, schemas.Item)
+    since = edits.pop("price_from", None) or P.today_iso()
+    edits.pop("price_set_at", None)
+    after = {**before, **{k: edits[k] for k in P.FIELDS if k in edits}}
+    after = {"unit_value": float(after["unit_value"] or 0), "value_mode": after["value_mode"] or "piece",
+             "unit_fob100": float(after["unit_fob100"] or 0), "fob_mode": after["fob_mode"] or "100"}
+    moved = any((abs(after[k] - before[k]) > 1e-9) if k in ("unit_value", "unit_fob100") else after[k] != before[k]
+                for k in P.FIELDS)
+    if moved:
+        if since > P.today_iso():
+            raise HTTPException(422, "The new price cannot hold from a day still to come — pick today or an earlier date.")
+        if obj.price_from and since < obj.price_from:
+            raise HTTPException(422, f"This item's price has held from {obj.price_from[8:10]}/{obj.price_from[5:7]}/{obj.price_from[:4]} — "
+                                     "a change here holds from that day or later. An earlier price goes in on Other Reports → Price list.")
+        # Lines too old to have kept a price of their own read the master:
+        # they keep the figure they have printed until now.
+        P.freeze_snapshots(db, [iid])
+    for k, v in edits.items():
+        if k not in P.FIELDS:
+            setattr(obj, k, v)
+    if moved:
+        # A price changed here is a revision on the price list, from `since`.
+        P.record_setup_change(db, obj, before, after, since, (user.name or user.email or "").strip())
     db.commit()
     db.refresh(obj)
     return _out(obj)

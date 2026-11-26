@@ -52,7 +52,7 @@ class RecordCustom(ApiCase):
 
     def test_price_is_what_the_chosen_order_agreed(self):
         # Reprice the master, then raise a later order at the new price.
-        self.ok(self.client.put(f"/api/items/{self.i[1]}", json={"unit_value": 300.0, "unit_fob100": 90.0}))
+        self.ok(self.client.put(f"/api/items/{self.i[1]}", json={"unit_value": 300.0, "unit_fob100": 90.0, "price_from": "2026-04-01"}))
         self.place_order("PO9", "2026-04-20", {1: 10})
         inv = self.record("C1", {1: 4}, {1: {"PO9": 4}})
         self.assertEqual(inv["lines"][0]["unit_value"], 300.0)
@@ -61,7 +61,7 @@ class RecordCustom(ApiCase):
         self.assertEqual(fifo["lines"][0]["unit_value"], 100.0)                   # still the oldest order's
 
     def test_split_price_is_weighted(self):
-        self.ok(self.client.put(f"/api/items/{self.i[1]}", json={"unit_value": 300.0}))
+        self.ok(self.client.put(f"/api/items/{self.i[1]}", json={"unit_value": 300.0, "price_from": "2026-04-01"}))
         self.place_order("PO9", "2026-04-20", {1: 10})
         inv = self.record("C1", {1: 10}, {1: {"PO1": 5, "PO9": 5}})
         self.assertEqual(inv["lines"][0]["unit_value"], 200.0)
@@ -128,7 +128,7 @@ class ItemByItem(ApiCase):
         self.assertEqual(out["lines"][0]["po_alloc"], [{"po": "PO7", "boxes": 40}, {"po": "PO1", "boxes": 2}])
 
     def test_moving_one_item_leaves_the_others_prices_and_orders(self):
-        self.ok(self.client.put(f"/api/items/{self.i[1]}", json={"unit_value": 300.0}))
+        self.ok(self.client.put(f"/api/items/{self.i[1]}", json={"unit_value": 300.0, "price_from": "2026-04-01"}))
         self.place_order("PO9", "2026-04-20", {1: 10})
         inv = self.record("C1", {1: 4, 2: 6}, {1: {"PO1": 4}, 2: {"PO2": 6}})
         out = self.ok(self.client.put(f"/api/invoices/{inv['id']}", json={"lines": self.invoice_body("-", {1: 4, 2: 6}, {1: {"PO9": 4}, 2: {"PO2": 6}})["lines"]}))
@@ -233,7 +233,7 @@ class Edit(ApiCase):
         self.assertEqual(self.pending("PO1", 1), 20)
 
     def test_moving_to_an_order_at_another_price_reprices_the_line(self):
-        self.ok(self.client.put(f"/api/items/{self.i[1]}", json={"unit_value": 300.0}))
+        self.ok(self.client.put(f"/api/items/{self.i[1]}", json={"unit_value": 300.0, "price_from": "2026-04-01"}))
         self.place_order("PO9", "2026-04-20", {1: 10})
         inv = self.record("C1", {1: 4}, {1: {"PO1": 4}})
         self.assertEqual(inv["lines"][0]["unit_value"], 100.0)
@@ -242,7 +242,7 @@ class Edit(ApiCase):
 
     def test_boxes_on_the_same_order_keep_their_price(self):
         inv = self.record("C1", {1: 4}, {1: {"PO1": 4}})
-        self.ok(self.client.put(f"/api/items/{self.i[1]}", json={"unit_value": 999.0}))
+        self.ok(self.client.put(f"/api/items/{self.i[1]}", json={"unit_value": 999.0, "price_from": "2026-04-01"}))
         out = self.put(inv, lines=self.lines({1: 2}, {1: {"PO1": 2}}))
         self.assertEqual(out["lines"][0]["unit_value"], 100.0)
         self.assertEqual(out["lines"][0]["serial_from"], 1001)

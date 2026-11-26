@@ -132,7 +132,8 @@ SCREENS = {
     "post-shipment": ["/api/purchase-orders", "/api/purchase-orders/lines", "/api/invoices"],
     "reports.balance": ["/api/reports/balance", "/api/reports/supply-details", "/api/purchase-orders", "/api/purchase-orders/lines", "/api/invoices"],
     "reports.costing": ["/api/costing", "/api/costing/params", "/api/costing/formulas"],
-    "setup.items": ["/api/purchase-orders", "/api/purchase-orders/lines", "/api/invoices", "/api/purchase-orders/price-drift"],
+    "reports.prices": ["/api/prices/supplier", "/api/prices/revisions", "/api/prices/revisions?scope=buyer"],
+    "setup.items": ["/api/purchase-orders", "/api/purchase-orders/lines", "/api/invoices", "/api/purchase-orders/price-drift", "/api/prices/supplier"],
     "setup.parties": ["/api/purchase-orders", "/api/purchase-orders/lines", "/api/invoices"],
 }
 SHARED = ["/api/auth/me", "/api/items", "/api/items/grouped", "/api/buyers", "/api/suppliers", "/api/transports", "/api/options", "/api/options/doc-columns", "/api/options/item-columns", "/api/dashboard/badges"]
@@ -156,6 +157,7 @@ class Areas(Guarded):
             "setup.items": [("POST", "/api/items"), ("PUT", "/api/options/item-sequence")],
             "setup.parties": [("POST", "/api/buyers"), ("POST", "/api/suppliers"), ("POST", "/api/transports")],
             "reports.costing": [("PUT", "/api/costing/params")],
+            "reports.prices": [("POST", "/api/prices/supplier"), ("POST", "/api/prices/revisions/zzz/withdraw")],
         }
         allowed = {w: {p for p, ws in writes.items() if w in ws} for ws in writes.values() for w in ws}
         allowed[("POST", "/api/invoices")] = {"shipment.packing", "shipment.details"}

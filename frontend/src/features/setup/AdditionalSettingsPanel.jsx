@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   Truck, Package, Wallet, Anchor, MapPin, Landmark, ListOrdered, Plus, Pencil, Trash2, Check, X,
-  ArrowUp, ArrowDown, ArrowLeft, ArrowRight, RotateCcw, AlertTriangle, Layers, Loader2,
+  ArrowUp, ArrowDown, ArrowLeft, ArrowRight, RotateCcw, AlertTriangle, Layers,
 } from "lucide-react";
 import {
   Card, CardHead, Btn, Field, Input, Pill, Mono, Note, Empty, Spinner, ErrorState, Modal, Seg, Select,
 } from "../../components/ui/index.jsx";
+import { ShipSpin } from "../../components/ui/ShipLoader.jsx";
 import { useOptions, useOptionMutations, useSaveList, useItems, useSuppliers } from "../../api/hooks.js";
 import { useToast } from "../../providers/ToastProvider.jsx";
 import {
@@ -41,8 +42,8 @@ const LISTS = [
 ];
 
 /* The small turning circle every Setup save shows on whatever it is saving. */
-const Spin = ({ size = 13 }) => <Loader2 size={size} className="spin" aria-hidden="true" />;
-const SpinIcon = (p) => <Loader2 {...p} className="spin" aria-hidden="true" />;
+const Spin = ({ size = 13 }) => <ShipSpin size={size + 2} />;
+const SpinIcon = ({ size }) => <ShipSpin size={(size || 15) + 2} />;
 
 /* The Water / Air / Land toggles beside an entry, or under the box that adds
    one. `value` is the modes ticked; an unconfirmed entry passes none.

@@ -46,7 +46,7 @@ const guard = (path, el) => <Guard perm={ROUTE_PERMS[path]}>{el}</Guard>;
    carrying over the document that was open on the last one. */
 function Routed() {
   const { user, ready, mustChangePassword } = useAuth();
-  if (!ready) return <div className="page"><Spinner label="Starting up…" /></div>;
+  if (!ready) return <div className="page"><Spinner size="lg" label="Starting up…" /></div>;
   if (!user) return <LoginPage />;
   /* Signed in, but on a password an admin typed and read out. Nothing else is
      reachable until it is replaced — the API refuses every other endpoint

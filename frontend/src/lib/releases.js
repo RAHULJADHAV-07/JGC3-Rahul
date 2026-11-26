@@ -7,6 +7,24 @@
 
 export const RELEASES = [
   {
+    version: "7.9.0",
+    date: "2026-11-26",
+    notes: [
+      "Other Reports → Price list: a new tab with two lists — Suppliers and Buyers. All items, or one supplier's, from the drop-down.",
+      "Suppliers: every item with its HSN code, purchase price, FOB price and basis. The price in force is printed over each box; type the new one in the box. The date at the head says when the new prices hold from — it may be earlier than today.",
+      "Buyers: the same list for one buyer, with a margin over the supplier's price — 50% on ₹100 and $1 gives ₹150 and $1.50. Type a price into any line to set that one by hand.",
+      "A new order takes the prices in force on its own date, and the buyer's FOB where the buyer has a price list. Orders and invoices already raised keep their prices.",
+      "Price changes: every save is kept. Withdraw one to go back to the prices before it — January's after March's — or reinstate it. Each item's history is one click away.",
+      "Leaving the price list with changes not saved asks first: save, discard, or stay.",
+      "Setup → Items: the edit form shows the date the prices hold from and when they were updated, with the price history. A price changed there asks from which day it holds.",
+      "Dashboard: Simplified view — every order split into PP and GRN, boxes and volume, supplier by supplier.",
+      "Loading: a container ship under way, in the company's colours, in place of the turning circle — by night with the moon out and the bridge lit. A small ship rocks in the buttons while they work.",
+      "PDF: saved straight to Downloads under the document's own name — no print dialog — with a “PDF downloaded” note. The text in it can be searched and copied.",
+      "Long reports in PDF keep a margin at the head and foot of every page, with the heading row repeated.",
+      "PO papers (barcode, packing, purchase, sales, suppliers' PO) and the shipment list keep each order and invoice at the price it was raised at when a price is revised later.",
+    ],
+  },
+  {
     version: "7.8.2",
     date: "2026-11-26",
     notes: [

@@ -30,6 +30,7 @@ PERM_TREE = [
         "id": "reports", "label": "Other Reports", "children": [
             {"id": "reports.balance", "label": "Balance registers", "hint": "PO / item / supplier wise"},
             {"id": "reports.costing", "label": "Costing", "hint": "Cost working & profit per item"},
+            {"id": "reports.prices", "label": "Price list", "hint": "Supplier & buyer prices, dated"},
         ],
     },
     {

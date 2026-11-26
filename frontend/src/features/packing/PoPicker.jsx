@@ -1,5 +1,6 @@
 import { useId } from "react";
-import { AlertTriangle, Check, Loader2 } from "lucide-react";
+import { AlertTriangle, Check } from "lucide-react";
+import { ShipSpin } from "../../components/ui/ShipLoader.jsx";
 import { Btn, Mono, NumberInput, Pill, Select } from "../../components/ui/index.jsx";
 import { useBuyers } from "../../api/hooks.js";
 import { dmy } from "../../lib/format.js";
@@ -25,7 +26,7 @@ export function PoPicker({ name, boxes, legs, query, placed, buyerId, onToggle, 
         {query.isError
           ? <div className="po-pick-head" role="alert"><AlertTriangle size={13} /> Could not read the open orders.
             <Btn size="sm" variant="ghost" onClick={() => query.refetch()}>Retry</Btn></div>
-          : <div className="po-pick-head" role="status"><Loader2 size={13} className="spin" /> Finding the purchase orders that hold this item…</div>}
+          : <div className="po-pick-head" role="status"><ShipSpin size={16} /> Finding the purchase orders that hold this item…</div>}
       </div>
     );
   }

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { Boxes, Ship, ClipboardList, Container, ChevronRight, EyeOff, Undo2, Check } from "lucide-react";
+import { Boxes, Ship, ClipboardList, Container, ChevronRight, EyeOff, Undo2, Check, LayoutGrid, Rows3 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { Card, CardHead, Btn, Pill, Mono, DataTable, Modal, Empty, Note, Spinner, ErrorState, XScroll } from "../../components/ui/index.jsx";
+import { Card, CardHead, Btn, Pill, Mono, DataTable, Modal, Empty, Note, Spinner, ErrorState, XScroll, Seg } from "../../components/ui/index.jsx";
 import { useDashboardMatrix, useInvoices, useItems, useBuyers, useHiddenPoMutations } from "../../api/hooks.js";
 import { dmy, num } from "../../lib/format.js";
 import { useIsMobile } from "../../lib/useIsMobile.js";
@@ -24,7 +24,7 @@ import { carriageRef } from "../../lib/modes.js";
 /* The balance matrix on a phone: suppliers across the top of a wide grid does
    not survive a 390px screen, so one supplier is chosen at a time and their
    open POs are listed down the page with the boxes and volume still owed. */
-function BalanceCards({ M, empty, sel, onToggle, onOpenPo }) {
+function BalanceCards({ M, empty, sel, onToggle, onOpenPo, simple }) {
   const [sup, setSup] = useState("");           // "" = every supplier
   const row = M.rows.find((r) => r.supplier.id === sup);
   const cells = row ? row.cells : M.totals.cells;
@@ -50,8 +50,17 @@ function BalanceCards({ M, empty, sel, onToggle, onOpenPo }) {
               <span className="dt-card-n">{dmy(M.po_date[po])}</span>
             </div>
             <dl className="dt-card-body">
-              <div className="dt-pair"><dt>Boxes pending</dt><dd className="r"><b>{cells[po].boxes || "—"}</b></dd></div>
-              <div className="dt-pair"><dt>Volume m³</dt><dd className="r">{cells[po].vol ? num(cells[po].vol, 2) : "—"}</dd></div>
+              {simple ? RANGES.map(([k, label]) => (
+                <div key={k} className="dt-pair">
+                  <dt>{label} · boxes / m³</dt>
+                  <dd className="r"><b>{cells[po][k]?.boxes || "—"}</b> / {cells[po][k]?.vol ? num(cells[po][k].vol, 2) : "—"}</dd>
+                </div>
+              )) : (
+                <>
+                  <div className="dt-pair"><dt>Boxes pending</dt><dd className="r"><b>{cells[po].boxes || "—"}</b></dd></div>
+                  <div className="dt-pair"><dt>Volume m³</dt><dd className="r">{cells[po].vol ? num(cells[po].vol, 2) : "—"}</dd></div>
+                </>
+              )}
               {!sup && (
                 <div className="dt-pair">
                   <dt>Suppliers</dt>
@@ -107,6 +116,76 @@ function BalanceCards({ M, empty, sel, onToggle, onOpenPo }) {
     </>
   );
 }
+
+/* The simplified board (V-7.9.0): the same suppliers and orders, each order
+   split into what is still owed of the PP range and of the GRN (nylon) range —
+   boxes and volume of each. Everything not GRN is PP: the PP fittings and the
+   pipes. */
+const RANGES = [["pp", "PP"], ["grn", "GRN"]];
+
+function SimpleMatrix({ M, poHead, cntr }) {
+  const pair = (c) => RANGES.flatMap(([k], i) => [
+    <td key={k + "b"} className={`r${i ? "" : " mx-gs"}`}>{c?.[k]?.boxes || "—"}</td>,
+    <td key={k + "v"} className="r mx-vol">{c?.[k]?.vol ? num(c[k].vol, 2) : "—"}</td>,
+  ]);
+  return (
+    <XScroll className="tbl-wrap" deps={[M.pos.length, M.rows.length, "simple"]}>
+      <table className="matrix mx-simple">
+        <thead>
+          <tr>
+            <th rowSpan={3} className="mx-sup">Supplier</th>
+            {M.pos.map((po) => poHead(po, 4))}
+            <th colSpan={4} className="mx-tot">TOTAL</th>
+            <th rowSpan={3} className="mx-tot">CNTRS</th>
+          </tr>
+          <tr>
+            {[...M.pos, "_t"].map((po) => RANGES.map(([k, label]) => (
+              <th key={po + k} colSpan={2} className={`mx-rng mx-${k}${k === "pp" ? " mx-gs" : ""}${po === "_t" ? " mx-tot" : ""}`}>{label}</th>
+            )))}
+          </tr>
+          <tr>
+            {[...M.pos, "_t"].map((po) => RANGES.flatMap(([k], i) => [
+              <th key={po + k + "b"} className={`mx-sub${i ? "" : " mx-gs"}${po === "_t" ? " mx-tot" : ""}`}>BOX</th>,
+              <th key={po + k + "v"} className={`mx-sub${po === "_t" ? " mx-tot" : ""}`}>VOL</th>,
+            ]))}
+          </tr>
+        </thead>
+        <tbody>
+          {M.rows.map((r) => (
+            <tr key={r.supplier.id}>
+              <td className="mx-sup"><Pill>{r.supplier.code}</Pill> <span style={{ color: "var(--ink)" }}>{r.supplier.name}</span></td>
+              {M.pos.map((po) => pair(r.cells[po]))}
+              {RANGES.flatMap(([k], i) => [
+                <td key={k + "tb"} className={`r strong${i ? "" : " mx-gs"}`}>{r.split?.[k]?.boxes || "—"}</td>,
+                <td key={k + "tv"} className="r strong">{r.split?.[k]?.vol ? num(r.split[k].vol, 2) : "—"}</td>,
+              ])}
+              <td className="r">{cntr(r.totVol)}</td>
+            </tr>
+          ))}
+          {!M.rows.length && (
+            <tr>
+              <td className="mx-sup" colSpan={M.pos.length * 4 + 6}
+                style={{ textAlign: "center", color: "var(--faint)", position: "static" }}>
+                No boxes are pending — every order above has been delivered in full.
+              </td>
+            </tr>
+          )}
+        </tbody>
+        <tfoot>
+          <tr>
+            <td className="mx-sup">TOTAL</td>
+            {M.pos.map((po) => pair(M.totals.cells[po]))}
+            {pair(M.totals.split)}
+            <td className="r">{cntr(M.totals.totVol)}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </XScroll>
+  );
+}
+
+const VIEW_KEY = "jg-dash-view";
+const readView = () => { try { return localStorage.getItem(VIEW_KEY) === "simple" ? "simple" : "full"; } catch (e) { return "full"; } };
 
 /* Invoices on a phone: date, buyer, volume, container and status per card. */
 function InvoiceCards({ rows, brand, onOpen }) {
@@ -178,6 +257,9 @@ export default function DashboardPage() {
 
   const [sel, setSel] = useState([]);
   const [confirm, setConfirm] = useState(false);
+  const [view, setViewNow] = useState(readView);
+  const setView = (v) => { setViewNow(v); try { localStorage.setItem(VIEW_KEY, v); } catch (e) { /* kept for this visit only */ } };
+  const simple = view === "simple";
 
   const invoices = invq.data || [];
   const byId = useMemo(() => Object.fromEntries(items.map((i) => [i.id, i])), [items]);
@@ -215,12 +297,34 @@ export default function DashboardPage() {
   const openInv = (inv) => nav(`/shipments?inv=${encodeURIComponent(inv.id)}`);
   const toggle = (po) => setSel((p) => (p.includes(po) ? p.filter((x) => x !== po) : [...p, po]));
   const removeSelected = () => hide.mutate(sel, { onSuccess: () => { setSel([]); setConfirm(false); } });
+  /* One order's head — its number, its date and, once it is filled, the tick
+     that clears it off the board. Both boards use it. */
+  const poHead = (po, span) => {
+    const done = emptyPos.includes(po);
+    return (
+      <th key={po} colSpan={span} className={`mx-po${done ? " mx-done" : ""}${sel.includes(po) ? " mx-picked" : ""}`}
+        onClick={() => openPo(po)} title={`Open PO ${po}`}>
+        <span className="mx-poname">
+          {done && (
+            <input type="checkbox" className="ck mx-ck" checked={sel.includes(po)}
+              title="Clear this filled order off the dashboard"
+              aria-label={`Select PO ${po} to remove from the dashboard`}
+              onClick={(e) => e.stopPropagation()}
+              onChange={() => toggle(po)} />
+          )}
+          PO {po}
+        </span>
+        <span className="mx-podate">{dmy(M.po_date[po])}</span>
+      </th>
+    );
+  };
 
   return (
     <div className="stack">
       <Card>
-        <CardHead icon={Boxes} title="Balance orders · boxes & volume">
+        <CardHead icon={Boxes} title={simple ? "Balance orders · PP & GRN" : "Balance orders · boxes & volume"}>
           {!mobile && <span style={{ fontSize: 11.5, color: "var(--faint)" }}>Pending only · click a PO header to open it</span>}
+          <Seg options={[["full", "Full board", LayoutGrid], ["simple", "Simplified", Rows3]]} value={view} onChange={setView} />
         </CardHead>
 
         {/* The bar only appears once there is something to clear, and the
@@ -246,32 +350,16 @@ export default function DashboardPage() {
         )}
 
         {M.rows.length || emptyPos.length ? (mobile ? (
-          <BalanceCards M={M} empty={emptyPos} sel={sel} onToggle={toggle} onOpenPo={openPo} />
+          <BalanceCards M={M} empty={emptyPos} sel={sel} onToggle={toggle} onOpenPo={openPo} simple={simple} />
+        ) : simple ? (
+          <SimpleMatrix M={M} poHead={poHead} cntr={cntr} />
         ) : (
           <XScroll className="tbl-wrap" deps={[M.pos.length, M.rows.length]}>
             <table className="matrix">
               <thead>
                 <tr>
                   <th rowSpan={2} className="mx-sup">Supplier</th>
-                  {M.pos.map((po) => {
-                    const done = emptyPos.includes(po);
-                    return (
-                      <th key={po} colSpan={2} className={`mx-po${done ? " mx-done" : ""}${sel.includes(po) ? " mx-picked" : ""}`}
-                        onClick={() => openPo(po)} title={`Open PO ${po}`}>
-                        <span className="mx-poname">
-                          {done && (
-                            <input type="checkbox" className="ck mx-ck" checked={sel.includes(po)}
-                              title="Clear this filled order off the dashboard"
-                              aria-label={`Select PO ${po} to remove from the dashboard`}
-                              onClick={(e) => e.stopPropagation()}
-                              onChange={() => toggle(po)} />
-                          )}
-                          PO {po}
-                        </span>
-                        <span className="mx-podate">{dmy(M.po_date[po])}</span>
-                      </th>
-                    );
-                  })}
+                  {M.pos.map((po) => poHead(po, 2))}
                   <th colSpan={2} className="mx-tot">TOTAL</th>
                   <th rowSpan={2} className="mx-tot">CNTRS</th>
                 </tr>

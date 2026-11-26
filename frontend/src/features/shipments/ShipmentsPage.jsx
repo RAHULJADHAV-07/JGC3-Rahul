@@ -49,7 +49,11 @@ export default function ShipmentsPage() {
       const it = byId[l.item_id] || {};
       const b = Number(l.boxes) || 0;
       const pieces = b * (it.packing || 0);
-      const rate = (it.fob_mode || "100") === "100" ? (it.unit_fob100 || 0) / 100 : (it.unit_fob100 || 0);
+      // As invoiced, not as the master reads today: a price revised later
+      // must not restate an invoice already raised (V-7.9.0).
+      const fob100 = l.unit_fob100 == null ? (it.unit_fob100 || 0) : Number(l.unit_fob100);
+      const mode = l.fob_mode || it.fob_mode || "100";
+      const rate = mode === "100" ? fob100 / 100 : fob100;
       boxes += b; volume += b * (it.volume || 0); fob += pieces * rate;
     });
     return { inv, boxes, volume, fob };

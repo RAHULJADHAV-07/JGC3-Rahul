@@ -537,7 +537,7 @@ for (const [no, c, tag] of [...NOS.map((n) => [n, docs.isPoDoc(n) ? orderCtx : c
   fs.writeFileSync(path.join(OUT, `print-${key}.html`), `<!doctype html><html><head><meta charset="utf-8"><title>${key} · ${docs.DOC_META[no]} — PDF</title>
     <style>@page { size: A4 ${orient}; margin: 0; }${PRINT}</style></head>
     <body>${ps.map((p) => `<div class="jg-doc">${p.html}</div>`).join("")}<script>window.__orient="${orient}"</script>${FIT}${AUDIT}</body></html>`);
-  written.push({ no: key, doc: no, orient });
+  written.push({ no: key, doc: no, orient, c });
 }
 
 /* ---- the layout, in a real browser, if there is one --------------------------- */
@@ -568,6 +568,92 @@ if (!chrome) {
 
 /* ---- the Word copies -------------------------------------------------------- */
 if (chrome) await wordChecks();
+
+/* ---- the PDF the app saves itself (V-7.9.0) ------------------------------------
+   Every paper drawn by lib/pdfDirect.js in a real browser, as the download
+   button does it: the file opens, it comes to the same number of pages as the
+   browser's own print of it, and its text can be searched. A long report runs
+   over several pages with its heading row on each. */
+if (chrome) await directPdfChecks();
+
+async function directPdfChecks() {
+  const A = "PDF · saved directly";
+  const { withChrome } = await import("./cdp.mjs");
+  const { buildSync } = await import(path.join(ROOT, "node_modules/esbuild/lib/main.js"));
+  const bundle = path.join(OUT, "pdf-engine.js");
+  fs.writeFileSync(path.join(OUT, "pdf-entry.js"), `export { pdfBlob, PRINT_CSS } from ${JSON.stringify(path.join(ROOT, "src/lib/download.js"))};
+export { gridToHtml } from ${JSON.stringify(path.join(ROOT, "src/lib/sheet.js"))};`);
+  buildSync({ entryPoints: [path.join(OUT, "pdf-entry.js")], bundle: true, format: "iife", globalName: "JGPDF", outfile: bundle, logLevel: "error" });
+  fs.writeFileSync(path.join(OUT, "pdf-host.html"), `<!doctype html><html><head><meta charset="utf-8"></head><body><script src="pdf-engine.js"></script></body></html>`);
+  const pdftext = (() => { try { execFileSync("which", ["pdftotext"], { stdio: "ignore" }); return true; } catch { return false; } })();
+  const pagesOf = (f) => Number((execFileSync("pdfinfo", [f], { encoding: "utf8" }).match(/Pages:\s*(\d+)/) || [])[1]);
+  const squash = (t) => String(t).replace(/₹/g, "Rs.").replace(/[\s\u00a0]+/g, "").toUpperCase();
+  const run = (cr, partsJson, orient) => cr.eval(`(async () => {
+    const b = await JGPDF.pdfBlob(${partsJson}, { orientation: "${orient}", title: "check" });
+    const u = new Uint8Array(await b.arrayBuffer()); let t = "";
+    for (let i = 0; i < u.length; i += 8192) t += String.fromCharCode(...u.subarray(i, i + 8192));
+    return btoa(t);
+  })()`);
+  try {
+    await withChrome(async (cr) => {
+      await cr.open(`file://${path.join(OUT, "pdf-host.html")}`);
+      for (const w of written) {
+        let ps = [];
+        try { ps = parts(w.doc, w.c).filter((p) => p.html).map((p) => ({ html: p.html })); } catch { /* reported under Renders */ }
+        if (!ps.length) continue;
+        let b64;
+        try { b64 = await run(cr, JSON.stringify(ps), w.orient); } catch (e) { check(A, `doc ${w.no}: builds`, false, e.message.slice(0, 200)); continue; }
+        const file = path.join(OUT, `direct-${w.no}.pdf`);
+        fs.writeFileSync(file, Buffer.from(b64, "base64"));
+        let n = 0;
+        try { n = pagesOf(file); } catch (e) { check(A, `doc ${w.no}: the file opens`, false, e.message); continue; }
+        check(A, `doc ${w.no}: the file opens`, n > 0);
+        if (w.pages) check(A, `doc ${w.no}: as many pages as the browser's print`, n === w.pages, `${n} saved, ${w.pages} printed`);
+        if (pdftext) {
+          // -layout: the plain mode joins a line ending in "-" to the next.
+          const said = squash(execFileSync("pdftotext", ["-layout", file, "-"], { encoding: "utf8" }));
+          // Whole words only: a cell may break "Gross/Box" over two lines, on paper as here.
+          const words = [...new Set(text(ps.map((p) => p.html).join(" ")).split(/[^A-Za-z0-9]+/).filter((x) => /[A-Za-z]{3}/.test(x) && x.length >= 5))]
+            .sort((a, b) => b.length - a.length).slice(0, 8);
+          // Measured against the browser's own print: a header the layout sets a
+          // few letters to a line ("Stic" / "kers") reads the same in both.
+          const printPdf = path.join(OUT, `doc-${w.no}.pdf`);
+          const printed = fs.existsSync(printPdf) ? squash(execFileSync("pdftotext", ["-layout", printPdf, "-"], { encoding: "utf8" })) : null;
+          const lost = words.filter((x) => (!printed || printed.includes(squash(x))) && !said.includes(squash(x)));
+          check(A, `doc ${w.no}: its text can be searched, as in the browser's print`, !lost.length, lost.join(", "));
+        }
+      }
+      for (const [rowsN, orient] of [[260, "landscape"], [260, "portrait"]]) {
+        const b64 = await cr.eval(`(async () => {
+          const cols = [{ h: "GD code", key: "gd", f: (r) => r.gd }, { h: "Description", key: "d", f: (r) => r.d, w: 34 },
+            { h: "Qty", key: "q", t: "int", v: (r) => r.q, sum: true }, { h: "FOB $", key: "f", t: "usd4", v: (r) => r.f }];
+          const rows = Array.from({ length: ${rowsN} }, (_, i) => ({ gd: "PP" + (1500 + i), d: i % 9 ? "PP riser " + i : "A long description that runs on over two lines of its cell, as the master's often do", q: i * 10, f: 0.036 * i }));
+          const b = await JGPDF.pdfBlob([{ html: JGPDF.gridToHtml(cols, rows, { title: "Long report" }) }], { orientation: "${orient}", title: "long" });
+          const u = new Uint8Array(await b.arrayBuffer()); let t = "";
+          for (let i = 0; i < u.length; i += 8192) t += String.fromCharCode(...u.subarray(i, i + 8192));
+          return btoa(t);
+        })()`);
+        const file = path.join(OUT, `direct-long-${orient}.pdf`);
+        fs.writeFileSync(file, Buffer.from(b64, "base64"));
+        const n = pagesOf(file);
+        check(A, `a long report (${orient}) runs over several pages`, n > 3, `${n} pages`);
+        if (pdftext) {
+          const missing = [];
+          const seen = new Set();
+          for (let pg = 1; pg <= n; pg++) {
+            const t = execFileSync("pdftotext", ["-f", String(pg), "-l", String(pg), file, "-"], { encoding: "utf8" });
+            if (!/GD\s*code/.test(t)) missing.push(pg);
+            (t.match(/PP1[5-7]\d\d/g) || []).forEach((c) => seen.add(c));
+          }
+          check(A, `a long report (${orient}): the heading row on every page`, !missing.length, `missing on page ${missing.join(", ")}`);
+          check(A, `a long report (${orient}): every row is on a page`, seen.size === rowsN, `${seen.size} of ${rowsN} rows found`);
+        }
+      }
+    });
+  } catch (e) {
+    check(A, "Chrome draws the PDFs", false, e.message);
+  }
+}
 
 async function wordChecks() {
   const A = "Word";

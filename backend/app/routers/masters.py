@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..deps import active_user, require, require_admin
 from ..permissions import READ_ORDERS
-from .. import models, schemas, calc, masters_import, options
+from .. import models, schemas, calc, masters_import, options, prices as P
 
 router = APIRouter(prefix="/api/masters", tags=["masters"])
 
@@ -56,15 +56,25 @@ def derive(rows: list[schemas.ItemDeriveIn], db: Session = Depends(get_db)):
         return {"rows": [], "totals": {}}
     items = {i.id: i for i in db.query(models.Item)
              .filter(models.Item.id.in_([r.item_id for r in rows])).all()}
+    # Asked with a buyer and an order date, the figures are priced as that
+    # order will be (app/prices.py) — the same call the save makes.
+    priced: dict = {}
+    for key in {(r.buyer_id, r.date) for r in rows if r.date}:
+        try:
+            schemas._iso_date(key[1])
+        except ValueError:
+            continue
+        priced[key] = P.order_prices(db, items, key[0], key[1])
     out = []
     for r in rows:
         it = items.get(r.item_id)
         if not it:
             raise HTTPException(404, f"Item {r.item_id} not found")
+        snap = priced.get((r.buyer_id, r.date), {}).get(it.id)
         out.append({
             "item_id": it.id, "code": it.code, "gd": it.gd, "description": it.description,
             "supplier_id": it.supplier_id, "packing": it.packing,
-            **calc.derive_line(it, r.qty, r.rbi),
+            **calc.derive_line(it, r.qty, r.rbi, snapshot=snap),
         })
     # In the item sequence, blocks and all (Setup → Additional settings), so a
     # summary reads in the order the order's documents will print it.

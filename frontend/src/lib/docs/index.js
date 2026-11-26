@@ -259,8 +259,7 @@ export function downloadDocumentPDF(no, ctx, report) {
   // A document that copies a client workbook prints on that workbook's paper.
   const orientation = parts.every((p) => p.page === "portrait") ? "portrait" : undefined;
   // Named as its Excel download is, so the two files of a document match.
-  downloadPDF(documentFilename(no, ctx, report), parts, { orientation });
-  return true;
+  return downloadPDF(documentFilename(no, ctx, report), parts, { orientation });
 }
 
 /* A whole stage at once. `ctxFor` may be one context or a function of the
@@ -300,8 +299,7 @@ export async function downloadStageWord(filename, numbers, ctxFor, report) {
 export function downloadStagePDF(title, numbers, ctxFor, report) {
   const parts = stageParts(numbers, ctxFor, report);
   if (!parts.length) return false;
-  downloadPDF(title, parts);
-  return true;
+  return downloadPDF(title, parts);
 }
 
 /* Kept for the screens that offer a single one-click Excel grab. */
@@ -316,7 +314,7 @@ export function downloadSupplierDoc(no, ctx, supplierId, format = "excel") {
   const orientation = d.page === "portrait" ? "portrait" : undefined;
   if (format === "word") return downloadDocsWord(filename, [{ html: d.html, page: d.page }]);
   // Named as its Excel download is, so the two files of a document match.
-  if (format === "pdf") { downloadPDF(filename, [{ html: d.html }], { orientation }); return true; }
+  if (format === "pdf") return downloadPDF(filename, [{ html: d.html }], { orientation });
   return downloadDocsExcel(filename, [{ name: d.code, html: d.html, sheets: d.sheets }]) !== false;
 }
 
