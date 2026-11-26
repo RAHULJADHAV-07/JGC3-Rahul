@@ -59,7 +59,8 @@ export const {
   useUpdate: useUpdateBuyer, useRemove: useDeleteBuyer,
 } = crudHooks("buyers", api.buyers, [...DERIVED, "options"]); // an unsaved port list is read off the buyers
 
-const itemHooks = crudHooks("items", api.items, [...DERIVED, "options"]); // likewise packaging types
+// likewise packaging types — and a price changed in Setup is a price-list revision too
+const itemHooks = crudHooks("items", api.items, [...DERIVED, "options", "prices-supplier", "prices-buyer", "prices-history", "prices-revisions"]);
 export const { useCreate: useCreateItem, useUpdate: useUpdateItem, useRemove: useDeleteItem } = itemHooks;
 
 /* Items take optional server-side filters — { supplier_id, group, q }. The
@@ -370,3 +371,32 @@ export function useCostingMutations() {
     saveParams: useMutation({ mutationFn: api.costing.saveParams, onSuccess: invalidate, ...loud }),
   };
 }
+
+/* ---- Price list (Other Reports) ------------------------------------------
+   A supplier save moves the item master, so everything drawn from it is read
+   again — the same as an item edit in Setup. A buyer save only changes what
+   new orders for that buyer are placed at. */
+const PRICE_KEYS = ["prices-supplier", "prices-buyer", "prices-history", "prices-revisions"];
+export const useSupplierPrices = (enabled = true) =>
+  useQuery({ queryKey: ["prices-supplier"], queryFn: api.prices.supplier, enabled, ...LIVE });
+export const useBuyerPrices = (bid, on) =>
+  useQuery({ queryKey: ["prices-buyer", bid, on || ""], queryFn: () => api.prices.buyer(bid, on), enabled: !!bid, placeholderData: keepPreviousData, ...LIVE });
+export const usePriceHistory = (iid, params) =>
+  useQuery({ queryKey: ["prices-history", iid, params || {}], queryFn: () => api.prices.history(iid, params), enabled: !!iid });
+export const usePriceRevisions = (params, enabled = true) =>
+  useQuery({ queryKey: ["prices-revisions", params || {}], queryFn: () => api.prices.revisions(params), enabled });
+
+export function usePriceMutations() {
+  const qc = useQueryClient();
+  const refresh = (master) => () => [...PRICE_KEYS, ...(master ? ["items", ...DERIVED] : ["derive"])]
+    .forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
+  return {
+    saveSupplier: useMutation({ mutationFn: (b) => api.prices.saveSupplier(b), onSuccess: refresh(true) }),
+    saveBuyer: useMutation({ mutationFn: ({ bid, body }) => api.prices.saveBuyer(bid, body), onSuccess: refresh(false) }),
+    // Going back can move the master too (a supplier revision), so read all of it again.
+    withdraw: useMutation({ mutationFn: (rid) => api.prices.withdraw(rid), ...loud, onSuccess: refresh(true) }),
+    reinstate: useMutation({ mutationFn: (rid) => api.prices.reinstate(rid), ...loud, onSuccess: refresh(true) }),
+    restore: useMutation({ mutationFn: (vid) => api.prices.restore(vid), ...loud, onSuccess: refresh(true) }),
+  };
+}
+

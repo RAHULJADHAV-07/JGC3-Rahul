@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { BarChart3, ClipboardList, Layers, Truck, Boxes, Check, Calculator } from "lucide-react";
+import { BarChart3, ClipboardList, Layers, Truck, Boxes, Check, Calculator, Tags } from "lucide-react";
 import {
   Card, CardHead, Btn, Seg, Mono, DataTable, Input, Note, Info, Empty, Stat,
   Spinner, ErrorState, Select,
@@ -13,6 +13,8 @@ import { hidePriceCols } from "../../lib/priceCols.js";
 import { useHiddenFields, pruneColumns } from "../../lib/columnPrefs.js";
 import CostingPanel from "../costing/CostingPanel.jsx";
 import SupplyDetailsPanel from "./SupplyDetailsPanel.jsx";
+import PriceListPanel from "./PriceListPanel.jsx";
+import { guardedLeave } from "../../lib/leaveGuard.js";
 
 /* Other Reports — the balance register, rebuilt from the packing ledger every
    time it is opened, plus the Costing sheet. Nothing here is stored, so it
@@ -21,9 +23,12 @@ export default function ReportsPage() {
   const { has } = useAuth();
   const canBalance = has("reports.balance");
   const canCosting = has("reports.costing");
+  const canPrices = has("reports.prices");
   /* By item (supply details) leads: it already carries what the PO-wise register
      shows, so that one sits last and is opened only when asked for. */
-  const [tab, setTab] = useState(canBalance ? "item" : "costing");
+  const [tab, setTabNow] = useState(canBalance ? "item" : canCosting ? "costing" : "prices");
+  // The price list may hold unsaved changes: leaving its tab asks first.
+  const setTab = (t) => t !== tab && guardedLeave(() => setTabNow(t));
   const [remarks, setRemarks] = useState({});
   const [sup, setSup] = useState("");          // one supplier, or all of them in the item sequence
   const hidden = useHiddenFields();
@@ -101,6 +106,7 @@ export default function ReportsPage() {
   const segOptions = [
     ...(canBalance ? [["item", "By item", Layers]] : []),
     ...(canCosting ? [["costing", "Costing", Calculator]] : []),
+    ...(canPrices ? [["prices", "Price list", Tags]] : []),
     ...(canBalance ? [["po", "By purchase order", ClipboardList]] : []),
   ];
 
@@ -123,7 +129,8 @@ export default function ReportsPage() {
         )}
       </div>
 
-      {tab === "costing" ? <CostingPanel />
+      {tab === "prices" ? <PriceListPanel canEdit={canPrices} />
+        : tab === "costing" ? <CostingPanel />
         : tab === "item" ? <SupplyDetailsPanel />
           : balq.isLoading ? <Spinner label="Rebuilding the balance register…" />
             : balq.error ? <ErrorState error={balq.error} onRetry={balq.refetch} />

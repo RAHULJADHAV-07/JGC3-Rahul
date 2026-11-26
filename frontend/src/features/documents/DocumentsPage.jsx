@@ -292,13 +292,14 @@ export default function DocumentsPage({ group }) {
   const docMenu = (no) => ({
     name: docFullTitle(no),
     onExcel: () => { if (downloadDocumentExcel(no, ctxFor(no))) toast(`${docFullTitle(no)} — Excel`); },
-    onPDF: () => { if (downloadDocumentPDF(no, ctxFor(no))) toast(`${docFullTitle(no)} — opening print dialog`); },
+    // The menu itself says "PDF downloaded" with the file's name.
+    onPDF: () => downloadDocumentPDF(no, ctxFor(no)),
     onWord: async () => { if (await downloadDocumentWord(no, ctxFor(no))) toast(`${docFullTitle(no)} — Word`); },
   });
   const supplierMenu = (d) => ({
     name: `${docFullTitle(open)} · ${d.code}`,
     onExcel: () => { if (downloadSupplierDoc(open, ctx, d.supplierId, "excel")) toast(`${docFullTitle(open)} · ${d.code} — Excel`); },
-    onPDF: () => { if (downloadSupplierDoc(open, ctx, d.supplierId, "pdf")) toast(`${docFullTitle(open)} · ${d.code} — opening print dialog`); },
+    onPDF: () => downloadSupplierDoc(open, ctx, d.supplierId, "pdf"),
     onWord: async () => { if (await downloadSupplierDoc(open, ctx, d.supplierId, "word")) toast(`${docFullTitle(open)} · ${d.code} — Word`); },
   });
   /* A stage downloads as one workbook (a sheet per document), one print job or
@@ -311,7 +312,7 @@ export default function DocumentsPage({ group }) {
     return {
       name: `all ${nums.length} — ${title}`,
       onExcel: () => (downloadStageExcel(file, nums, ctxFor) ? toast(`${many}, one workbook`) : none()),
-      onPDF: () => (downloadStagePDF(title, nums, ctxFor) ? toast(`${many}, opening print dialog`) : none()),
+      onPDF: async () => { const r = await downloadStagePDF(file, nums, ctxFor); if (!r) none(); return r; },
       onWord: async () => (await downloadStageWord(file, nums, ctxFor) ? toast(`${many}, one Word file`) : none()),
     };
   };

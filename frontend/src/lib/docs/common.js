@@ -350,18 +350,29 @@ function invoiceLines(ctx) {
 export function orderAgg(ctx) {
   const ex = exRate(ctx), g = {};
   ctx.buyerMaster.forEach((r) => {
-    const it = ctx.items.find((x) => x.id === r.itemId) || r.item;
-    if (!it) return;
-    if (!g[it.id]) g[it.id] = { it, qty: 0, pos: new Set(), rbi: r.rbi };
-    g[it.id].qty += Number(r.qty) || 0; g[it.id].pos.add(r.po); g[it.id].rbi = r.rbi;
+    const master = ctx.items.find((x) => x.id === r.itemId) || r.item;
+    if (!master) return;
+    /* Priced as the order was agreed — the line's own prices (docOrderLines),
+       not the master's today — so a price revised later never restates an
+       order already placed (V-7.9.0). The physical facts are the master's. */
+    const p = r.item || master;
+    const it = { ...master, unitValue: p.unitValue, valueMode: p.valueMode, unitFob100: p.unitFob100, fobMode: p.fobMode };
+    if (!g[it.id]) g[it.id] = { it, qty: 0, val: 0, fob: 0, mixed: false, pos: new Set(), rbi: r.rbi };
+    const q = Number(r.qty) || 0, x = g[it.id];
+    x.qty += q; x.pos.add(r.po); x.rbi = r.rbi;
+    x.val += q * (Number(p.unitValue) || 0);
+    x.fob += q * fobPerPiece(p);
+    if ((Number(p.unitValue) || 0) !== (Number(x.it.unitValue) || 0) || fobPerPiece(p) !== fobPerPiece(x.it)) x.mixed = true;
   });
   const rows = Object.values(g).map((x) => {
     const it = x.it, qty = x.qty, packing = Number(it.packing) || 0;
     const boxes = Math.ceil(qty / packing) || 0;
     const volTotal = boxes * (Number(it.volume) || 0);
     const netTotal = boxes * (Number(it.netPerBox) || 0), grossTotal = boxes * (Number(it.grossPerBox) || 0);
-    const fobPc = fobPerPiece(it), fobTotal = qty * fobPc;
-    const valUnit = Number(it.unitValue) || 0, valTotal = qty * valUnit;
+    /* Orders agreed at different prices: the unit is their weighted mean, so
+       unit × quantity is still the total. */
+    const fobPc = x.mixed && qty ? x.fob / qty : fobPerPiece(it), fobTotal = x.mixed ? x.fob : qty * fobPc;
+    const valUnit = x.mixed && qty ? x.val / qty : (Number(it.unitValue) || 0), valTotal = x.mixed ? x.val : qty * valUnit;
     const rbiTotal = fobTotal * ex;
     const bg = Number(it.bgPerBox) || 0, pc = Number(it.pPerBox) || 0, ttl = stickersPerBox(it);
     const stickers = Math.ceil(labelsFor(it, boxes)), sheets = sheetsFor(it, boxes);

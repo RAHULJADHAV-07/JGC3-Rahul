@@ -1,6 +1,9 @@
 import { useMemo, useState } from "react";
-import { RefreshCw } from "lucide-react";
-import { Note, Pill } from "../../components/ui/index.jsx";
+import { RefreshCw, CalendarDays, History } from "lucide-react";
+import { Note, Pill, Input, Btn } from "../../components/ui/index.jsx";
+import { useAuth } from "../../auth/AuthProvider.jsx";
+import { localToday } from "../../lib/prices.js";
+import { HistoryModal } from "../reports/PriceListPanel.jsx";
 import { useSuppliers, useUpdateItem, usePendingForItem, useApplyPrices } from "../../api/hooks.js";
 import { useToast } from "../../providers/ToastProvider.jsx";
 import { inr, usdp, dmyNum } from "../../lib/format.js";
@@ -31,7 +34,15 @@ export default function ItemEditModal({ item, onClose }) {
   const applyPrices = useApplyPrices();
   const pending = usePendingForItem(item.id);
   const toast = useToast();
+  const { has } = useAuth();
   const [applyToPending, setApplyToPending] = useState(false);
+  /* The day a price changed here holds from (V-7.9.0): today unless said
+     otherwise, never before the price now in force. Orders dated before it
+     keep the price before it. */
+  const [since, setSince] = useState(localToday());
+  const [hist, setHist] = useState(false);
+  const supCode = (id) => suppliers.find((s) => s.id === id)?.code || "—";
+  const when = (s) => (s ? new Date(/Z|[+-]\d\d:?\d\d$/.test(s) ? s : `${s}Z`).toLocaleDateString("en-GB") : "");
 
   const supOpts = useMemo(
     () => suppliers.map((s) => ({ value: s.id, label: `${s.code} — ${s.name}` })),
@@ -41,8 +52,10 @@ export default function ItemEditModal({ item, onClose }) {
   const open = pending.data || { pos: [], boxes: 0, lines: 0 };
   const hasPending = open.pos.length > 0;
 
-  const save = (body) => {
-    const priceMoved = changed(item, body);
+  const save = (draft) => {
+    const priceMoved = changed(item, draft);
+    const { price_set_at: _a, price_from: _b, ...body } = draft;
+    if (priceMoved) body.price_from = since;
     update.mutate({ id: item.id, body }, {
       onSuccess: () => {
         // Only ever apply when a price actually moved and the tick is on.
@@ -69,6 +82,33 @@ export default function ItemEditModal({ item, onClose }) {
      touched — never silently. When nothing is outstanding it still says so,
      rather than vanishing and leaving you wondering whether the system
      noticed the change at all. */
+  const sinceBlock = (
+    <Note tone="teal" icon={CalendarDays}>
+      <span className="row wrap" style={{ gap: 10, alignItems: "center" }}>
+        <b>The new price holds from</b>
+        <Input type="date" className="input-sm" style={{ width: 160 }} value={since}
+          min={item.price_from || undefined} max={localToday()} onChange={(e) => setSince(e.target.value || localToday())}
+          aria-label="The new price holds from" />
+        <span style={{ color: "var(--muted)" }}>
+          Orders dated before it keep the old price{item.price_from ? ` — and it cannot be before ${item.price_from.split("-").reverse().join("/")}, when the price now in force began (an earlier one goes in on Other Reports → Price list)` : ""}.
+        </span>
+      </span>
+    </Note>
+  );
+
+  /* When the prices now in force were set — shown on every edit, price
+     touched or not. */
+  const datedBlock = (
+    <div className="row wrap" style={{ gap: 10, fontSize: 12.5, color: "var(--muted)", alignItems: "center" }}>
+      <CalendarDays size={14} />
+      {item.price_from
+        ? <span>Prices in force from <b style={{ color: "var(--ink)" }}>{item.price_from.split("-").reverse().join("/")}</b>
+          {item.price_set_at ? <> · updated on {when(item.price_set_at)}</> : null}</span>
+        : <span>Prices as they came in with the item master — not revised since.</span>}
+      <Btn size="sm" variant="ghost" icon={History} onClick={() => setHist(true)}>Price history</Btn>
+    </div>
+  );
+
   const applyBlock = (
     <Note tone={applyToPending ? "amber" : "teal"} icon={RefreshCw}>
       {hasPending ? (
@@ -105,6 +145,7 @@ export default function ItemEditModal({ item, onClose }) {
   );
 
   return (
+    <>
     <RecordModal
       title={`Edit item · ${item.gd || item.code}`}
       schema={itemSchema(supOpts)}
@@ -115,7 +156,15 @@ export default function ItemEditModal({ item, onClose }) {
       onSave={save}
       /* Only surfaced once a price field is actually touched — editing a
          barcode should not ask about purchase orders. */
-      beforeSave={(draft) => (changed(item, draft) ? applyBlock : null)}
+      beforeSave={(draft) => (
+        <div className="stack-sm">
+          {datedBlock}
+          {changed(item, draft) && sinceBlock}
+          {changed(item, draft) && applyBlock}
+        </div>
+      )}
     />
+    {hist && <HistoryModal item={item} scope="supplier" canEdit={has("reports.prices")} supCode={supCode} onClose={() => setHist(false)} />}
+    </>
   );
 }

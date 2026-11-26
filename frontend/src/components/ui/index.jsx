@@ -1,11 +1,16 @@
 import { Fragment, forwardRef, useEffect, useMemo, useRef, useState } from "react";
 import {
-  X, Pencil, Inbox, Loader2, AlertTriangle, Eye, EyeOff, Check, Circle,
+  X, Pencil, Inbox, AlertTriangle, Eye, EyeOff, Check, Circle,
   HelpCircle, Search, ChevronRight,
 } from "lucide-react";
 import { passwordRules } from "../../lib/password.js";
 import { useIsMobile } from "../../lib/useIsMobile.js";
 import { Select as AppSelect, DateInput as AppDateInput, XScroll as AppXScroll } from "./pickers.jsx";
+import { ShipLoader, ShipSpin } from "./ShipLoader.jsx";
+
+/* The loading mark is a ship under way (ShipLoader.jsx): the full scene where
+   a page or a list is coming in, the small ship wherever a circle used to turn. */
+export { ShipLoader, ShipSpin };
 
 /* The app's own dropdown, calendar and top scrollbar — see pickers.jsx. */
 export const Select = AppSelect;
@@ -222,12 +227,7 @@ export const Stat = ({ icon: Icon, value, label, sub, tone }) => (
   </div>
 );
 
-export const Spinner = ({ label = "Loading…" }) => (
-  <div className="empty" role="status" aria-live="polite">
-    <div className="ei"><Loader2 size={21} className="spin" /></div>
-    <p style={{ color: "var(--muted)" }}>{label}</p>
-  </div>
-);
+export const Spinner = ({ label = "Loading…", size }) => <ShipLoader label={label} size={size} />;
 
 /* What went wrong, said the way it went wrong: no connection, a server that
    did not answer, a record that is not there, a right the account lacks, or
@@ -268,7 +268,7 @@ export function ResultState({ query, count, pending = false, loading = "Loading�
     if (!count) return <Spinner label={busy} />;
     return (
       <div className="results-stale" aria-busy="true">
-        <div className="results-busy" role="status"><Loader2 size={13} className="spin" /> {busy}</div>
+        <div className="results-busy" role="status"><ShipSpin size={16} /> {busy}</div>
         {children}
       </div>
     );
@@ -496,7 +496,7 @@ export function DataTable({
 
   const headOf = (r, ri) => (section ? section(r, first + ri) : null);
   const emptyNote = loading
-    ? <span className="row" style={{ justifyContent: "center", gap: 8 }}><Loader2 size={15} className="spin" /> Loading…</span>
+    ? <span className="row" style={{ justifyContent: "center", gap: 8 }}><ShipSpin size={18} /> Loading…</span>
     : error
       ? <span className="stack-sm" style={{ alignItems: "center" }}>
         <span style={{ color: "var(--amber-ink)", fontWeight: 600 }}>{errorText(error).title}</span>

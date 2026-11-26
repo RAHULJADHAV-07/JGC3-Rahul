@@ -65,10 +65,12 @@ export default function NewOrderDrawer({ onClose }) {
   };
   const dropLine = (id) => setQtys((p) => { const n = { ...p }; delete n[id]; return n; });
 
+  /* Priced as the order will be: the prices in force on its date, the
+     buyer's own where the buyer has a price list (Other Reports → Price list). */
   const chosen = useMemo(
-    () => Object.entries(qtys).map(([id, v]) => ({ item_id: id, qty: Number(v) || 0, rbi: 0 }))
+    () => Object.entries(qtys).map(([id, v]) => ({ item_id: id, qty: Number(v) || 0, rbi: 0, buyer_id: buyerId || null, date: date || null }))
       .filter((r) => r.qty > 0),
-    [qtys],
+    [qtys, buyerId, date],
   );
   const derived = useDerive(useDebounced(chosen, 350));
   const t = derived.data?.totals || {};

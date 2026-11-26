@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
-import { FileDown, FileSpreadsheet, FileText, Loader2, MoreVertical, X } from "lucide-react";
+import { FileDown, FileSpreadsheet, FileText, MoreVertical, X } from "lucide-react";
+import { ShipSpin } from "./ShipLoader.jsx";
 import { Layer, useOutside, usePlacement } from "./pickers.jsx";
 import { useIsMobile } from "../../lib/useIsMobile.js";
 import { useToast } from "../../providers/ToastProvider.jsx";
@@ -8,10 +9,12 @@ import { useToast } from "../../providers/ToastProvider.jsx";
    ways, and this is the one place they are offered, so no screen can give one
    format and forget another.
 
-     onExcel / onPDF / onWord   what each does. A Word copy is laid out before it
-                                is written, so `onWord` may return a promise; the
-                                dots turn until it is done. One that fails says
-                                so instead of doing nothing.
+     onExcel / onPDF / onWord   what each does. A Word copy and a PDF are laid out
+                                before they are written, so a handler may return
+                                a promise; the dots turn until it is done. One
+                                that fails says so instead of doing nothing. A
+                                PDF handler that resolves to the file's name gets
+                                a "PDF downloaded" toast.
      name                       what is being downloaded, for the menu's heading
                                 and for anyone using a screen reader.
 
@@ -19,7 +22,7 @@ import { useToast } from "../../providers/ToastProvider.jsx";
    list or a modal cannot clip it; on a phone it is a sheet from the bottom. */
 const FORMATS = [
   { k: "onExcel", label: "Excel", hint: ".xlsx · formulas stay live", icon: FileSpreadsheet, tone: "xls" },
-  { k: "onPDF", label: "PDF", hint: "opens the print dialog", icon: FileDown, tone: "pdf" },
+  { k: "onPDF", label: "PDF", hint: "saves straight to Downloads", icon: FileDown, tone: "pdf" },
   { k: "onWord", label: "Word", hint: ".docx · editable", icon: FileText, tone: "doc" },
 ];
 
@@ -53,7 +56,14 @@ export default function DownloadMenu({ name = "", disabled, size = "md", ...hand
     close(true);
     setBusy(f.k);
     try {
-      await handlers[f.k]();
+      const done = await handlers[f.k]();
+      /* A PDF is drawn and saved without a dialog (lib/pdfDirect.js), so say
+         it has landed, and under what name. */
+      if (f.k === "onPDF" && typeof done === "string") {
+        toast(done === "print"
+          ? "This browser could not make the PDF itself — choose “Save as PDF” in the print dialog"
+          : `PDF downloaded — ${done}`);
+      }
     } catch (e) {
       console.error(e);
       toast(`Could not build the ${f.label} file — try another format, or reload the page.`, { tone: "error" });
@@ -98,7 +108,7 @@ export default function DownloadMenu({ name = "", disabled, size = "md", ...hand
         disabled={disabled} title={disabled ? "Nothing to download yet" : label} aria-label={label}
         aria-haspopup="menu" aria-expanded={open} aria-controls={open ? menuId : undefined} aria-busy={!!busy || undefined}
         onClick={toggle} onKeyDown={(e) => { if (!open && e.key === "ArrowDown") { e.preventDefault(); toggle(e); } }}>
-        {busy ? <Loader2 size={16} className="spin" /> : <MoreVertical size={size === "sm" ? 16 : 18} strokeWidth={2.3} />}
+        {busy ? <ShipSpin size={19} /> : <MoreVertical size={size === "sm" ? 16 : 18} strokeWidth={2.3} />}
       </button>
       {open && (mobile ? (
         <Layer>

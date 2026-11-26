@@ -185,3 +185,18 @@ export const reports = {
   // params: { mode: "po" | "invoice", supplier_id, date_from, date_to }
   supplyDetails: (params) => apiGet(`/api/reports/supply-details${qs(params)}`),
 };
+
+/* Other Reports → Price list (V-7.9.0): the supplier and buyer price lists,
+   each save dated, and the history behind them. */
+export const prices = {
+  supplier: () => apiGet("/api/prices/supplier"),
+  buyer: (bid, on) => apiGet(`/api/prices/buyer/${encodeURIComponent(bid)}${qs(on ? { on } : {})}`),
+  saveSupplier: (b) => apiPost("/api/prices/supplier", b),
+  saveBuyer: (bid, b) => apiPost(`/api/prices/buyer/${encodeURIComponent(bid)}`, b),
+  history: (iid, params) => apiGet(`/api/prices/history/${encodeURIComponent(iid)}${qs(params)}`),
+  revisions: (params) => apiGet(`/api/prices/revisions${qs(params)}`),
+  withdraw: (rid) => apiPost(`/api/prices/revisions/${encodeURIComponent(rid)}/withdraw`),
+  reinstate: (rid) => apiPost(`/api/prices/revisions/${encodeURIComponent(rid)}/reinstate`),
+  restore: (vid) => apiPost(`/api/prices/versions/${encodeURIComponent(vid)}/restore`),
+};
+

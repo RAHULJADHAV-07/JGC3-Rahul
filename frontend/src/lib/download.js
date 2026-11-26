@@ -4,8 +4,9 @@
 
      Excel — a real .xlsx (lib/xlsx.js) with the arithmetic still live, so
              changing a quantity in the sheet re-totals the row.
-     PDF   — the same layout, rendered through the browser's own print
-             engine, which is what turns it into a PDF the client can send on.
+     PDF   — the same layout, drawn by the browser and saved straight to
+             Downloads as a real .pdf (lib/pdfDirect.js) — no print dialog.
+             A browser that cannot do that still gets the print dialog.
      Word  — that print layout again as a real .docx (lib/htmlDocx.js), to be
              typed into.
 
@@ -16,6 +17,7 @@ import { readSections } from "./htmlDocx.js";
 import { safeHtml } from "./safeHtml.js";
 import { gridToSheet, gridToHtml, htmlToSheet } from "./sheet.js";
 import { fitCells, fitPages, fitWidths, widened } from "./fitCells.js";
+import { buildPdf } from "./pdfDirect.js";
 
 function saveBlob(blob, filename) {
   try {
@@ -106,10 +108,18 @@ export function docSheets(list) {
   });
 }
 
-/** Print one of the app's own tables, for the client to save as PDF. */
+/** One of the app's own tables as a PDF — named after the report and the
+ *  day it was taken, as its Excel is. */
 export function downloadGridPDF(title, columns, rows, opts) {
-  downloadPDF(title, [{ html: gridToHtml(columns, rows, { title, ...opts }) }]);
+  const file = /\d{4}-\d{2}-\d{2}/.test(title) ? title : `${title} ${localDay()}`;
+  return downloadPDF(file, [{ html: gridToHtml(columns, rows, { title, ...opts }) }], { orientation: opts?.orientation });
 }
+
+const localDay = () => {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+};
 
 /* ---- PDF ------------------------------------------------------------------
    Rendered by the browser: the document goes into an off-screen frame with
@@ -944,13 +954,50 @@ export function downloadGridWord(filename, title, columns, rows, opts) {
 const escHtml = (s) => String(s ?? "")
   .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
+/** The name a PDF is saved under: the document's own, with nothing in it a
+ *  file system refuses. */
+export const pdfName = (title) => `${String(title || "Document").replace(/\.pdf$/i, "")
+  .replace(/[\\/:*?"<>|\u0000-\u001f]+/g, "-").replace(/\s+/g, " ").trim().slice(0, 150) || "Document"}.pdf`;
+
+/** One or more papers as a PDF Blob, not saved — what downloadPDF saves, and
+ *  what `npm run verify:docs` checks. `docs` is [{ html }]. */
+export function pdfBlob(docs, opts = {}) {
+  return buildPdf({
+    bodyHtml: docs.map((d) => `<div class="jg-doc">${d.html}</div>`).join(""),
+    css: `${pageRule(opts.orientation)}${PRINT_CSS}`,
+    orientation: opts.orientation === "portrait" ? "portrait" : "landscape",
+    title: opts.title || "Document",
+  });
+}
+
 /**
- * Print one or more HTML documents, for the client to save as PDF.
+ * Save one or more HTML documents as a PDF, straight to Downloads.
  * `docs` is a single html string, or [{ name?, html }].
  * `opts.orientation` — "portrait" for a document whose sheet is set up that
  * way; anything else keeps the library's landscape default.
+ * Resolves to the file name saved, "print" when the browser could not make
+ * the file itself and the print dialog was opened instead, or false.
  */
-export function downloadPDF(title, docs, opts = {}) {
+export async function downloadPDF(title, docs, opts = {}) {
+  const list = (Array.isArray(docs) ? docs : [{ html: docs }]).filter((d) => d && d.html);
+  if (!list.length) return false;
+  const name = pdfName(title);
+  try {
+    const blob = await pdfBlob(list, { ...opts, title: name.replace(/\.pdf$/, "") });
+    return saveBlob(blob, name) ? name : false;
+  } catch (e) {
+    console.error("PDF could not be built here; opening the print dialog instead", e);
+    printPDF(title, list, opts);
+    return "print";
+  }
+}
+
+/**
+ * Print one or more HTML documents through the browser's print dialog — the
+ * way every PDF was made before V-7.9.0, kept for a browser that cannot draw
+ * one itself.
+ */
+export function printPDF(title, docs, opts = {}) {
   const list = (Array.isArray(docs) ? docs : [{ html: docs }]).filter((d) => d && d.html);
   if (!list.length) return;
   const body = list.map((d) => `<div class="jg-doc">${d.html}</div>`).join("");

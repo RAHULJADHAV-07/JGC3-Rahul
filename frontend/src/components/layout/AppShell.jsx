@@ -1,5 +1,6 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
+import { guardedLeave, setNavigator } from "../../lib/leaveGuard.js";
 import {
   Sun, Moon, LogOut, Search, ChevronDown, CornerDownLeft, FileText, Menu, X,
   ShieldCheck, User as UserIcon, Type, Settings,
@@ -181,8 +182,13 @@ function Palette({ onClose, go, has }) {
 
 export default function AppShell() {
   const { pathname } = useLocation();
-  const nav = useNavigate();
-  const { user, isAdmin, has, logout } = useAuth();
+  const navTo = useNavigate();
+  const { user, isAdmin, has, logout: signOut } = useAuth();
+  /* Every move out of a page asks the page first when it holds unsaved work
+     (lib/leaveGuard.js — the price list). */
+  useEffect(() => { setNavigator(navTo); }, [navTo]);
+  const nav = useCallback((to) => guardedLeave(() => navTo(to)), [navTo]);
+  const logout = useCallback(() => guardedLeave(signOut), [signOut]);
   const badges = useBadges().data || {};
 
   const [theme, setTheme] = useState(() => (typeof localStorage !== "undefined" && localStorage.getItem("jg-theme")) || "light");

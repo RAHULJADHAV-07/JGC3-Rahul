@@ -36,7 +36,7 @@ from . import models  # noqa: F401  (ensure models are registered before create_
 from .migrate import run_migrations
 from .routers import (
     auth, users, suppliers, buyers, items, transports, purchase_orders, invoices,
-    dashboard, reports, costing, masters, audit_log, options,
+    dashboard, reports, costing, masters, audit_log, options, prices,
 )
 
 log = logging.getLogger(__name__)
@@ -73,7 +73,7 @@ async def lifespan(app: FastAPI):
                 pass
 
 
-app = FastAPI(title=settings.app_name, version="7.8.2", lifespan=lifespan, **_docs)
+app = FastAPI(title=settings.app_name, version="7.9.0", lifespan=lifespan, **_docs)
 
 # Innermost: what a body may hold is settled before any route reads it.
 app.add_middleware(BodyGuard)
@@ -210,7 +210,7 @@ app.add_middleware(
 )
 
 for r in (auth, users, suppliers, buyers, items, transports, purchase_orders, invoices,
-          dashboard, reports, costing, masters, audit_log, options):
+          dashboard, reports, costing, masters, audit_log, options, prices):
     app.include_router(r.router)
 
 

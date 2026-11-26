@@ -4531,3 +4531,374 @@ input[type="number"] {
   color: var(--faint);
   flex-shrink: 0;
 }
+
+/* ============================================================
+   Other Reports → Price list (V-7.9.0). The figure in force sits
+   over each box in small type; the box holds the new one.
+   ============================================================ */
+.pl-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 14px;
+  padding: 14px 16px;
+}
+.pl-bar .field { margin: 0; }
+.pl-actions { gap: 8px; }
+.pl-status {
+  border-top: 1px solid var(--border);
+  padding: 9px 16px;
+  font-size: 12.5px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+.pl-status b { color: var(--ink); }
+.pl-need { color: var(--amber-ink); font-weight: 600; }
+.pl-cell {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+.pl-old {
+  font-size: 10.5px;
+  color: var(--faint);
+  white-space: nowrap;
+}
+.pl-old b { color: var(--ink-2); font-weight: 600; }
+.pl-old i, .pl-from i { font-style: normal; color: var(--faint); font-size: 10.5px; }
+.pl-sel { min-width: 0; }
+.pl-desc {
+  display: block;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+}
+.pl-from {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 1px;
+  font-size: 12px;
+  line-height: 1.35;
+  white-space: nowrap;
+}
+.pl-from span { color: var(--muted); font-size: 11px; }
+.pl-warn {
+  display: block;
+  margin-top: 3px;
+  font-size: 10.5px;
+  color: var(--amber-ink);
+  white-space: normal;
+  max-width: 170px;
+}
+.pl-hist { display: flex; flex-direction: column; gap: 6px; }
+.pl-hrow {
+  display: grid;
+  grid-template-columns: 150px 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  background: var(--surface);
+}
+.pl-hrow.on { border-color: var(--teal); box-shadow: inset 3px 0 0 var(--teal); }
+.pl-hrow.off { opacity: 0.62; }
+.pl-hrow.off .pl-hfig { text-decoration: line-through; text-decoration-color: var(--faint); }
+.pl-hdate { display: flex; flex-direction: column; font-size: 12.5px; color: var(--ink); }
+.pl-hdate span { font-size: 11px; color: var(--muted); }
+.pl-hfig { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12.5px; color: var(--ink-2); }
+.pl-hfig i { font-style: normal; color: var(--faint); font-size: 11px; }
+.pl-hmode { color: var(--muted); font-size: 11.5px; flex-basis: 100%; }
+.pl-hact { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: flex-end; }
+@media (max-width: 760px) {
+  .pl-hrow { grid-template-columns: 1fr; }
+  .pl-hact { justify-content: flex-start; }
+  .pl-cell { align-items: stretch; }
+}
+
+/* The dashboard's simplified board (V-7.9.0): each order split PP | GRN. */
+.matrix th.mx-rng {
+  font-size: 10.5px;
+  letter-spacing: 0.5px;
+}
+.matrix th.mx-rng.mx-grn:not(.mx-tot) {
+  background: var(--teal);
+}
+.matrix .mx-gs {
+  border-left: 2px solid var(--brand);
+}
+.matrix thead th.mx-gs {
+  border-left-color: rgba(255, 255, 255, 0.55);
+}
+
+/* ============================================================
+   Ship loader (V-7.9.0) — components/ui/ShipLoader.jsx.
+   A container ship in the company's colours pitching on a sea
+   that runs past it; by night a moon, stars and a lit bridge.
+   ============================================================ */
+:root {
+  --jgl-sky: #e6f2f6;
+  --jgl-sea-1: #0f6f7c;
+  --jgl-sea-2: #2f93a1;
+  --jgl-sea-3: #a3d2da;
+  --jgl-foam: #ffffff;
+  --jgl-hull: #0b2c4d;
+  --jgl-deck: #f8fafc;
+  --jgl-deck-line: #c3d1de;
+  --jgl-glass: #1d4f7c;
+  --jgl-port: #8fa7bd;
+  --jgl-boot: #9b1c1c;
+  --jgl-band: #ee7a2b;
+  --jgl-smoke: #b9c5d1;
+  --jgl-cloud: #ffffff;
+  --jgl-gull: #33485c;
+  --jgl-sun: #f39a3d;
+  --jgl-sun-glow: #f7b267;
+}
+[data-theme="dark"] {
+  --jgl-sky: #12233a;
+  --jgl-sea-1: #0b3440;
+  --jgl-sea-2: #14525f;
+  --jgl-sea-3: #1d4553;
+  --jgl-foam: rgba(214, 238, 244, 0.75);
+  --jgl-hull: #06131f;
+  --jgl-deck: #b6c4d1;
+  --jgl-deck-line: #7d8d9c;
+  --jgl-glass: #f4c56d;
+  --jgl-port: #e7b35d;
+  --jgl-boot: #8a1f1f;
+  --jgl-band: #e8762b;
+  --jgl-smoke: #4c5c6c;
+  --jgl-cloud: #2a3d55;
+  --jgl-gull: #9db0c0;
+}
+
+.jgl {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 28px 20px 34px;
+  text-align: center;
+}
+.jgl-svg {
+  display: block;
+  width: 236px;
+  user-select: none;
+  pointer-events: none;
+  max-width: 78vw;
+  height: auto;
+  overflow: hidden;
+  /* The scene fades into the card at its sides and top, rather than sitting
+     in a box. */
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 11%, #000 89%, transparent 100%),
+    linear-gradient(180deg, transparent 0, #000 22%, #000 90%, transparent 100%);
+  -webkit-mask-composite: source-in;
+  mask-image: linear-gradient(90deg, transparent 0, #000 11%, #000 89%, transparent 100%),
+    linear-gradient(180deg, transparent 0, #000 22%, #000 90%, transparent 100%);
+  mask-composite: intersect;
+}
+.jgl-lg .jgl-svg { width: 340px; }
+.jgl-sm { padding: 14px 12px 18px; }
+.jgl-sm .jgl-svg { width: 150px; }
+.jgl-label {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.jgl-lg .jgl-label { font-size: 14.5px; }
+
+/* sky */
+.jgl-sky { fill: var(--jgl-sky); }
+.jgl-night { display: none; }
+[data-theme="dark"] .jgl-night { display: inline; }
+[data-theme="dark"] .jgl-day { display: none; }
+.jgl-sun { fill: var(--jgl-sun); }
+.jgl-sun-glow {
+  fill: var(--jgl-sun-glow);
+  opacity: 0.3;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: jgl-glow 4s ease-in-out infinite alternate;
+}
+.jgl-moon { fill: #e8eef6; }
+.jgl-moon-glow { fill: #e8eef6; opacity: 0.08; }
+.jgl-crater { fill: #c9d3df; }
+.jgl-star { fill: #ffffff; opacity: 0.6; animation: jgl-twinkle 2.6s ease-in-out infinite; }
+.jgl-cloud-fill { fill: var(--jgl-cloud); opacity: 0.95; }
+.jgl-cloud { animation: jgl-cloud 30s linear infinite; }
+.jgl-gulls { animation: jgl-glide 6s ease-in-out infinite; }
+.jgl-gull {
+  fill: none;
+  stroke: var(--jgl-gull);
+  stroke-width: 0.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: jgl-flap 0.55s ease-in-out infinite alternate;
+}
+.jgl-gull-2 { animation-delay: -0.3s; }
+
+/* sea — each layer slides left by exactly its own wave length, so it loops */
+.jgl-sea { animation: jgl-flow 3.4s linear infinite; }
+.jgl-sea-back { animation-duration: 7s; }
+.jgl-sea-front { animation-duration: 2.4s; }
+.jgl-water-1 { fill: var(--jgl-sea-1); }
+.jgl-water-2 { fill: var(--jgl-sea-2); opacity: 0.94; }
+.jgl-water-3 { fill: var(--jgl-sea-3); }
+.jgl-foam {
+  fill: none;
+  stroke: var(--jgl-foam);
+  stroke-width: 0.75;
+  stroke-linecap: round;
+  stroke-dasharray: 2.5 11;
+  opacity: 0.75;
+}
+.jgl-foam-faint { opacity: 0.28; }
+
+/* the ship pitches about the waterline; her spray goes with her */
+.jgl-ship,
+.jgl-bob {
+  transform-box: view-box;
+  transform-origin: 100px 74px;
+  animation: jgl-pitch 3.2s ease-in-out infinite;
+}
+.jgl-hull { fill: var(--jgl-hull); }
+.jgl-deck { fill: var(--jgl-deck); stroke: var(--jgl-deck-line); stroke-width: 0.4; }
+.jgl-win { fill: var(--jgl-glass); }
+.jgl-port { fill: var(--jgl-port); }
+.jgl-band { fill: var(--jgl-band); }
+.jgl-cap { fill: #1a1d22; }
+.jgl-rig { stroke: var(--jgl-hull); stroke-width: 0.8; stroke-linecap: round; }
+.jgl-flag {
+  fill: var(--jgl-boot);
+  transform-box: fill-box;
+  transform-origin: left center;
+  animation: jgl-flag 0.9s ease-in-out infinite alternate;
+}
+.jgl-sheer { fill: none; stroke: #ffffff; stroke-width: 0.75; opacity: 0.85; }
+.jgl-shine { fill: none; stroke: rgba(255, 255, 255, 0.16); stroke-width: 1.6; stroke-linecap: round; }
+.jgl-name {
+  fill: #ffffff;
+  font-family: var(--font);
+  font-size: 3.5px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  opacity: 0.92;
+}
+.jgl-hawse { fill: none; stroke: rgba(255, 255, 255, 0.55); stroke-width: 0.45; }
+.jgl-boot { fill: var(--jgl-boot); }
+.jgl-box-or { fill: #ee7a2b; }
+.jgl-box-te { fill: #12818f; }
+.jgl-box-am { fill: #e8a33d; }
+.jgl-box-ma { fill: #9b1c1c; }
+.jgl-box-st { fill: #1d4f7c; }
+.jgl-box-gr { fill: #12795a; }
+[data-theme="dark"] .jgl-box { filter: brightness(0.8); }
+.jgl-rib { fill: none; stroke: rgba(0, 0, 0, 0.2); stroke-width: 0.45; }
+.jgl-lip { fill: none; stroke: rgba(255, 255, 255, 0.35); stroke-width: 0.5; }
+.jgl-smoke {
+  fill: var(--jgl-smoke);
+  opacity: 0.45;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: jgl-smoke 2.4s ease-out infinite;
+}
+.jgl-spray {
+  fill: none;
+  stroke: var(--jgl-foam);
+  stroke-width: 1.1;
+  stroke-linecap: round;
+  opacity: 0.8;
+  transform-box: fill-box;
+  transform-origin: left bottom;
+  animation: jgl-spray 1.6s ease-out infinite;
+}
+.jgl-spray-2 { animation-delay: -0.8s; }
+.jgl-wake {
+  fill: none;
+  stroke: var(--jgl-foam);
+  stroke-width: 1.3;
+  stroke-linecap: round;
+  opacity: 0.7;
+  transform-box: fill-box;
+  transform-origin: right center;
+  animation: jgl-wake 1.65s linear infinite;
+}
+
+@keyframes jgl-flow { to { transform: translateX(calc(-1 * var(--p, 30px))); } }
+@keyframes jgl-pitch {
+  0%, 100% { transform: translateY(0) rotate(-1.6deg); }
+  50% { transform: translateY(-1.8px) rotate(1.3deg); }
+}
+@keyframes jgl-smoke {
+  0% { transform: translate(0, 0) scale(0.6); opacity: 0; }
+  15% { opacity: 0.75; }
+  100% { transform: translate(-9px, -14px) scale(2.1); opacity: 0; }
+}
+@keyframes jgl-flag {
+  from { transform: skewY(6deg) scaleX(0.92); }
+  to { transform: skewY(-6deg) scaleX(1.04); }
+}
+@keyframes jgl-wake {
+  0% { transform: translateX(6px) scaleX(0.4); opacity: 0; }
+  25% { opacity: 0.9; }
+  100% { transform: translateX(-16px) scaleX(1.2); opacity: 0; }
+}
+@keyframes jgl-spray {
+  0% { transform: scale(0.5); opacity: 0; }
+  30% { opacity: 0.95; }
+  100% { transform: translateY(-1px) scale(1.15); opacity: 0; }
+}
+@keyframes jgl-cloud {
+  from { transform: translateX(60px); }
+  to { transform: translateX(-200px); }
+}
+@keyframes jgl-glide {
+  0%, 100% { transform: translate(2px, 0); }
+  50% { transform: translate(-3px, -2.5px); }
+}
+@keyframes jgl-flap {
+  from { transform: scaleY(1); }
+  to { transform: scaleY(0.35) translateY(0.6px); }
+}
+@keyframes jgl-glow {
+  from { transform: scale(0.92); }
+  to { transform: scale(1.06); }
+}
+@keyframes jgl-twinkle {
+  0%, 100% { opacity: 0.25; }
+  50% { opacity: 1; }
+}
+
+/* The small ship — a drop-in for a turning icon in buttons and status lines. */
+.jgs {
+  display: inline-block;
+  flex-shrink: 0;
+  vertical-align: middle;
+  overflow: hidden;
+}
+.jgs-ship {
+  transform-box: view-box;
+  transform-origin: 12px 16px;
+  animation: jgs-rock 1.5s ease-in-out infinite alternate;
+}
+.jgs-wave { animation: jgs-flow 0.9s linear infinite; }
+@keyframes jgs-rock {
+  from { transform: rotate(-7deg) translateY(0.4px); }
+  to { transform: rotate(6deg) translateY(-0.6px); }
+}
+@keyframes jgs-flow { to { transform: translateX(-6px); } }
+
+/* Asked for less motion: the ship lies at anchor on a calm sea. */
+@media (prefers-reduced-motion: reduce) {
+  .jgl *,
+  .jgs * {
+    animation: none !important;
+  }
+}

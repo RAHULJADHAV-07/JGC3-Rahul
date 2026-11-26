@@ -532,6 +532,9 @@ class ItemUpdate(_ItemFigures):
     source_sheet: Optional[str] = None
     supplier_id: Optional[str] = None
     packaging_type: Optional[str] = None
+    # The day a price changed here holds from — today if not given. Orders
+    # dated before it keep the price before it (app/prices.py).
+    price_from: Optional[IsoDate] = None
 
 
 class Item(ItemBase, ORMModel):
@@ -539,13 +542,60 @@ class Item(ItemBase, ORMModel):
     # Figures that do not depend on an order quantity, so every screen shows
     # the same stickers-per-box without recomputing it locally.
     stickers_per_box: float = 0.0
+    # The date the prices hold from and when they were saved (Price list).
+    price_from: Optional[str] = None
+    price_set_at: Optional[datetime] = None
 
 
 class ItemDeriveIn(BaseModel):
-    """Ask the API what one ordered quantity works out to."""
+    """Ask the API what one ordered quantity works out to. With a buyer and an
+    order date the prices are the ones that order will be placed at (the
+    supplier's price in force that day, the buyer's FOB where it has one)."""
     item_id: str
     qty: float = 0
     rbi: float = 0.0
+    buyer_id: Ref = None
+    date: Optional[str] = None
+
+
+# ---------- Price list (Other Reports) ----------
+Basis = Literal["piece", "100", "custom"]
+Margin = Annotated[float, Field(ge=-100, le=10_000)]
+
+
+class SupplierPriceIn(BaseModel):
+    item_id: str = Field(max_length=64)
+    unit_value: Optional[Rate] = None
+    value_mode: Optional[Basis] = None
+    unit_fob100: Optional[Rate] = None
+    fob_mode: Optional[Basis] = None
+
+
+class SupplierPricesIn(BaseModel):
+    """One save of the supplier price list: the date the figures hold from,
+    and each item changed."""
+    effective: IsoDate
+    note: str = Field("", max_length=300)
+    rows: list[SupplierPriceIn] = Field(..., min_length=1, max_length=5000)
+
+
+class BuyerPriceIn(BaseModel):
+    item_id: str = Field(max_length=64)
+    # margin — the supplier's price plus margin_pct; manual — the figures
+    # given; none — back to the supplier's price.
+    mode: Literal["margin", "manual", "none"]
+    margin_pct: Optional[Margin] = None
+    unit_value: Optional[Rate] = None
+    value_mode: Optional[Basis] = None
+    unit_fob100: Optional[Rate] = None
+    fob_mode: Optional[Basis] = None
+
+
+class BuyerPricesIn(BaseModel):
+    effective: IsoDate
+    note: str = Field("", max_length=300)
+    margin_pct: Optional[Margin] = None
+    rows: list[BuyerPriceIn] = Field(..., min_length=1, max_length=5000)
 
 
 # ---------- Transport ----------

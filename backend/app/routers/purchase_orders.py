@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from ..database import get_db, lock_ledger
 from ..deps import require, require_admin
 from ..permissions import READ_ORDERS
-from .. import models, schemas, calc, options
+from .. import models, schemas, calc, options, prices as P
 
 router = APIRouter(prefix="/api/purchase-orders", tags=["purchase-orders"])
 
@@ -50,6 +50,15 @@ def list_po_lines(db: Session = Depends(get_db)):
 # Price sync — an order keeps the prices it was placed at (see models.py), so
 # editing an item in Setup only moves the orders you say it should.
 # ---------------------------------------------------------------------------
+def _today_prices(db: Session, items: dict, lines):
+    """line → what that line would be placed at today: the supplier's price,
+    with its buyer's FOB where the buyer has a price list (app/prices.py)."""
+    by_buyer = {}
+    for b in {r.buyer_id for r in lines}:
+        by_buyer[b] = P.order_prices(db, items, b, P.today_iso())
+    return lambda r: by_buyer[r.buyer_id][r.item_id]
+
+
 def _pending_line_ids(db: Session) -> set[str]:
     """Every order line that still has boxes outstanding, by the same FIFO
     ledger the packing screen allocates against."""
@@ -70,6 +79,7 @@ def price_drift(item_id: str | None = None, db: Session = Depends(get_db)):
     items = {i.id: i for i in db.query(models.Item).all()}
     pending = _pending_line_ids(db)
     lines = db.query(models.PurchaseOrderLine).all()
+    target = _today_prices(db, items, lines)
 
     drifted, pos, item_ids, boxes = 0, set(), set(), 0
     for r in lines:
@@ -78,7 +88,7 @@ def price_drift(item_id: str | None = None, db: Session = Depends(get_db)):
             continue
         if item_id and r.item_id != item_id:
             continue
-        if calc.prices_differ(it, r):
+        if P.differs(target(r), r):
             drifted += 1
             pos.add(r.po)
             item_ids.add(it.id)
@@ -126,19 +136,19 @@ def apply_prices(item_id: str | None = None, db: Session = Depends(get_db)):
     """
     items = {i.id: i for i in db.query(models.Item).all()}
     pending = _pending_line_ids(db)
-    lines = db.query(models.PurchaseOrderLine).all()
+    lines = [r for r in db.query(models.PurchaseOrderLine).all()
+             if r.item_id in items and (not item_id or r.item_id == item_id)]
+    target = _today_prices(db, items, lines)
 
     updated, pos = 0, set()
     for r in lines:
-        it = items.get(r.item_id)
-        if not it or r.id not in pending or not calc.prices_differ(it, r):
+        if r.id not in pending:
             continue
-        if item_id and r.item_id != item_id:
+        t = target(r)
+        if not P.differs(t, r):
             continue
-        r.unit_value = float(it.unit_value or 0)
-        r.value_mode = it.value_mode or "piece"
-        r.unit_fob100 = float(it.unit_fob100 or 0)
-        r.fob_mode = it.fob_mode or "100"
+        r.unit_value, r.value_mode = t["unit_value"], t["value_mode"]
+        r.unit_fob100, r.fob_mode = t["unit_fob100"], t["fob_mode"]
         updated += 1
         pos.add(r.po)
     db.commit()
@@ -166,15 +176,14 @@ def create_purchase_order(body: schemas.PurchaseOrderCreate, db: Session = Depen
     if missing:
         raise HTTPException(404, f"Item {missing[0]} not found")
 
+    # Freeze the price the order is being placed at: the one in force on the
+    # order's own date (Other Reports → Price list), the buyer's where it has one.
+    priced = P.order_prices(db, items, body.buyer_id, body.date)
     created = []
     for l in body.lines:
-        it = items[l.item_id]
         row = models.PurchaseOrderLine(
             po=body.po, date=body.date, item_id=l.item_id, qty=l.qty,
-            rbi=body.rbi, buyer_id=body.buyer_id,
-            # Freeze the price the order is being placed at.
-            unit_value=float(it.unit_value or 0), value_mode=it.value_mode or "piece",
-            unit_fob100=float(it.unit_fob100 or 0), fob_mode=it.fob_mode or "100",
+            rbi=body.rbi, buyer_id=body.buyer_id, **priced[l.item_id],
         )
         db.add(row)
         created.append(row)
@@ -203,8 +212,7 @@ def update_purchase_order(po: str, body: schemas.PurchaseOrderUpdate, db: Sessio
 
     `lines` is the order as it should now read, in full. A line that arrives
     with its `id` keeps that row (and the price it was agreed at); a line with
-    no `id` is added and priced at the item master's figures, exactly as a new
-    order would be; a row whose id does not come back is dropped. Sending no
+    no `id` is added and priced as a new order dated that day would be; a row whose id does not come back is dropped. Sending no
     `lines` at all leaves the lines alone, which is what renaming a PO does.
     """
     lock_ledger(db)
@@ -237,6 +245,8 @@ def update_purchase_order(po: str, body: schemas.PurchaseOrderUpdate, db: Sessio
         if missing:
             raise HTTPException(404, f"Item {missing[0]} not found")
 
+        # A line added now is agreed at the price in force on the order's date.
+        priced = P.order_prices(db, items, buyer_id, date) if items else {}
         kept, seen = [], set()
         for l in body.lines:
             qty, lid = l.qty, l.id
@@ -250,10 +260,7 @@ def update_purchase_order(po: str, body: schemas.PurchaseOrderUpdate, db: Sessio
                     raise HTTPException(404, f"Item {l.item_id} not found")
                 row = models.PurchaseOrderLine(
                     po=new_po, date=date, item_id=it.id, qty=qty,
-                    rbi=rbi, buyer_id=buyer_id,
-                    # A line added now is agreed at today's master price.
-                    unit_value=float(it.unit_value or 0), value_mode=it.value_mode or "piece",
-                    unit_fob100=float(it.unit_fob100 or 0), fob_mode=it.fob_mode or "100",
+                    rbi=rbi, buyer_id=buyer_id, **priced[it.id],
                 )
                 db.add(row)
             kept.append(row)

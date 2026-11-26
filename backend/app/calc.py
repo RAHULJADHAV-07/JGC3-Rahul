@@ -924,6 +924,14 @@ def _po_dates(po_lines) -> dict:
 
 
 # ---------------- Dashboard matrix (doc 39) ----------------
+RANGE_SPLIT = ("pp", "grn")
+
+
+def item_range(item) -> str:
+    """"grn" for the nylon (GRN) range, "pp" for everything else."""
+    return "grn" if (getattr(item, "sticker_rule", "") or "").lower() == "grn" else "pp"
+
+
 def build_balance_matrix(po_lines, invoices, items_by_id, suppliers, hidden_pos=None,
                          cntr_vol: float = 68.0) -> dict:
     """Balance orders, boxes and volume — suppliers down, purchase orders across.
@@ -951,34 +959,56 @@ def build_balance_matrix(po_lines, invoices, items_by_id, suppliers, hidden_pos=
     hidden_set = set(hidden)
     pos = [po for po in all_pos if po not in hidden_set]
 
+    # Each cell also says how much of it is PP and how much GRN (the nylon
+    # range) — the dashboard's simplified view (V-7.9.0). Everything that is
+    # not GRN counts as PP: the PP fittings and Oswin's PP pipes.
+    def cell():
+        return {"boxes": 0, "vol": 0.0, "pp": {"boxes": 0, "vol": 0.0}, "grn": {"boxes": 0, "vol": 0.0}}
+
+    def add(into, other):
+        into["boxes"] += other["boxes"]
+        into["vol"] += other["vol"]
+        for k in RANGE_SPLIT:
+            into[k]["boxes"] += other[k]["boxes"]
+            into[k]["vol"] += other[k]["vol"]
+
     rows = []
     for s in suppliers:
-        cells = {po: {"boxes": 0, "vol": 0.0} for po in pos}
-        tot_box = tot_vol = 0.0
+        cells = {po: cell() for po in pos}
         for b in ledger.values():
             if b["item"].supplier_id != s.id:
                 continue
+            part = item_range(b["item"])
             for d in b["demands"]:
                 if d["remaining"] > 0 and d["po"] in cells:
-                    cells[d["po"]]["boxes"] += d["remaining"]
-                    cells[d["po"]]["vol"] += d["remaining"] * (b["item"].volume or 0)
+                    vol = d["remaining"] * (b["item"].volume or 0)
+                    c = cells[d["po"]]
+                    c["boxes"] += d["remaining"]
+                    c["vol"] += vol
+                    c[part]["boxes"] += d["remaining"]
+                    c[part]["vol"] += vol
+        tot = cell()
         for po in pos:
-            tot_box += cells[po]["boxes"]
-            tot_vol += cells[po]["vol"]
-        if tot_box > 0:
+            add(tot, cells[po])
+        if tot["boxes"] > 0:
             rows.append({
                 "supplier": {"id": s.id, "code": s.code, "name": s.name},
-                "cells": cells, "totBox": int(tot_box), "totVol": tot_vol,
+                "cells": cells, "totBox": int(tot["boxes"]), "totVol": tot["vol"],
+                "split": {k: tot[k] for k in RANGE_SPLIT},
             })
 
-    totals = {"cells": {po: {"boxes": 0, "vol": 0.0} for po in pos}, "totBox": 0, "totVol": 0.0}
+    totals = {"cells": {po: cell() for po in pos}, "totBox": 0, "totVol": 0.0}
+    tot_split = cell()
     for po in pos:
         for r in rows:
-            totals["cells"][po]["boxes"] += r["cells"][po]["boxes"]
-            totals["cells"][po]["vol"] += r["cells"][po]["vol"]
+            add(totals["cells"][po], r["cells"][po])
     for r in rows:
         totals["totBox"] += r["totBox"]
         totals["totVol"] += r["totVol"]
+        for k in RANGE_SPLIT:
+            tot_split[k]["boxes"] += r["split"][k]["boxes"]
+            tot_split[k]["vol"] += r["split"][k]["vol"]
+    totals["split"] = {k: tot_split[k] for k in RANGE_SPLIT}
 
     cntr_vol = float(cntr_vol or 68.0)
     containers = math.ceil(totals["totVol"] / cntr_vol) if totals["totVol"] else 0
