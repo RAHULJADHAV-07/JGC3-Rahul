@@ -23,6 +23,7 @@ import { useIsMobile } from "../../lib/useIsMobile.js";
 import { useHiddenFields, pruneColumns } from "../../lib/columnPrefs.js";
 import { useBlockHeads } from "../../lib/useBlockHeads.js";
 import NewOrderDrawer from "./NewOrderDrawer.jsx";
+import { useTransportLoader } from "../../lib/loaderMode.js";
 
 /* Purchase Orders — everything the buyer has asked for.
 
@@ -127,6 +128,8 @@ const sum = (rows, k) => rows.reduce((s, r) => s + (Number(r[k]) || 0), 0);
 
 function PoModal({ po, supplierId = "", onClose, onEdit }) {
   const { isAdmin } = useAuth();
+  // An order that went by air or road loads with a plane or a truck.
+  useTransportLoader(po.mode);
   const suppliers = useSuppliers().data || [];
   const buyers = useBuyers().data || [];
   const master = useOrderMaster(po.po);

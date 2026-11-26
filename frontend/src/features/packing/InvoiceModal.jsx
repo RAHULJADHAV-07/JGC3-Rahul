@@ -12,6 +12,7 @@ import { INV_STATUS_TONE } from "../../lib/constants.js";
 import { serialBase, savedFroms } from "../../lib/serials.js";
 import { sortBySequence, blockOf, blockHeads } from "../../lib/sequence.js";
 import { shipComplete, shipMode, modeLabel } from "../../lib/modes.js";
+import { useTransportLoader } from "../../lib/loaderMode.js";
 
 const legsCol = {
   key: "legs", label: "Purchase orders",
@@ -23,6 +24,7 @@ const legsCol = {
 /* One invoice, two audiences: the buyer sees USD/FOB, the supplier sees
    ₹/cost. Same rows, same source — just a different lens. */
 export default function InvoiceModal({ inv, onEditShip, onClose }) {
+  useTransportLoader(shipMode(inv.ship));
   const itemsQ = useItems();
   const items = itemsQ.data || [];
   const buyers = useBuyers().data || [];
