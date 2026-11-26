@@ -13,6 +13,7 @@
 
 import { ADDR_ASPECT, LOGO_SRC, SIGN_SRC, STAMP_SRC, imgTag, logoImage, primeLogo, signImage, stampImage } from "../logo.js";
 import { colLetter } from "../xlsx.js";
+import { calibriLines, calibriRunLines } from "../calibri.js";
 import { boreMm } from "../sequence.js";
 import { shipMode, flightLegs } from "../modes.js";
 
@@ -195,6 +196,22 @@ export function airMargin(ctx, rows, totalUsd, { inr: withInr = true, at = AIR_M
    does. */
 export const CI_ONE_BODY = 54;
 export const fitsOnePage = (lines, room) => lines <= room;
+
+/* A sheet that runs only a little past one page — a strip of its last rows
+   over the edge — is set to print on one, a shade smaller, as the page the
+   preview prints on does. Anything longer is left to run on to the pages it
+   needs. Measured in points: the rows' heights against the paper inside its
+   margins, once the width has been fitted across. */
+export function oneIfClose(sheet, slack = 1.15) {
+  const p = sheet.page || {};
+  const m = p.margins || { left: 0.5, right: 0.5, top: 0.5, bottom: 0.5 };
+  const [pw, ph] = p.orientation === "landscape" ? [842, 595] : [595, 842];
+  const width = (sheet.widths || []).reduce((n, w) => n + w * 7 * 0.75, 0);
+  const across = Math.min(1, (pw - (m.left + m.right) * 72) / (width || 1));
+  const tall = (sheet.rows || []).reduce((n, _, i) => n + (Number(sheet.heights?.[i]) || sheet.defaultRowHeight || 15), 0) * across;
+  const room = ph - (m.top + m.bottom) * 72;
+  return tall > room && tall <= room * slack ? { ...sheet, page: { ...p, fitW: 1, fitH: 1 } } : sheet;
+}
 
 /* The marks down the first three lines of the marks column. By sea their form
    reads "GDW NOS :" / "2001 - 2421" / "2421"; the air form puts the place on
@@ -566,7 +583,9 @@ export const wbRupee = (n) => `₹ ${Number(n || 0).toLocaleString("en-US", { mi
 export const LINE_PT = 12.75;
 
 export function fitSheet(sheet, opts = {}) {
-  const { widen = true, maxGrow = 2, maxWidth = 46 } = opts;
+  /* linePt and charScale are for type larger than the 10.5pt the line count
+     is reckoned for: fewer characters to a line, and taller lines. */
+  const { widen = true, maxGrow = 2, maxWidth = 46, linePt = LINE_PT, charScale = 1 } = opts;
   const widths = (sheet.widths || []).slice();
   const heights = (sheet.heights || []).slice();
   const rows = sheet.rows || [];
@@ -621,11 +640,11 @@ export function fitSheet(sheet, opts = {}) {
       if (!cell || !cell.s || !cell.s.wrap) return;
       const text = String(cell.v ?? "");
       if (!text || (covered.has(`${ri + 1}:${i + 1}`) && !spanOf.has(`${ri + 1}:${i + 1}`))) return;
-      const per = Math.max(4, Math.floor(roomAt(ri + 1, i) - 1));
+      const per = Math.max(4, Math.floor((roomAt(ri + 1, i) - 1) * charScale));
       lines = Math.max(lines, text.split("\n")
         .reduce((n, seg) => n + Math.max(1, Math.ceil(seg.length / per)), 0));
     });
-    const need = lines * LINE_PT;
+    const need = lines * linePt;
     if (lines > 1 && need > (heights[ri] || 0)) heights[ri] = need;
   });
 
@@ -697,7 +716,7 @@ export function formGrid(width) {
      left out of the file, and its height would go with it. */
   const gap = (height) => row([[1, { v: "", s: { border: false } }]], height);
 
-  return { rows, merges, heights, row, gap, at: () => rows.length };
+  return { rows, merges, heights, row, gap, width, at: () => rows.length };
 }
 
 export const WB = {
@@ -1573,7 +1592,8 @@ export function eway10Sheet(ctx, sid, arr) {
   row([run(3, "Vehicle No", EW.lbl), run(10, veh ? tr.veh : "Please give the Truck Number Here", veh ? EW.fldC : EW.phC)]);
   row([run(3, "Transpoter Doc. No & Date", EW.lbl), run(5, "LR Number", EW.phC), run(5, "LR Date", EW.phC)]);
 
-  return fitSheet({
+  // One supplier's bill is one page, as the preview prints it.
+  return oneIfClose(fitSheet({
     name: "E-way",
     rows: G.rows,
     merges: G.merges,
@@ -1585,7 +1605,7 @@ export function eway10Sheet(ctx, sid, arr) {
       paper: 9, orientation: "landscape", fit: true, fitH: 0,
       margins: { left: 0.4, right: 0.4, top: 0.5, bottom: 0.5, header: 0.3, footer: 0.3 },
     },
-  }, { widen: false });
+  }, { widen: false }));
 }
 
 // Supplier-wise e-way documents (one per supplier) — for the split download.
@@ -1684,43 +1704,61 @@ export const letterFootBlock = (E) => `<div class="dlfootwrap"><div class="rule"
     </tr></table></div>`;
 
 /* Both letters that end this way — the undertaking, then the signature over
-   the printed name, then the date and the space for the signature itself. */
-export function letterSignRows(G, ctx, E, { dated = true, signed = false } = {}) {
+   the printed name, then the date and the space for the signature itself.
+   Laid as the page lays them (doc15.js · letterSignBlock): the two typed lines
+   together a good space under the text, then the date line. */
+export function letterSignRows(G, ctx, E, { dated = true, signed = false, order = "sign-stamp" } = {}) {
   /* By air the declarations go out signed and stamped, as the client's own
      copies do (Docs/JG_Air_Docs) — the scanned block already reads "For M/s.
      … Proprietor- …", so it stands in for the typed lines. */
-  const sg = signed ? letterSignImages(G) : null;
+  const sg = signed ? letterSignImages(G, { order }) : null;
   if (!sg) {
-    G.row([[3, { v: "", s: DL.body }], [3, { v: `For M/s. ${E.name}`, s: DL.body }]]);
-    G.gap(18);
-    G.gap(18);
-    G.row([[3, { v: "", s: DL.body }], [3, { v: `Proprietor- ${SIGNATORY}`, s: DL.body }]]);
+    G.gap(DL_SIGN_GAP);
+    G.row([[6, { v: `For M/s. ${E.name}`, s: DL.body }]]);
+    G.row([[6, { v: `Proprietor- ${SIGNATORY}`, s: DL.body }]]);
+    G.gap();
   }
   // A letter dated at its head (16A) is signed without the date line.
-  if (dated) G.row([[2, { v: `Date   :   ${ddmm(ctx.inv.date)}`, s: DL.body }], [2, { v: "Signature   :", s: DL.body }], [2, { v: "", s: DL.body }]]);
-  G.gap();
+  if (dated) {
+    G.row([[6, { v: `Date   :   ${ddmm(ctx.inv.date)}        Signature   :`, s: DL.body }]]);
+    G.gap();
+  }
   return sg;
 }
+
+/* The space the page leaves over the typed signature lines: the paragraph's
+   16px under it and .dl.a4 .sign's 64px over them, in points. The A4 page is a
+   flex column, so the two add rather than collapse into one. */
+export const DL_SIGN_GAP = 12 + 48;
 
 /* The signature block and the stamp on a declaration, sized as they stand on
    the client's air copies: the block about 1¾ inches across, the stamp about
    ¾ of an inch round. EMU, 914400 to the inch. */
 export const DL_SIGN_CX = 1600200;
 export const DL_STAMP_CX = 685800;
+const EMU_PX = 9525;
 
-/* Leaves rows clear for the two scans and returns them anchored there — the
-   block against the left of the text, the stamp to the right of it. Null while
-   the scans have not arrived, and the caller types the lines instead. */
-export function letterSignImages(G, { signCol = 1, stampCol = 3 } = {}) {
+/* Leaves a row clear for the two scans and returns them placed in it as the
+   page sets them (.dl .sgrow): side by side, 48px apart, centred on each
+   other, in the order given. Each carries `x`, its distance in pixels from the
+   left of the text, which letterSheet turns into a column and an offset. Null
+   while the scans have not arrived, and the caller types the lines instead. */
+export function letterSignImages(G, { order = "sign-stamp" } = {}) {
   const sign = signImage(DL_SIGN_CX);
   if (!sign) return null;
   const stamp = stampImage(DL_STAMP_CX);
+  const pics = (order === "stamp-sign" ? [stamp, sign] : [sign, stamp]).filter(Boolean);
+  const tall = Math.max(...pics.map((p) => p.cy));
+  G.gap(12 + 13.5);                               // 16px under the text, the row's 18px over
   const row = G.rows.length;
-  for (let i = 0; i < 4; i += 1) G.gap(18);
-  return [
-    { ...sign, col: signCol, colOff: 0, row, rowOff: 38100 },
-    stamp && { ...stamp, col: stampCol, colOff: 0, row, rowOff: 0 },
-  ].filter(Boolean);
+  G.gap(tall / 12700);
+  G.gap(6);                                       // and its 8px under
+  let x = 0;
+  return pics.map((p) => {
+    const at = { ...p, x, row, rowOff: Math.round((tall - p.cy) / 2) };
+    x += p.cx / EMU_PX + 48;
+    return at;
+  });
 }
 
 /* The same pair on the page. Empty while the scans are still loading. */
@@ -1742,7 +1780,9 @@ export function despatch11Block(ctx, sid, arr) {
     .filter(Boolean).map(esc).join("<br>");
 
   const step = (n, body) => `<tr><td class="n">${n})</td><td>${body}</td></tr>`;
-  return `<div class="dl">
+  /* A whole page, the contact strip at its foot as on the declarations: the
+     letter itself in a block of its own, so its paragraphs keep their spacing. */
+  return `<div class="dl pg"><div class="pgbody">
     ${letterheadBlock(E)}
 
     <!-- The reference and the date are left for the client to write in. -->
@@ -1767,6 +1807,7 @@ export function despatch11Block(ctx, sid, arr) {
     <p>Yours faithfully,<br>For ${esc(E.name)},</p>
     <p class="sign">Proprietor</p>
 
+    </div>
     ${letterFootBlock(E)}
   </div>`;
 }
@@ -1777,13 +1818,18 @@ export function despatch11Block(ctx, sid, arr) {
    letter's own blocks laid on that grid, the mark anchored top right and the
    two rules drawn in the letterhead's red. */
 export const DL = {
-  brand: { font: "brand", border: false, valign: "center" },
-  sub: { font: "brands", border: false, valign: "center" },
+  brand: { font: "brandL", border: false, valign: "bottom" },
+  // Set in 48px from the name, as the page sets it.
+  sub: { font: "brandsL", border: false, valign: "center", align: "left", indent: 5 },
   rule: { font: "base", border: "b#C00000", valign: "center" },
   body: { font: "base", border: false, valign: "top", wrap: true },
   b: { font: "letb", border: false, valign: "top", wrap: true },
   key: { font: "base", border: false, valign: "top" },
   n: { font: "base", border: false, align: "left", valign: "top" },
+  // An instruction's number, 22px into its 50px column (.dl .ins .n).
+  step: { font: "base", border: false, align: "left", valign: "top", indent: 2 },
+  // A bullet or number at the head of its 50px column, as the A4 page sets it.
+  dot: { font: "base", border: false, align: "left", valign: "top" },
   mid: { font: "base", border: false, align: "center", valign: "top", wrap: true },
   midB: { font: "letb", border: false, align: "center", valign: "top" },
   midBU: { font: "letbu", border: false, align: "center", valign: "top" },
@@ -1792,51 +1838,258 @@ export const DL = {
   u: { font: "letu", border: false, valign: "top" },
   // The declarations are typed to both margins, as their copies are.
   just: { font: "base", border: false, valign: "top", wrap: true, align: "justify" },
-  foot: { font: "letmn", border: false, valign: "center" },
-  footB: { font: "letmnb", border: false, valign: "center" },
-  footR: { font: "letmn", border: false, align: "right", valign: "center" },
-  footRB: { font: "letmnb", border: false, align: "right", valign: "center" },
+  // The contact strip sits on the foot of each of its lines, so the space the
+  // page leaves between them falls above each one, as it does there.
+  foot: { font: "letmn", border: false, valign: "bottom" },
+  footB: { font: "letmnb", border: false, valign: "bottom" },
+  footR: { font: "letmn", border: false, align: "right", valign: "bottom" },
+  footRB: { font: "letmnb", border: false, align: "right", valign: "bottom" },
 };
 
-/* The same letterhead on the worksheet side: the masthead rows, the contact
-   strip, and the paper both letters are set up on. */
-export function letterheadRows(G, E) {
-  G.row([[4, { v: E.name, s: DL.brand }], [2, { v: "", s: DL.brand }]], 30);
-  G.row([[4, { v: E.sub || "Merchant Exporters", s: DL.sub }], [2, { v: "", s: DL.sub }]], 16);
-  G.row([[6, { v: "", s: DL.rule }]], 6);
-  G.gap(6);
+/* The same letterhead on the worksheet side, measured off the page
+   (download.js · .dl): the name at 34pt with the line under it at 13pt, set in
+   from the left, the mark 86px across against the right margin, the red rule
+   under the mark, and 12px clear before the letter starts.
+
+   `a4` says the letter is one of the whole-page declarations (14–16A), which
+   the page sets at 12pt on a 1.6 line; the rest are 10.5pt on 1.45. The grid
+   remembers it, so the foot and the sheet are laid the same way. */
+const PX_PT = 0.75;
+const LOGO_PX = 86;
+const LOGO_ASPECT = 172 / 165;
+
+export function letterheadRows(G, E, { a4 = false, flow = a4, pin = a4 } = {}) {
+  G.a4 = a4;
+  // The contact strip pinned to the foot of the page.
+  G.pin = pin;
+  // A letter laid line by line, as the page lays it (layLetter).
+  G.flow = flow;
+  const w = G.width || 6;
+  G.row([[w - 2, { v: E.name, s: DL.brand }], [2, { v: "", s: DL.brand }]], 36);
+  G.row([[w - 2, { v: E.sub || "Merchant Exporters", s: DL.sub }], [2, { v: "", s: DL.sub }]], 19);
+  /* The rule is drawn 6px under the mark's line — the mark stands on the
+     line's baseline, so the line runs a descender's depth (6px) below it. */
+  const rule = (LOGO_PX / LOGO_ASPECT + 6 + 6) * PX_PT - 36 - 19;
+  G.row([[w, { v: "", s: DL.rule }]], Math.max(4, rule));
+  G.gap(9);
 }
 
+/* The contact strip: 10mm under the letter, the rule, 12px clear, then the
+   lines 6px apart at the page's line height for 9pt type. */
 export function letterFootRows(G, E) {
-  G.row([[6, { v: "", s: DL.rule }]], 6);
-  G.row([[3, { v: E.iec, s: DL.foot }], [3, { v: `+91-${E.tel}`, s: DL.footR }]]);
-  G.row([[3, { v: E.gstin, s: DL.footB }], [3, { v: E.email, s: DL.footRB }]]);
-  // The address is longer than the half-row it sits in on paper; a merged cell
-  // clips rather than runs on, so it takes the width of the sheet.
-  G.row([[6, { v: E.addr, s: { ...DL.footR, wrap: true } }]]);
+  // The page's line for 9pt type; a sheet set closer (27) says its own.
+  const line = 9 * (G.footLh || (G.a4 ? 1.6 : 1.45));
+  const w = G.width || 6, half = Math.ceil(w / 2);
+  // Where the foot starts, so an A4 letter can push it down to the page's end.
+  G.footAt = G.rows.length;
+  // The A4 page's 10mm over the strip — more, once the foot is pinned; on the
+  // other letters the last paragraph's 10px.
+  G.gap(G.a4 ? 28 : 3);
+  G.row([[w, { v: "", s: DL.rule }]], 4.5);
+  G.row([[half, { v: E.iec, s: DL.foot }], [w - half, { v: `+91-${E.tel}`, s: DL.footR }]], 9 + line);
+  G.row([[half, { v: E.gstin, s: DL.footB }], [w - half, { v: E.email, s: DL.footRB }]], 4.5 + line);
+  /* The address is longer than the half-row it sits in on paper, so it takes
+     the width of the sheet; at 9pt it is well inside it on one line. */
+  G.row([[w, { v: E.addr, s: DL.footR }]], 4.5 + line);
 }
 
-export function letterSheet(name, G, widths, images) {
-  const mark = logoImage();
-  return fitSheet({
+/* The declarations (14, 15, 16, 16A) are whole A4 pages on screen
+   (download.js · .a4 / .dl.a4): 14mm above, 10mm below, 16mm either side,
+   12pt type on a 1.6 line, 16px between paragraphs, and the contact strip at
+   the foot of the page however short the letter is. The sheet is set to the
+   same measure, so what Excel prints is the page the preview shows.
+
+   A worksheet cannot space the lines of a wrapped cell, so a paragraph is
+   broken into the lines the page gives it (Calibri's own widths, lib/
+   calibri.js) and each line takes a row at the page's spacing — set to both
+   margins, as the page sets them, all but the last. */
+const A4_FONT = { base: "a4", letb: "a4b", letu: "a4u", letbu: "a4bu" };
+const A4_LINE_PT = 19.2;     // 12pt at line-height 1.6
+const A4_GAP_PT = 12;        // the 16px between paragraphs
+/* How each kind of letter sets its type: the A4 declarations as above, the
+   rest (11) at the library's 10.5pt on a 1.45 line, 10px between paragraphs. */
+const A4_SET = { pt: 12, line: A4_LINE_PT, gap: A4_GAP_PT, fonts: A4_FONT, bold: "a4b" };
+const DL_SET = { pt: 10.5, line: 10.5 * 1.45, gap: 7.5, fonts: {}, bold: "letb" };
+const MAX_ROW_PT = 409;
+const MM_IN = 1 / 25.4;
+const A4_MARGINS = { left: 16 * MM_IN, right: 16 * MM_IN, top: 14 * MM_IN, bottom: 10 * MM_IN, header: 0, footer: 0 };
+// The page's height inside those margins, a few points short so the foot can
+// never be pushed over onto a second sheet.
+const A4_BODY_PT = (297 - 14 - 10) * 72 * MM_IN - 2;
+/* The column widths, in Excel's units of 7px: the instructions' number column
+   at the page's 50px, the text over the rest of the 178mm. */
+const A4_TEXT_PX = 178 * 96 * MM_IN;
+const A4_W = [50 / 7, ...Array(5).fill((A4_TEXT_PX - 50) / 5 / 7)];
+// The other letters print inside .jg-doc's 10mm all round.
+const DL_TEXT_PX = 190 * 96 * MM_IN;
+const DL_W = [48 / 7, ...Array(5).fill((DL_TEXT_PX - 48) / 5 / 7)];
+// The page inside them, for a letter pinned to it (11), a little short.
+const DL_BODY_PT = (297 - 20) * 72 * MM_IN - 4;
+const DL_MARGINS = { left: 10 * MM_IN, right: 10 * MM_IN, top: 10 * MM_IN, bottom: 10 * MM_IN, header: 0, footer: 0 };
+
+// The masthead keeps its own faces and rows.
+const DL_HEAD = new Set(["brandL", "brandsL"]);
+const blankRow = (r) => (r || []).every((c) => !c || String(c.v ?? "") === "");
+const mergeRe = /^([A-Z]+)(\d+):([A-Z]+)(\d+)$/;
+const colNo = (s) => [...s].reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0);
+
+function layLetter(G, widths, T) {
+  const spans = new Map();          // "row:col" (1-based) → last column of its run
+  G.merges.forEach((ref) => {
+    const m = mergeRe.exec(ref);
+    if (m && m[2] === m[4]) spans.set(`${m[2]}:${colNo(m[1])}`, colNo(m[3]));
+  });
+  const rows = [], heights = [], map = [];
+  G.rows.forEach((r, i) => {
+    const inFoot = G.footAt != null && i >= G.footAt;
+    /* The body type at 12pt, each line centred in its 1.6 line as the page
+       centres it — not hung from the top of the row. */
+    r = (r || []).map((c) => {
+      if (!c || !c.s || inFoot || DL_HEAD.has(c.s.font)) return c;
+      return { ...c, s: { ...c.s, font: T.fonts[c.s.font] || c.s.font, valign: c.s.border ? c.s.valign : "center" } };
+    });
+    // The one wrapped run of text on the row, if it needs more than a line.
+    let split = null;
+    if (!inFoot) r.forEach((c, k) => {
+      if (split || !c || !c.s || !c.s.wrap || c.f) return;
+      const text = Array.isArray(c.rt) ? c.rt.map((x) => x.t).join("") : String(c.v ?? "");
+      if (!text) return;
+      const last = spans.get(`${i + 1}:${k + 1}`) || k + 1;
+      let px = 0;
+      for (let j = k; j < last; j++) px += widths[j] * 7;
+      /* Excel keeps a couple of pixels clear at each side of a cell, and sets
+         type without the kerning a browser applies — so the odd line the page
+         just fits breaks a word sooner here, rather than overrunning. */
+      const room = (px - 4) * PX_PT * 0.99;
+      /* A line typed in runs (part of it bold) is broken with its runs, each
+         line keeping the weight of the words on it. */
+      const lines = Array.isArray(c.rt)
+        ? calibriRunLines(c.rt.map((x) => ({ t: x.t, bold: x.font === T.bold || x.font === "letb" })), T.pt, room)
+          .map((rs) => rs.map((x) => ({ t: x.t, font: x.bold ? T.bold : T.fonts.base || "base" })))
+        : calibriLines(text, T.pt, room, c.s.font === T.bold);
+      // A ruled box keeps its text whole in the cell, wrapped there if it must.
+      if (c.s.border) {
+        if (lines.length === 1) r[k] = { ...c, s: { ...c.s, wrap: false } };
+        return;
+      }
+      if (lines.length > 1) split = { k, lines };
+      // A line that fits is left to stand as it is, not reckoned again by width.
+      else r[k] = { ...c, s: { ...c.s, wrap: false, align: c.s.align === "justify" ? "left" : c.s.align } };
+    });
+    map[i] = rows.length;
+    if (!split) {
+      rows.push(r);
+      heights.push(G.heights[i] > 0 ? G.heights[i] : blankRow(r) ? T.gap : T.line);
+      return;
+    }
+    const { k, lines } = split;
+    const justify = r[k].s.align === "justify";
+    lines.forEach((t, n) => {
+      const align = justify && n < lines.length - 1 ? "distributed" : r[k].s.align === "justify" ? "left" : r[k].s.align;
+      rows.push(r.map((c, j) => {
+        if (!c) return c;
+        if (j === k) {
+          const s2 = { ...c.s, wrap: false, align, valign: "center" };
+          return Array.isArray(t) ? { rt: t, s: s2 } : { ...c, v: t, s: s2 };
+        }
+        // What stands beside the paragraph (a bullet, a label) stays on its first line.
+        return n === 0 ? { ...c, s: { ...c.s, valign: "center" } } : { v: "", s: c.s };
+      }));
+      heights.push(T.line);
+    });
+    map[i] = [map[i], rows.length - 1];
+  });
+  const first = (i) => (Array.isArray(map[i]) ? map[i][0] : map[i]);
+  const lastOf = (i) => (Array.isArray(map[i]) ? map[i][1] : map[i]);
+  const merges = G.merges.flatMap((ref) => {
+    const m = mergeRe.exec(ref);
+    if (!m) return [ref];
+    const r1 = +m[2] - 1, r2 = +m[4] - 1;
+    if (r1 === r2 && Array.isArray(map[r1])) {
+      const out = [];
+      for (let n = map[r1][0]; n <= map[r1][1]; n++) out.push(`${m[1]}${n + 1}:${m[3]}${n + 1}`);
+      return out;
+    }
+    return [`${m[1]}${first(r1) + 1}:${m[3]}${lastOf(r2) + 1}`];
+  });
+  return { rows, heights, merges, footAt: G.footAt == null ? null : first(G.footAt), rowOf: first };
+}
+
+/* Once the rows have their heights, the blank rows just above the foot take
+   up whatever the page has left, so the foot sits at its bottom. */
+function a4PinFoot(heights, rows, footAt, from = 0, body = A4_BODY_PT) {
+  if (footAt == null) return heights;
+  const out = heights.slice();
+  const used = rows.reduce((n, _, i) => n + (Number(out[i]) || A4_LINE_PT), 0);
+  let left = body - used;
+  for (let i = footAt; i >= from && left > 0; i--) {
+    if (!blankRow(rows[i])) break;
+    const h = Number(out[i]) || A4_GAP_PT;
+    const add = Math.min(left, MAX_ROW_PT - h);
+    out[i] = h + add;
+    left -= add;
+  }
+  return out;
+}
+
+/* A picture placed `x` pixels from the left of the text, as a column and an
+   offset into it. */
+function placeX(im, widths) {
+  if (im.x == null) return im;
+  let col = 0, left = im.x;
+  while (col < widths.length - 1 && left >= widths[col] * 7) { left -= widths[col] * 7; col += 1; }
+  const { x, ...rest } = im;
+  return { ...rest, col, colOff: Math.round(left * EMU_PX) };
+}
+
+export function letterSheet(name, G, widths, images, { mark: withMark = true, linePt, charScale } = {}) {
+  const a4 = !!G.a4;
+  /* Six columns of their letter paper. A document ruled into columns of its
+     own — the gross-mass declaration's three (27) — says how it wants them
+     divided, scaled to the paper's width; the letterhead and the foot sit
+     across them either way. */
+  const textPx = a4 ? A4_TEXT_PX : DL_TEXT_PX;
+  const W = widths
+    ? widths.map((w) => (w * textPx) / widths.reduce((a, b) => a + b, 0) / 7)
+    : a4 ? A4_W : DL_W;
+  const laid = G.flow ? layLetter(G, W, a4 ? A4_SET : DL_SET)
+    : { rows: G.rows, heights: G.heights, merges: G.merges, footAt: G.footAt, rowOf: (i) => i };
+  const pics = (images || []).map((im) => placeX({ ...im, row: laid.rowOf(im.row) }, W));
+
+  // The mark against the right margin, level with the top of the name.
+  const mark = withMark ? logoImage() : null;
+  let off = LOGO_PX, col = W.length - 1;
+  while (col > 0 && off > W[col] * 7) { off -= W[col] * 7; col -= 1; }
+  const logo = mark ? {
+    ...mark, col, colOff: Math.round((W[col] * 7 - off) * EMU_PX), row: 0, rowOff: 0,
+    cx: LOGO_PX * EMU_PX, cy: Math.round((LOGO_PX / LOGO_ASPECT) * EMU_PX),
+  } : null;
+
+  const sheet = fitSheet({
     name,
-    rows: G.rows,
-    merges: G.merges,
-    heights: G.heights,
-    /* Six columns of their letter paper. A document ruled into columns of its
-       own — the gross-mass declaration's three (27) — says how it wants them
-       divided; the letterhead and the foot sit across them either way. */
-    widths: widths || [6, 18, 18, 18, 18, 18],
-    defaultRowHeight: 14.25,
-    colStyle: { font: "base", border: false, valign: "top" },
-    // Top right of the letterhead, level with the exporter's name.
-    image: mark ? { ...mark, col: 5, colOff: 190500, row: 0, rowOff: 19050, cy: 533400, cx: Math.round(533400 * (172 / 165)) } : null,
-    images: images || [],
+    rows: laid.rows,
+    merges: laid.merges,
+    heights: laid.heights,
+    widths: W,
+    defaultRowHeight: a4 ? A4_LINE_PT : 14.25,
+    colStyle: { font: a4 ? "a4" : "base", border: false, valign: "top" },
+    image: logo,
+    images: pics,
     page: {
-      paper: 9, orientation: "portrait", fit: true, fitH: 0,
-      margins: { left: 0.6, right: 0.5, top: 0.5, bottom: 0.5, header: 0.3, footer: 0.3 },
+      // A letter is one page across, and an A4 declaration one page in all:
+      // should Excel's type run a shade larger than reckoned, the page shrinks
+      // to fit rather than spilling the foot over.
+      paper: 9, orientation: "portrait", fit: true, fitW: 1, fitH: a4 ? 1 : 0,
+      margins: a4 ? A4_MARGINS : DL_MARGINS,
     },
-  }, { widen: false });
+  }, a4 ? { widen: false, linePt: A4_LINE_PT, charScale: 10.5 / 12 }
+    : { widen: false, linePt: linePt || DL_SET.line, charScale: charScale || 1 });
+  // The scans sit in the rows under the sign-off; the space is found below them.
+  const below = Math.max(0, ...pics.map((im) => im.row + 2));
+  if (a4) return { ...sheet, heights: a4PinFoot(sheet.heights, sheet.rows, laid.footAt, below) };
+  // A whole-page letter (11) has its contact strip at the page's foot too.
+  if (G.pin) return { ...sheet, heights: a4PinFoot(sheet.heights, sheet.rows, laid.footAt, below, DL_BODY_PT) };
+  return sheet;
 }
 
 /* The addressee block both forms of the letter open with. */
@@ -1859,6 +2112,29 @@ const airStepHtml = (ctx, sid, t, i) => {
   return i === 6 ? `<b>${h}</b>` : h;
 };
 
+/* The same instruction as a worksheet cell: the bold of the page as bold runs. */
+function airStepCell(ctx, sid, t, i) {
+  if (Array.isArray(t)) return { v: t.join("\n"), s: DL.body };
+  if (i === 6) return { v: t, s: DL.b };
+  const named = String(transportInfo(ctx, sid)?.name || "").trim();
+  const bold = [];
+  if (i === 0 && named && named !== "—") bold.push(named);
+  const m = /\(PLEASE SEND[^)]*\)/.exec(t);
+  if (m) bold.push(m[0]);
+  if (!bold.length) return { v: t, s: DL.body };
+  const rt = [];
+  let rest = t;
+  bold.forEach((b) => {
+    const at = rest.indexOf(b);
+    if (at < 0) return;
+    if (at) rt.push({ t: rest.slice(0, at), font: "base" });
+    rt.push({ t: b, font: "letb" });
+    rest = rest.slice(at + b.length);
+  });
+  if (rest) rt.push({ t: rest, font: "base" });
+  return { rt, v: t, s: DL.body };
+}
+
 /* A letter's own number and date, as typed on the shipment — `di` the despatch
    instructions (11), `ltb` the letter to the buyer (30). Blank lines when they
    have not been, for the client to write in. */
@@ -1870,7 +2146,9 @@ export const airLetterHead = (ctx, key) => {
 export function despatch11AirBlock(ctx, sid) {
   const E = ctx.EXPORTER;
   const step = (n, body) => `<tr><td class="n">${n}.</td><td>${body}</td></tr>`;
-  return `<div class="dl">
+  /* A whole page, the contact strip at its foot as on the declarations: the
+     letter itself in a block of its own, so its paragraphs keep their spacing. */
+  return `<div class="dl pg"><div class="pgbody">
     ${letterheadBlock(E)}
     <!-- The client's letter number and date (Docs/JG_Air_Docs/Despatch Instruction.pdf);
          left clear to be written in when they have not been typed on the shipment. -->
@@ -1887,6 +2165,7 @@ export function despatch11AirBlock(ctx, sid) {
     <p>Thanking you,</p>
     <p>Yours faithfully,<br>For ${esc(E.name)},</p>
     <p class="sign">${esc(SIGNATORY.replace(/^Mr\s+/, "").replace(/\s+M\s+/, " "))}</p>
+    </div>
     ${letterFootBlock(E)}
   </div>`;
 }
@@ -1896,12 +2175,16 @@ export function despatch11AirSheet(ctx, sid) {
   const G = formGrid(6);
   const { row, gap } = G;
   const line = (text, st = DL.body) => row([[6, { v: text, s: st }]]);
-  letterheadRows(G, E);
+  letterheadRows(G, E, { flow: true, pin: true });
+  // Spaced as the page spaces it (download.js · .dl): 10px under a paragraph,
+  // 14px under the reference and the address, 3px under each instruction, and
+  // the name 38px under the sign-off. A blank line keeps a line's height.
+  const blank = () => row([[6, { v: "", s: DL.body }]], DL_SET.line);
   // The client's letter number and date, or room to write them in.
-  airLetterHead(ctx, "di").forEach((l) => line(l));
-  gap();
+  airLetterHead(ctx, "di").forEach((l) => (l ? line(l) : blank()));
+  gap(10.5);
   despatchTo(supFor(ctx, sid)).forEach((l) => line(l));
-  gap();
+  gap(10.5);
   row([[1, { v: "Ref:", s: DL.key }], [5, { v: `Urgent Requirement PO NO. ${poBannerList(ctx)}`, s: DL.body }]]);
   gap();
   line("Dear Sir,");
@@ -1910,8 +2193,10 @@ export function despatch11AirSheet(ctx, sid) {
   gap();
   line("With reference to the above, we give hereunder the dispatch instructions:");
   gap();
-  airDespatchSteps(ctx, sid).forEach((t, i) => row([[1, { v: `${i + 1}.`, s: DL.n }],
-    [5, { v: Array.isArray(t) ? t.join("\n") : t, s: DL.body }]]));
+  airDespatchSteps(ctx, sid).forEach((t, i) => {
+    row([[1, { v: `${i + 1}.`, s: DL.step }], [5, airStepCell(ctx, sid, t, i)]]);
+    gap(2.25);
+  });
   gap();
   line(AIR_DESPATCH_CLOSE);
   gap();
@@ -1919,10 +2204,8 @@ export function despatch11AirSheet(ctx, sid) {
   gap();
   line("Yours faithfully,");
   line(`For ${E.name},`);
-  gap(18);
-  gap(18);
+  gap(28.5);
   line(SIGNATORY.replace(/^Mr\s+/, "").replace(/\s+M\s+/, " "));
-  gap();
   letterFootRows(G, E);
   return letterSheet("Despatch", G);
 }
@@ -1940,16 +2223,18 @@ export function despatch11Sheet(ctx, sid, arr) {
   const G = formGrid(6);
   const { row, gap } = G;
   const line = (text, s = DL.body) => row([[6, { v: text, s }]]);
-  const step = (n, text) => row([[1, { v: `${n})`, s: DL.n }], [5, { v: text, s: DL.body }]]);
+  const step = (n, text) => { row([[1, { v: `${n})`, s: DL.step }], [5, { v: text, s: DL.body }]]); gap(2.25); };
 
-  letterheadRows(G, E);
+  letterheadRows(G, E, { flow: true, pin: true });
+  // Spaced as the page spaces it (download.js · .dl), as the air letter is.
+  const blank = () => row([[6, { v: "", s: DL.body }]], DL_SET.line);
 
   // The reference and the date are left for the client to write in.
-  line("");
-  line("");
-  gap();
+  blank();
+  blank();
+  gap(10.5);
   to.forEach((l) => line(l));
-  gap();
+  gap(10.5);
   row([[1, { v: "Ref", s: DL.key }], [5, { v: `Our Export Order ${poBannerList(ctx)}`, s: DL.body }]]);
   gap();
   line(`DESPATCH DATE: ${LETTER_DAY(ctx.inv.date)}`, DL.b);
@@ -1972,10 +2257,8 @@ export function despatch11Sheet(ctx, sid, arr) {
   gap();
   line("Yours faithfully,");
   line(`For ${E.name},`);
-  gap(18);
-  gap(18);
+  gap(28.5);
   line("Proprietor");
-  gap();
 
   letterFootRows(G, E);
   return letterSheet("Despatch", G);

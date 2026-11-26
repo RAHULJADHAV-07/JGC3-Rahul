@@ -73,7 +73,7 @@ async def lifespan(app: FastAPI):
                 pass
 
 
-app = FastAPI(title=settings.app_name, version="7.8.1", lifespan=lifespan, **_docs)
+app = FastAPI(title=settings.app_name, version="7.8.2", lifespan=lifespan, **_docs)
 
 # Innermost: what a body may hold is settled before any route reads it.
 app.add_middleware(BodyGuard)

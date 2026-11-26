@@ -585,13 +585,14 @@ export default function OrdersPage() {
     // the download re-totals the row, the boxes and the volume with it.
     { h: "Total pcs", key: "qty", t: "int", sum: true, v: (r) => r.qty,
       fml: () => (bsPos.length ? `SUM(${bsPos.map((_, i) => `{p${i}}`).join(",")})` : "0") },
-    { h: "Total boxes", key: "box", t: "int", fml: "ROUNDUP({qty}/{pack},0)", v: (r) => r.boxes, sum: true },
-    { h: "Received boxes", key: "recd", t: "int", v: (r) => r.recd, sum: true },
-    { h: "Pending boxes", key: "pending", t: "int", fml: "{box}-{recd}", v: (r) => r.pending, sum: true },
+    /* The client takes total and received boxes off this sheet; the boxes
+       the volume and the weight are reckoned on stay in the formulas, worked
+       out from the pieces and the packing as the total-boxes column was. */
+    { h: "Pending boxes", key: "pending", t: "int", v: (r) => r.pending, sum: true },
     { h: "Vol / box", key: "volbox", field: "volume", t: "num3", v: (r) => r.vol_per_box },
-    { h: "Total vol m³", key: "vol", t: "num3", fml: "{box}*{volbox}", v: (r) => r.total_vol, sum: true },
+    { h: "Total vol m³", key: "vol", t: "num3", fml: "ROUNDUP({qty}/{pack},0)*{volbox}", v: (r) => r.total_vol, sum: true },
     { h: "Net / box kg", key: "netbox", field: "netPerBox", t: "num3", v: (r) => r.net_per_box },
-    { h: "Net wt kg", key: "net", t: "num3", fml: "{box}*{netbox}", v: (r) => r.net_total, sum: true },
+    { h: "Net wt kg", key: "net", t: "num3", fml: "ROUNDUP({qty}/{pack},0)*{netbox}", v: (r) => r.net_total, sum: true },
   ], hidden);
   const bsTitle = `Buyers Summary${bsSup ? ` · ${supCode(bsSup)}` : ""}`;
   const bsSub = `${bsSup ? supCode(bsSup) : "All suppliers"} · item wise · as on ${todayISO()}`;

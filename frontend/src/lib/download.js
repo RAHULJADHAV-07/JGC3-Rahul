@@ -46,7 +46,7 @@ const xlsxName = (name) => (/\.xlsx$/i.test(name) ? name : `${name.replace(/\.(x
 export function downloadWorkbook(filename, sheets) {
   const list = Array.isArray(sheets) ? sheets : [sheets];
   if (!list.length) return false;
-  return saveBlob(buildXLSX({ sheets: list }), xlsxName(filename));
+  return saveBlob(buildXLSX({ sheets: list, title: String(filename).replace(/\.(xlsx|xls|csv)$/i, "") }), xlsxName(filename));
 }
 
 const docxName = (name) => (/\.docx$/i.test(name) ? name : `${name.replace(/\.(docx?|xlsx?|csv)$/i, "")}.docx`);
@@ -157,6 +157,14 @@ export const PRINT_CSS = `
   thead { display: table-header-group; }
   td, th { border: 1px solid #aebccb; padding: 3px 6px; vertical-align: top; font-size: 8.5pt; word-break: break-word; }
   th { background: #0b2c4d !important; color: #fff !important; font-weight: 700; text-align: center; }
+  /* A report's table (sheet.js · gridToHtml) never breaks inside a word: a
+     heading wraps only at its spaces ("Pending" / "boxes", "03417" /
+     "(14/10/2025)"), a figure stays on its line. A report with more columns
+     than the paper is wide then comes out wider than the paper, and the print
+     frame sets the whole table smaller to fit (fitWidths) — rather than the
+     columns being crushed until each word stands a letter to a line. */
+  table.grid td, table.grid th { word-break: normal; overflow-wrap: normal; hyphens: none; }
+  table.grid td.r, table.grid td.c { white-space: nowrap; }
   .title { font-size: 15pt; font-weight: 800; color: #0b2c4d; display: block; margin-bottom: 3px; }
   .sub { font-size: 8.5pt; color: #516170; display: block; margin-bottom: 6px; }
   .lg { font-size: 12pt; font-weight: 800; color: #0b2c4d; }
@@ -668,6 +676,14 @@ export const PRINT_CSS = `
      edge of the paper its top line is in the strip no printer reaches. */
   .pgbrk { page-break-before: always; padding-top: 10mm; }
   .jg-doc:has(table.ci) .pgbrk { padding-top: 4mm; }
+  /* A letter that is a whole page (11 · despatch instructions): the A4 sheet
+     inside .jg-doc's 10mm, the letter at its head and the contact strip pinned
+     to its foot, as the declarations print. The page is a flex column of two
+     blocks only — the letter and the strip — so the letter's own paragraphs
+     keep the spacing they had. min-height, so a long one runs on rather than
+     being cut. */
+  .dl.pg { min-height: 276mm; display: flex; flex-direction: column; }
+  .dl.pg > .dlfootwrap { margin-top: auto; padding-top: 6px; }
 
   /* 10 · E-way bill — the portal's entry form, printed as their format sheet. */
   .ew { font-family: Arial, Helvetica, sans-serif; font-size: 9pt; color: #000; }
@@ -948,10 +964,18 @@ export function downloadPDF(title, docs, opts = {}) {
   frame.style.cssText = `position:fixed;left:-20000px;top:0;width:${pageW}px;height:1200px;opacity:0;border:0;pointer-events:none;`;
   document.body.appendChild(frame);
 
+  /* "Save as PDF" names the file after the page the print came from — the
+     app's own tab, "Jaikvin Global · Export System" — not after the frame
+     holding the document. So the tab takes the document's name for as long as
+     the dialog is open, and gets its own back afterwards. */
+  const appTitle = document.title;
+  document.title = title;
+
   let done = false;
   const cleanup = () => {
     if (done) return;
     done = true;
+    document.title = appTitle;
     setTimeout(() => { try { frame.remove(); } catch (e) { /* already gone */ } }, 500);
   };
 

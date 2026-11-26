@@ -129,7 +129,44 @@ export function gridToSheet(name, columns, rows, opts = {}) {
   const widths = cols.map((c, i) => c.w || Math.max(String(c.h || "").length + 3,
     widthsFor(out.slice(headRow))[i] || 10));
 
-  return { name, rows: out, merges, widths, freeze: headRow };
+  // The heading row repeats at the top of every printed page.
+  return { name, rows: out, merges, widths, freeze: headRow, repeatRows: [headRow, headRow] };
+}
+
+/* A column's formula worked out for the PDF, which has no Excel to do it.
+   The templates are the reports' own — "{ordered}-{recd}",
+   "IF({ordered}=0,0,{recd}*100/{ordered})", "SUM({d0},{d1})",
+   "ROUNDUP({box}*12,0)" — so the few functions they use are given here and
+   each {key} is the value of that column on the row. Null when a formula
+   reaches past its own row or into anything else, and the cell stays blank
+   rather than showing a wrong figure. */
+const FML_FN = {
+  IF: (c, a, b) => (c ? a : b),
+  SUM: (...n) => n.reduce((t, x) => t + x, 0),
+  MIN: Math.min,
+  MAX: Math.max,
+  ABS: Math.abs,
+  ROUND: (n, d = 0) => Math.round(n * 10 ** d) / 10 ** d,
+  ROUNDUP: (n, d = 0) => Math.sign(n) * Math.ceil(Math.abs(n) * 10 ** d - 1e-9) / 10 ** d,
+  ROUNDDOWN: (n, d = 0) => Math.sign(n) * Math.floor(Math.abs(n) * 10 ** d + 1e-9) / 10 ** d,
+};
+function evalFormula(tpl, valueOf) {
+  let bad = false;
+  const expr = String(tpl).replace(/^=/, "").replace(/\{(\w+)\}/g, (_, k) => {
+    const n = Number(valueOf(k));
+    if (!Number.isFinite(n)) bad = true;
+    return `(${Number.isFinite(n) ? n : 0})`;
+  });
+  // Numbers, operators, brackets, commas and the functions above — nothing else.
+  const names = expr.match(/[A-Za-z_]+/g) || [];
+  if (bad || names.some((w) => !FML_FN[w.toUpperCase()])) return null;
+  const js = expr.replace(/<>/g, "!=").replace(/([^<>!=])=(?!=)/g, "$1==")
+    .replace(/[A-Za-z_]+/g, (w) => `F.${w.toUpperCase()}`);
+  try {
+    // eslint-disable-next-line no-new-func
+    const n = Number(new Function("F", `return (${js});`)(FML_FN));
+    return Number.isFinite(n) ? n + 0 : null;      // never a "-0"
+  } catch (e) { return null; }
 }
 
 /* The same column spec, rendered as the document-styled HTML the PDF print
@@ -138,12 +175,27 @@ export function gridToHtml(columns, rows, opts = {}) {
   const cols = columns.filter(Boolean);
   const esc = (s) => String(s == null ? "" : s)
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const byKey = new Map(cols.filter((c) => c.key).map((c) => [c.key, c]));
+  /* A figure column's value on a row: its own value, what the row holds under
+     its key, or — a column Excel works out (fml) — its formula, over the
+     values of the columns it names. */
+  const valueOf = (c, r, i, depth = 0) => {
+    if (c.v) return c.v(r, i);
+    if (r[c.key] != null && r[c.key] !== "") return r[c.key];
+    if (!c.fml || depth > 8) return null;
+    const tpl = typeof c.fml === "function" ? c.fml(r, i) : c.fml;
+    return evalFormula(tpl, (k) => {
+      const o = byKey.get(k);
+      return o ? valueOf(o, r, i, depth + 1) : r[k];
+    });
+  };
+  const places = (t) => (t === "int" ? 0 : t === "num1" ? 1 : t === "num3" ? 3 : t === "usd4" ? 4 : 2);
   const fmt = (c, r, i) => {
     if (c.text) return esc(c.text(r, i));
-    if (c.v) {
-      const n = Number(c.v(r, i));
+    if (c.v || (c.fml && !c.f)) {
+      const n = Number(valueOf(c, r, i));
       if (!Number.isFinite(n)) return "";
-      const d = c.t === "int" ? 0 : c.t === "num3" ? 3 : c.t === "usd4" ? 4 : 2;
+      const d = places(c.t);
       const s = n.toLocaleString("en-IN", { minimumFractionDigits: d, maximumFractionDigits: d });
       return c.t === "inr" ? `₹${s}` : (c.t === "usd" || c.t === "usd4") ? `$${s}` : s;
     }
@@ -159,8 +211,8 @@ export function gridToHtml(columns, rows, opts = {}) {
     ? `<tr class="tot">${cols.map((c, i) => {
       if (i === 0) return `<td>${esc(opts.footLabel || "TOTAL")}</td>`;
       if (!c.sum) return "<td></td>";
-      const t = rows.reduce((s, r, ri) => s + (Number(c.v ? c.v(r, ri) : r[c.key]) || 0), 0);
-      const d = c.t === "int" ? 0 : c.t === "num3" ? 3 : c.t === "usd4" ? 4 : 2;
+      const t = rows.reduce((s, r, ri) => s + (Number(valueOf(c, r, ri)) || 0), 0);
+      const d = places(c.t);
       const s = t.toLocaleString("en-IN", { minimumFractionDigits: d, maximumFractionDigits: d });
       return `<td class="r">${c.t === "inr" ? "₹" : (c.t === "usd" || c.t === "usd4") ? "$" : ""}${s}</td>`;
     }).join("")}</tr>`
@@ -168,7 +220,8 @@ export function gridToHtml(columns, rows, opts = {}) {
 
   return `${opts.title ? `<div class="title">${esc(opts.title)}</div>` : ""}`
     + `${opts.subtitle ? `<div class="sub">${esc(opts.subtitle)}</div>` : ""}`
-    + `<table>${head}${body}${totals}</table>`;
+    // The heading row in a <thead>, so every printed page starts with it.
+    + `<table class="grid"><thead>${head}</thead><tbody>${body}${totals}</tbody></table>`;
 }
 
 /* ============================================================================

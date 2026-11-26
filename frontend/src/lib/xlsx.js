@@ -121,6 +121,16 @@ const FONTS = [
   // so is the word its notes are gathered under.
   { key: "letbu", xml: '<font><b/><u/><sz val="10.5"/><color theme="1"/><name val="Calibri"/></font>' },
   { key: "letu", xml: '<font><u/><sz val="10.5"/><color theme="1"/><name val="Calibri"/></font>' },
+  // The one-page declarations (14–16A) are typed at 12pt, as their A4 page is.
+  { key: "a4", xml: '<font><sz val="12"/><color theme="1"/><name val="Calibri"/></font>' },
+  { key: "a4b", xml: '<font><b/><sz val="12"/><color theme="1"/><name val="Calibri"/></font>' },
+  { key: "a4u", xml: '<font><u/><sz val="12"/><color theme="1"/><name val="Calibri"/></font>' },
+  { key: "a4bu", xml: '<font><b/><u/><sz val="12"/><color theme="1"/><name val="Calibri"/></font>' },
+  // 27 · the gross-mass declaration, set close at 9.5pt to come off one page.
+  { key: "vg", xml: '<font><sz val="9.5"/><color theme="1"/><name val="Calibri"/></font>' },
+  { key: "vgb", xml: '<font><b/><sz val="9.5"/><color theme="1"/><name val="Calibri"/></font>' },
+  { key: "vgu", xml: '<font><u/><sz val="9.5"/><color theme="1"/><name val="Calibri"/></font>' },
+  { key: "vgbu", xml: '<font><b/><u/><sz val="9.5"/><color theme="1"/><name val="Calibri"/></font>' },
   /* Calibri 11 — the workbooks the client built in Excel's own default face
      rather than in the older Arial books (12 · Shipment boxes & volume). */
   { key: "cal", xml: '<font><sz val="11"/><color theme="1"/><name val="Calibri"/><family val="2"/></font>' },
@@ -150,6 +160,10 @@ const FONTS = [
   { key: "tnr", xml: '<font><sz val="12"/><color theme="1"/><name val="Times New Roman"/><family val="1"/></font>' },
   { key: "tnru", xml: '<font><u/><sz val="12"/><color theme="1"/><name val="Times New Roman"/><family val="1"/></font>' },
   { key: "brands", xml: '<font><sz val="11"/><color rgb="FF8B0000"/><name val="Centaur"/><family val="1"/></font>' },
+  /* The letterhead as the page sets it (download.js · .dl .brand / .sub): the
+     name at 34pt, the line under it at 13pt, both in the house maroon. */
+  { key: "brandL", xml: '<font><b/><sz val="34"/><color rgb="FF8B0000"/><name val="Centaur"/><family val="1"/></font>' },
+  { key: "brandsL", xml: '<font><sz val="13"/><color rgb="FF8B0000"/><name val="Centaur"/><family val="1"/></font>' },
   { key: "letmn", xml: '<font><sz val="9"/><color rgb="FF8B0000"/><name val="Calibri"/></font>' },
   { key: "letmnb", xml: '<font><b/><sz val="9"/><color rgb="FF8B0000"/><name val="Calibri"/></font>' },
 ];
@@ -267,6 +281,7 @@ function styleXfs(specs) {
       s.align ? `horizontal="${s.align}"` : "",
       `vertical="${s.valign || "top"}"`,
       s.wrap ? 'wrapText="1"' : "",
+      s.indent ? `indent="${s.indent}"` : "",
       // The client's older forms set every cell to shrink rather than wrap, so
       // an over-long entry stays on its one ruled line instead of growing it.
       s.shrink ? 'shrinkToFit="1"' : "",
@@ -375,7 +390,9 @@ function sheetXml(sheet, styleOf) {
      a size the sheet never asked for, so a form that must come off one page
      across says so. */
   const fitH = page && page.fitH != null ? ` fitToHeight="${page.fitH}"` : "";
-  const fitW = page && page.fitW != null ? ` fitToWidth="${page.fitW}"` : "";
+  // A sheet fitted to the page and silent on its width is one page across —
+  // the format's own default, stated so every reader takes it the same way.
+  const fitW = page && (page.fitW != null || page.fit) ? ` fitToWidth="${page.fitW ?? 1}"` : "";
   const setup = page
     ? `<pageSetup paperSize="${page.paper || 9}" scale="${page.scale || 100}"${fitW}${fitH} orientation="${page.orientation || "portrait"}"/>`
     : "";
@@ -431,7 +448,7 @@ const anchorTo = (o, body) => (o.to
   : `<xdr:oneCellAnchor><xdr:from>${at(o)}</xdr:from><xdr:ext cx="${o.cx}" cy="${o.cy}"/>${body}<xdr:clientData/></xdr:oneCellAnchor>`);
 
 function drawingXml(imgs, frames = []) {
-  const pics = imgs.map((img, i) => anchorTo(img, `<xdr:pic><xdr:nvPicPr><xdr:cNvPr id="${i + 1}" name="${X(img.name || `Picture ${i + 1}`)}"/><xdr:cNvPicPr><a:picLocks noChangeAspect="1"/></xdr:cNvPicPr></xdr:nvPicPr><xdr:blipFill><a:blip xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:embed="rId${i + 1}"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill><xdr:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${img.cx}" cy="${img.cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom>${img.line ? RULE : ""}</xdr:spPr></xdr:pic>`)).join("");
+  const pics = imgs.map((img, i) => anchorTo(img, `<xdr:pic><xdr:nvPicPr><xdr:cNvPr id="${i + 1}" name="${X(img.name || `Picture ${i + 1}`)}"/><xdr:cNvPicPr><a:picLocks noChangeAspect="1"/></xdr:cNvPicPr></xdr:nvPicPr><xdr:blipFill><a:blip xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:embed="rId${i + 1}"/>${img.cropR ? `<a:srcRect r="${Math.round(img.cropR * 1000)}"/>` : ""}<a:stretch><a:fillRect/></a:stretch></xdr:blipFill><xdr:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${img.cx}" cy="${img.cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom>${img.line ? RULE : ""}</xdr:spPr></xdr:pic>`)).join("");
   const boxes = frames.map((f, i) => anchorTo(f, `<xdr:sp macro="" textlink=""><xdr:nvSpPr><xdr:cNvPr id="${imgs.length + i + 1}" name="${X(f.name || `Frame ${i + 1}`)}"/><xdr:cNvSpPr/></xdr:nvSpPr><xdr:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${f.cx}" cy="${f.cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/>${RULE}</xdr:spPr><xdr:txBody><a:bodyPr/><a:p><a:endParaRPr lang="en-US"/></a:p></xdr:txBody></xdr:sp>`)).join("");
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">${pics}${boxes}</xdr:wsDr>`;
@@ -451,6 +468,18 @@ export function safeName(name, taken) {
 
 /** Build the .xlsx package for a workbook and hand back a Blob. */
 export function buildXLSX(workbook) {
+  /* Rows a sheet repeats at the top of every printed page — its table's
+     heading row — as Excel's own "Rows to repeat at top":
+     `repeatRows: [first, last]`. */
+  const titlesXml = (list) => {
+    const names = list.map((s, i) => {
+      if (!Array.isArray(s.repeatRows)) return "";
+      const tab = X(String(s.name).replace(/'/g, "''"));
+      const [a, b] = s.repeatRows;
+      return `<definedName name="_xlnm.Print_Titles" localSheetId="${i}">'${tab}'!$${a}:$${b}</definedName>`;
+    }).join("");
+    return names ? `<definedNames>${names}</definedNames>` : "";
+  };
   const specs = [];
   const seen = new Map();
   const styleOf = (spec) => {
@@ -519,17 +548,25 @@ export function buildXLSX(workbook) {
     {
       name: "[Content_Types].xml",
       data: utf8(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/>${picTypes}<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>${sheets.map((_, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join("")}<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>`),
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/>${picTypes}<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>${sheets.map((_, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join("")}<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/><Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/></Types>`),
     },
     {
       name: "_rels/.rels",
       data: utf8(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`),
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/></Relationships>`),
+    },
+    /* The workbook's title — what Excel's "Save as PDF" writes into the PDF and
+       what a reader shows in its title bar. Without it the PDF comes out
+       untitled. */
+    {
+      name: "docProps/core.xml",
+      data: utf8(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><dc:title>${X(workbook.title || sheets[0].name)}</dc:title><dc:creator>Jaikvin Global</dc:creator></cp:coreProperties>`),
     },
     {
       name: "xl/workbook.xml",
       data: utf8(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${sheets.map((s, i) => `<sheet name="${X(s.name)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join("")}</sheets><calcPr calcId="0" fullCalcOnLoad="1"/></workbook>`),
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${sheets.map((s, i) => `<sheet name="${X(s.name)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join("")}</sheets>${titlesXml(sheets)}<calcPr calcId="0" fullCalcOnLoad="1"/></workbook>`),
     },
     {
       name: "xl/_rels/workbook.xml.rels",

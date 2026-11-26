@@ -1,4 +1,4 @@
-import { AIR_CUSTOMS, DL, LETTER_DATE, SCOMET_TERMS, SIGNATORY, airOf, ddmm, scometAirText, esc, formGrid, letterFootBlock, letterFootRows, letterSheet, letterSignImages, letterheadBlock, letterheadRows, scometRef, signedHtml } from "./common.js";
+import { AIR_CUSTOMS, DL, DL_SIGN_GAP, LETTER_DATE, SCOMET_TERMS, SIGNATORY, airOf, ddmm, scometAirText, esc, formGrid, letterFootBlock, letterFootRows, letterSheet, letterSignImages, letterheadBlock, letterheadRows, scometRef, signedHtml } from "./common.js";
 
 export const letterFieldBlock = (label, value, bold = true) => `<table class="fld"><tr>
       <td class="lbl">${esc(label)}</td><td${bold ? ' class="b"' : ""}>${esc(value)}</td></tr></table>`;
@@ -8,28 +8,28 @@ export function scomet14Sheet(ctx) {
   const G = formGrid(6);
   const { row, gap } = G;
 
-  letterheadRows(G, E);
+  letterheadRows(G, E, { a4: true });
+  // Spaced as the page spaces it: a field line 10px clear, a paragraph 16px,
+  // each instruction 8px, the signature 64px under the text.
   row([[2, { v: "Invoice No & Date", s: DL.body }], [4, { v: scometRef(ctx), s: DL.b }]]);
-  gap();
+  gap(7.5);
   row([[6, { v: `WE M/S. ${E.name} FURTHER UNDERTAKE AND CONFIRM`, s: DL.mid }]]);
   gap();
   SCOMET_TERMS.forEach((t) => {
-    row([[1, { v: "•", s: DL.n }], [5, { v: t, s: DL.just }]]);
+    row([[1, { v: "•", s: DL.dot }], [5, { v: t, s: DL.just }]]);
     gap(6);
   });
-  gap();
+  gap(7.5);
   row([[6, { v: "Thanking you.", s: DL.body }]]);
+  gap(DL_SIGN_GAP);
+  row([[6, { v: `For M/s. ${E.name}`, s: DL.body }]]);
+  row([[6, { v: `Proprietor- ${SIGNATORY}`, s: DL.body }]]);
   gap();
-  row([[3, { v: `For M/s. ${E.name}`, s: DL.body }]]);
-  gap(18);
-  gap(18);
-  row([[3, { v: `Proprietor- ${SIGNATORY}`, s: DL.body }]]);
-  gap();
-  row([[3, { v: ddmm(ctx.inv.date), s: DL.body }]]);
+  row([[6, { v: ddmm(ctx.inv.date), s: DL.body }]]);
   gap();
 
   letterFootRows(G, E);
-  return letterSheet("SCOMET", G);
+  return letterSheet("SCOMET", G, undefined, undefined);
 }
 
 /* By air the declaration is a letter to customs at the air cargo complex
@@ -39,35 +39,36 @@ export function scomet14AirSheet(ctx) {
   const t = scometAirText(ctx);
   const G = formGrid(6);
   const { row, gap } = G;
-  letterheadRows(G, E);
+  letterheadRows(G, E, { a4: true });
   row([[6, { v: LETTER_DATE(ctx.inv.date), s: DL.body }]]);
   gap();
   row([[6, { v: "To,", s: DL.body }]]);
   AIR_CUSTOMS.forEach((l) => row([[6, { v: l, s: DL.body }]]));
   gap();
-  // Their air letter sets the subject, the reference and the end use plain.
-  row([[1, { v: "Subject", s: DL.key }], [5, { v: "Scomet Declaration", s: DL.body }]]);
-  row([[1, { v: "Ref", s: DL.key }], [5, { v: `Invoice No ${scometRef(ctx)}`, s: DL.body }]]);
-  gap();
+  // Their air letter sets the subject, the reference and the end use plain,
+  // each a field line with its label in the first quarter of the page.
+  row([[2, { v: "Subject", s: DL.key }], [4, { v: "Scomet Declaration", s: DL.body }]]);
+  gap(7.5);
+  row([[2, { v: "Ref", s: DL.key }], [4, { v: `Invoice No ${scometRef(ctx)}`, s: DL.body }]]);
+  gap(7.5);
   row([[6, { v: "Dear Sir,", s: DL.body }]]);
   gap();
   row([[6, { v: t.lead, s: DL.just }]]);
   gap();
   row([[6, { v: t.declare, s: DL.just }]]);
   gap();
-  row([[1, { v: "End Use", s: DL.key }], [5, { v: t.endUse, s: DL.body }]]);
-  gap();
+  row([[2, { v: "End Use", s: DL.key }], [4, { v: t.endUse, s: DL.body }]]);
+  gap(7.5);
   row([[6, { v: "Thanking you", s: DL.body }]]);
   row([[6, { v: "Yours Faithfully", s: DL.body }]]);
   // Signed and stamped, as their copy goes out.
-  const sg = letterSignImages(G, { signCol: 0, stampCol: 3 });
+  const sg = letterSignImages(G);
   if (!sg) {
-    gap(18);
-    gap(18);
-    row([[3, { v: `For M/s. ${E.name}`, s: DL.body }]]);
-    row([[3, { v: `Proprietor- ${SIGNATORY}`, s: DL.body }]]);
+    gap(DL_SIGN_GAP);
+    row([[6, { v: `For M/s. ${E.name}`, s: DL.body }]]);
+    row([[6, { v: `Proprietor- ${SIGNATORY}`, s: DL.body }]]);
+    gap();
   }
-  gap();
   letterFootRows(G, E);
   return letterSheet("SCOMET", G, undefined, sg);
 }

@@ -7,17 +7,16 @@ export function rodtep16Sheet(ctx) {
   const G = formGrid(6);
   const { row, gap } = G;
 
-  letterheadRows(G, E);
+  letterheadRows(G, E, { a4: true });
+  // Spaced as the page spaces it (download.js · .dl.a4).
   row([[6, { v: "Annexure", s: DL.mid }]]);
   gap();
   row([[6, { v: RODTEP_TITLE, s: DL.mid }]]);
   gap();
   row([[2, { v: "Invoice No & Date", s: DL.body }], [4, { v: scometRef(ctx), s: DL.b }]]);
-  gap();
+  gap(7.5);
   row([[6, { v: RODTEP_LEAD, s: DL.just }]]);
-  gap();
-  RODTEP_TERMS.forEach((t) => { row([[6, { v: t, s: DL.just }]]); gap(6); });
-  gap();
+  RODTEP_TERMS.forEach((t) => { gap(); row([[6, { v: t, s: DL.just }]]); });
 
   letterSignRows(G, ctx, E);
   letterFootRows(G, E);
