@@ -1,4 +1,4 @@
-import { blockRow, blockSheetRow, WB, attr, bcDescription, ddmm, esc, exRate, fitSheet, orderAgg, poHeaderList, sum, upDiv, wbRupee } from "./common.js";
+import { grnSheet, splitRanges, priceListDateOf, numCell, blockRow, blockSheetRow, WB, attr, bcDescription, ddmm, esc, exRate, fitSheet, orderAgg, poHeaderList, sum, upDiv, wbRupee } from "./common.js";
 
 /* Doc 5 · Sales — against 5-Sales.xlsx. The purchase sheet's twin, priced the
    other way round: FOB per hundred pieces in dollars, then the RBI reference in
@@ -9,7 +9,7 @@ export function salesSheet(ctx, rows) {
   const ex = exRate(ctx);
   const banner = [{ v: `PO NO : ${poHeaderList(ctx)}`, s: WB.poBox }];
   for (let i = 1; i < 11; i++) banner.push({ v: "", s: WB.poBox });
-  banner.push({ v: ddmm(ctx.inv.date), s: WB.headRed }, { v: "", s: WB.headRed },
+  banner.push({ v: ddmm(priceListDateOf(ctx, rows, "fobFrom")), s: WB.headRed }, { v: "", s: WB.headRed },
     { v: "", s: WB.plain }, { v: "", s: WB.plain });
 
   const H = (v) => ({ v, s: WB.head });
@@ -35,8 +35,8 @@ export function salesSheet(ctx, rows) {
       { v: it.code || "", s: WB.gd },
       { v: it.gd || "", s: WB.gd },
       { v: it.gl || "", s: WB.gdC },
-      { v: it.size || "", s: WB.head },
-      { v: it.length || "", s: WB.head },
+      numCell(it.size, WB.head),
+      numCell(it.length, WB.head),
       { v: it.packUnit || "", s: WB.numC },
       { v: r.packing, t: "n", s: WB.numC },
       { v: bcDescription(it), s: WB.desc },
@@ -74,32 +74,42 @@ export function salesSheet(ctx, rows) {
     defaultColWidth: 9.140625,
     defaultRowHeight: 12.75,
     colStyle: { font: "ref", border: false, valign: "center" },
+    baseFont: "normArial",
     tabColor: "FF903C3A",
     page: {
       paper: 9, orientation: "portrait", scale: 19, fit: true,
       margins: { left: 0.5, right: 0.5, top: 0.5, bottom: 0.5, header: 0, footer: 0 },
     },
-  });
+  }, { widen: false });
 }
 
-export const B_5 = (ctx) => {
-  const rows = orderAgg(ctx);
+/* The GRN tab of 5-Sales.xlsx: no CODE, no LENGTH. Its money columns are
+   given the same room as the PP tab's, so a filled-in rate never prints ###. */
+const SALES_GRN = {
+  name: "SalesGRN", drop: [0, 4], tabColor: "FFC3D69B",
+  widths: [11.28515625, 11.28515625, 5.140625, 6, 6.28515625, 32.7109375, 14.140625,
+    9.140625, 9.28515625, 9.140625, 11.5, 12, 13.5],
+};
+
+function salesHtml(ctx, rows, grn) {
+  const pp = (x) => (grn ? "" : x);                 // a cell only the PP tab has
+  const n = grn ? 9 : 11;
   const ex = exRate(ctx);
   const boxFml = attr(upDiv("{qty}", "{packbox}"));
   const usd2 = (n) => `$${Number(n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const rs2 = (n) => `Rs. ${Number(n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const body = rows.map((r) => {
     const it = r.it;
-    return `${blockRow(r, 15)}<tr>
-      <td class="gd">${esc(it.code)}</td>
-      <td class="gd">${esc(it.gd)}</td>
-      <td class="gdc">${esc(it.gl)}</td>
-      <td class="bh">${esc(it.size)}</td>
-      <td class="bh">${esc(it.length)}</td>
+    return `${blockRow(r, n + 4)}<tr>
+      ${pp(`<td class="gd">${esc(it.code)}</td>`)}
+      <td class="${grn ? "" : "gd"}">${esc(it.gd)}</td>
+      <td class="${grn ? "c" : "gdc"}">${esc(it.gl)}</td>
+      <td class="${grn ? "c" : "bh"}">${esc(it.size)}</td>
+      ${pp(`<td class="bh">${esc(it.length)}</td>`)}
       <td class="c">${esc(it.packUnit || "")}</td>
       <td class="c" data-t="int" data-v="${r.packing}">${r.packing}</td>
       <td class="desc">${esc(bcDescription(it)).replace(/\n/g, "<br>")}</td>
-      <td class="code">${esc(it.barcode)}</td>
+      <td class="${grn ? "c" : "code"}">${esc(it.barcode)}</td>
       <td class="r" data-t="int" data-v="${r.qty}">${r.qty}</td>
       <td class="r" data-t="int" data-f="${boxFml}">${r.boxes}</td>
       <td class="r" data-t="usd" data-v="${r.fobPc * 100}">${usd2(r.fobPc * 100)}</td>
@@ -109,20 +119,19 @@ export const B_5 = (ctx) => {
     </tr>`;
   }).join("");
 
-  const html = `<div class="title">SALES</div>
+  return `<div class="title">SALES${grn ? " · GRN" : ""}</div>
     <table class="wb">
-      <tr class="sec po"><td colspan="11">PO NO : ${esc(poHeaderList(ctx))}</td>
-        <td class="red c" colspan="2">${esc(ddmm(ctx.inv.date))}</td><td colspan="2"></td></tr>
-      <tr><th>CODE</th><th>GD CODE</th><th>GL CODE</th><th>SIZE</th><th>LENGTH</th>
+      <tr class="sec po"><td colspan="${n}">PO NO : ${esc(poHeaderList(ctx))}</td>
+        <td class="red c" colspan="2">${esc(ddmm(priceListDateOf(ctx, rows, "fobFrom")))}</td><td colspan="2"></td></tr>
+      <tr>${pp("<th>CODE</th>")}<th>GD CODE</th><th>GL CODE</th><th>SIZE</th>${pp("<th>LENGTH</th>")}
         <th colspan="2">PACKING</th><th>DESCRIPTION</th><th>Bar Codes</th>
         <th colspan="2">Quantity</th><th colspan="2">FOB/100 PCS US$</th><th colspan="2">RBI REFERENCE</th></tr>
-      <tr class="hd2"><th></th><th></th><th></th><th>MM</th><th>MM</th><th>UNIT</th><th data-k="packbox">BOX</th>
+      <tr class="hd2">${pp("<th></th>")}<th></th><th></th><th>MM</th>${pp("<th>MM</th>")}<th>UNIT</th><th data-k="packbox">BOX</th>
         <th></th><th></th><th data-k="qty">Pcs</th><th data-k="box">Box</th>
         <th data-k="fob100">Unit</th><th data-k="fobtot">Total</th>
         <th>RATE @ Rs.</th><th class="r" data-k="rbi">${wbRupee(ex)}</th></tr>
       ${body}
-      <tr class="tot"><td class="o"></td><td class="o"></td><td class="o"></td><td class="o"></td><td class="o"></td>
-        <td class="o"></td><td class="o"></td><td class="o"></td><td>TOTAL</td>
+      <tr class="tot">${'<td class="o"></td>'.repeat(grn ? 6 : 8)}<td>TOTAL</td>
         <td class="r" data-t="int" data-sum="qty">${sum(rows, "qty")}</td>
         <td class="r" data-t="int" data-sum="box">${sum(rows, "boxes")}</td>
         <td></td>
@@ -130,5 +139,14 @@ export const B_5 = (ctx) => {
         <td class="nb"></td>
         <td class="r" data-t="inr" data-sum="rbi">${wbRupee(sum(rows, "rbiTotal"))}</td></tr>
     </table>`;
-  return { name: "Sales", html, sheet: salesSheet(ctx, rows), page: "portrait" };
+}
+
+/* PP on SalesPP, nylon on SalesGRN, each dated by its own price list. */
+export const B_5 = (ctx) => {
+  const parts = splitRanges(ctx, orderAgg(ctx));
+  const html = parts.map((p) => salesHtml(ctx, p.rows, p.key === "grn")).join('<div class="pgbrk"></div>');
+  const sheets = parts.map((p) => (p.key === "grn"
+    ? grnSheet(salesSheet(ctx, p.rows), SALES_GRN)
+    : { ...salesSheet(ctx, p.rows), name: "SalesPP" }));
+  return { name: "Sales", html, sheets, page: "portrait" };
 };

@@ -94,6 +94,39 @@ def supplier_price(item, versions, on: str | None = None) -> dict:
     return _of(v, master_prices(item)) if v is not None else master_prices(item)
 
 
+def price_list_date(versions, on: str, value=None, field: str = "unit_value") -> str | None:
+    """The date of the supplier price list an order line dated `on` is priced
+    from: the version in force that day — or, when the line was repriced later
+    (Setup → Items → apply to pending orders) and no longer matches it, the
+    newest version carrying the line's figure. `field` is the figure matched:
+    the purchase price (Purchase) or the FOB (Sales). None for an item never
+    revised (its prices came in with the master and carry no date)."""
+    def same(x):
+        f = getattr(x, field, None)
+        return f is not None and abs(float(f) - float(value)) <= 1e-9
+    v = pick(versions, on)
+    if value is not None and (v is None or not same(v)):
+        hits = [x for x in versions if x.active and same(x)]
+        if hits:
+            v = max(hits, key=_key)
+    return (v.effective or None) if v is not None else None
+
+
+def fob_list_date(sup_versions, buyer_versions, on: str, unit_fob100=None) -> str | None:
+    """The date of our own price list — the FOB an order line was sold at
+    (Sales heads its figures with it, V-7.10.0). Where the buyer has a price
+    list in force that day it is that list's date; a margin over the supplier's
+    price moves with the supplier's list too, so the later of the two. Without
+    one the FOB is the supplier list's (Setup → Items, Price list)."""
+    b = pick(buyer_versions or [], on)
+    if b is not None and b.mode != "none":
+        days = [b.effective or ""]
+        if b.mode != "manual":
+            days.append(price_list_date(sup_versions, on) or "")
+        return max(days) or None
+    return price_list_date(sup_versions, on, unit_fob100, "unit_fob100")
+
+
 def buyer_price(item, sup_versions, buyer_versions, on: str | None = None) -> dict | None:
     """What the buyer is sold `item` at on `on` — None when no buyer price is
     in force (the order then takes the supplier's FOB)."""

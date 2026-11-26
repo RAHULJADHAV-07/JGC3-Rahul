@@ -1,4 +1,4 @@
-import { L, bandOpener, P7, RUPEE, bcDescription, ddmm, esc, fitSheet, hsnText, hsnValue, pctText, poBannerList, poStack, sum, supplierTax, wbRupee } from "./common.js";
+import { numCell, L, bandOpener, P7, RUPEE, bcDescription, ddmm, esc, fitSheet, hsnText, hsnValue, pctText, poBannerList, poStack, sum, supplierTax, wbRupee } from "./common.js";
 
 /* The GST the sheet closes on. Each supplier's lines are taxed at its own
    rate (18 % unless Setup → Suppliers gives it one), and under the heads its
@@ -80,8 +80,8 @@ export function supplierPurchaseSheet(ctx, rows) {
       { v: it.code || "", s: S.codeC },
       { v: it.gd || "", s: S.code },
       { v: it.oswin || "", s: S.code },
-      { v: it.size || "", s: S.mid },
-      { v: it.length || "", s: S.mid },
+      numCell(it.size, S.mid),
+      numCell(it.length, S.mid),
       { v: it.packUnit || "", s: S.mid },
       { v: r.packing, t: "n", s: S.mid },
       { v: bcDescription(it), s: S.desc },

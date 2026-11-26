@@ -36,12 +36,21 @@ def list_po_lines(db: Session = Depends(get_db)):
     """Raw buyer-order lines (the 2A order book), newest first."""
     rows = db.query(models.PurchaseOrderLine).all()
     rows.sort(key=lambda r: r.date, reverse=True)
+    versions = P._load(db, "supplier", [r.item_id for r in rows])
+    # Each buyer's own price list, for the date our FOB was set (Sales).
+    buyer_v = {b: P._load(db, "buyer", [r.item_id for r in rows if r.buyer_id == b], b)
+               for b in {r.buyer_id for r in rows if r.buyer_id}}
     return [
         {"id": r.id, "po": r.po, "date": r.date, "item_id": r.item_id,
          "qty": r.qty, "rbi": r.rbi, "buyer_id": r.buyer_id,
          # The prices this order was agreed at — NULL means "read the item".
          "unit_value": r.unit_value, "value_mode": r.value_mode,
-         "unit_fob100": r.unit_fob100, "fob_mode": r.fob_mode}
+         "unit_fob100": r.unit_fob100, "fob_mode": r.fob_mode,
+         # The supplier price list those prices came from (Purchase heads its
+         # value columns with it).
+         "price_from": P.price_list_date(versions.get(r.item_id, []), r.date, r.unit_value),
+         "fob_from": P.fob_list_date(versions.get(r.item_id, []),
+                                     buyer_v.get(r.buyer_id, {}).get(r.item_id, []), r.date, r.unit_fob100)}
         for r in rows
     ]
 

@@ -37,6 +37,7 @@ export const docItem = (i, hidden) => {
     fobMode: i.fob_mode, unitFob100: i.unit_fob100,
     group: i.group, supplierId: i.supplier_id,
     sourceSheet: i.source_sheet, packagingType: i.packaging_type || "Cartons",
+    priceFrom: i.price_from || "",
   };
 };
 
@@ -129,6 +130,10 @@ export const docOrderLines = (poLines, itemsById) =>
       valueMode: r.value_mode || item.valueMode,
       unitFob100: r.unit_fob100 == null ? item.unitFob100 : Number(r.unit_fob100),
       fobMode: r.fob_mode || item.fobMode,
+      // The supplier price list the order's price came from (Purchase heading).
+      priceFrom: r.price_from || (r.unit_value == null ? item.priceFrom : "") || "",
+      // Our own price list the FOB came from (Sales heading).
+      fobFrom: r.fob_from || (r.unit_fob100 == null ? item.priceFrom : "") || "",
     };
     return {
       id: r.id, po: r.po, date: r.date, buyerId: r.buyer_id,

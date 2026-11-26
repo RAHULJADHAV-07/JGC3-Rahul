@@ -1,4 +1,4 @@
-import { blockRow, blockSheetRow, WB, attr, bcDescription, ddmmyy, esc, fitSheet, hsnText, hsnValue, orderAgg, poHeaderList, sum, upDiv, wbRupee } from "./common.js";
+import { grnSheet, splitRanges, numCell, blockRow, blockSheetRow, WB, attr, bcDescription, ddmmyy, esc, priceListDateOf, fitSheet, hsnText, hsnValue, orderAgg, poHeaderList, sum, upDiv, wbRupee } from "./common.js";
 
 /* Doc 4 · Purchase — against 4-Purchase.xlsx. The packing sheet without its
    GL code and volumes, and with what we pay the factory on the end: unit price
@@ -14,7 +14,7 @@ export function purchaseSheet(ctx, rows) {
     [H("CODE"), H("GD CODE "), H("SIZE"), H("LENGTH"),
       { v: "PACKING", s: WB.headL }, { v: "", s: WB.headR }, H("DESCRIPTION"), H("Bar Codes"), H("HSN CODES"),
       { v: "Quantity", s: WB.headL }, { v: "", s: WB.headR },
-      { v: `VALUE - ${ddmmyy(ctx.inv.date)}`, s: WB.headRed }, { v: "", s: WB.headRed }],
+      { v: `VALUE - ${ddmmyy(priceListDateOf(ctx, rows))}`, s: WB.headRed }, { v: "", s: WB.headRed }],
     [H(""), H(""), H("MM"), H("MM"), H("UNIT "), H("BOX"), H(""), H(""), H(""),
       H("Pcs"), H("Box"), H("UNIT"), H("Total")],
   ];
@@ -31,8 +31,8 @@ export function purchaseSheet(ctx, rows) {
     out.push([
       { v: it.code || "", s: WB.gd },
       { v: it.gd || "", s: WB.gd },
-      { v: it.size || "", s: WB.head },
-      { v: it.length || "", s: WB.head },
+      numCell(it.size, WB.head),
+      numCell(it.length, WB.head),
       { v: it.packUnit || "", s: WB.numC },
       { v: r.packing, t: "n", s: WB.numC },
       { v: bcDescription(it), s: WB.desc },
@@ -65,28 +65,38 @@ export function purchaseSheet(ctx, rows) {
     defaultColWidth: 9.140625,
     defaultRowHeight: 12.75,
     colStyle: { font: "ref", border: false, valign: "center" },
+    baseFont: "normArial",
     tabColor: "FF00B050",
     page: {
       paper: 9, orientation: "portrait", scale: 19, fit: true,
       margins: { left: 0.5, right: 0.5, top: 0.5, bottom: 0.5, header: 0, footer: 0 },
     },
-  });
+  }, { widen: false });
 }
 
-export const B_4 = (ctx) => {
-  const rows = orderAgg(ctx);
+/* The GRN tab of 4-Purchase.xlsx: no CODE, no LENGTH, the value heading in
+   black. */
+const PUR_GRN = {
+  name: "Purchase GRN", drop: [0, 3], tabColor: "FF0070C0", plainHeads: true, boxBanner: true,
+  widths: [11.28515625, 5.140625, 6, 6.28515625, 32.7109375, 14.140625, 14.140625,
+    9.140625, 9.28515625, 10, 12.28515625],
+};
+
+function purchaseHtml(ctx, rows, grn) {
+  const pp = (x) => (grn ? "" : x);                 // a cell only the PP tab has
+  const n = grn ? 11 : 13;
   const boxFml = attr(upDiv("{qty}", "{packbox}"));
   const body = rows.map((r) => {
     const it = r.it;
-    return `${blockRow(r, 13)}<tr>
-      <td class="gd">${esc(it.code)}</td>
-      <td class="gd">${esc(it.gd)}</td>
-      <td class="bh">${esc(it.size)}</td>
-      <td class="bh">${esc(it.length)}</td>
+    return `${blockRow(r, n)}<tr>
+      ${pp(`<td class="gd">${esc(it.code)}</td>`)}
+      <td class="${grn ? "" : "gd"}">${esc(it.gd)}</td>
+      <td class="${grn ? "c" : "bh"}">${esc(it.size)}</td>
+      ${pp(`<td class="bh">${esc(it.length)}</td>`)}
       <td class="c">${esc(it.packUnit || "")}</td>
       <td class="c" data-t="int" data-v="${r.packing}">${r.packing}</td>
       <td class="desc">${esc(bcDescription(it)).replace(/\n/g, "<br>")}</td>
-      <td class="code">${esc(it.barcode)}</td>
+      <td class="${grn ? "c" : "code"}">${esc(it.barcode)}</td>
       <td class="c">${esc(hsnText(it))}</td>
       <td class="r" data-t="int" data-v="${r.qty}">${r.qty}</td>
       <td class="r" data-t="int" data-f="${boxFml}">${r.boxes}</td>
@@ -95,22 +105,31 @@ export const B_4 = (ctx) => {
     </tr>`;
   }).join("");
 
-  const html = `<div class="title">PURCHASE</div>
+  return `<div class="title">PURCHASE${grn ? " · GRN" : ""}</div>
     <table class="wb">
-      <tr class="sec po rule"><td colspan="13">PO NO : ${esc(poHeaderList(ctx))}</td></tr>
-      <tr><th>CODE</th><th>GD CODE</th><th>SIZE</th><th>LENGTH</th>
+      <tr class="sec po rule"><td colspan="${n}">PO NO : ${esc(poHeaderList(ctx))}</td></tr>
+      <tr>${pp("<th>CODE</th>")}<th>GD CODE</th><th>SIZE</th>${pp("<th>LENGTH</th>")}
         <th colspan="2">PACKING</th><th>DESCRIPTION</th><th>Bar Codes</th><th>HSN CODES</th>
-        <th colspan="2">Quantity</th><th class="red" colspan="2">VALUE - ${esc(ddmmyy(ctx.inv.date))}</th></tr>
-      <tr class="hd2"><th></th><th></th><th>MM</th><th>MM</th><th>UNIT</th><th data-k="packbox">BOX</th>
+        <th colspan="2">Quantity</th><th class="${grn ? "" : "red"}" colspan="2">VALUE - ${esc(ddmmyy(priceListDateOf(ctx, rows)))}</th></tr>
+      <tr class="hd2">${pp("<th></th>")}<th></th><th>MM</th>${pp("<th>MM</th>")}<th>UNIT</th><th data-k="packbox">BOX</th>
         <th></th><th></th><th></th><th data-k="qty">Pcs</th><th data-k="box">Box</th>
         <th data-k="valunit">UNIT</th><th data-k="valtot">Total</th></tr>
       ${body}
-      <tr class="tot"><td class="o"></td><td class="o"></td><td class="o"></td><td class="o"></td>
-        <td class="o"></td><td class="o"></td><td class="o"></td><td>TOTAL</td><td></td>
+      <tr class="tot">${'<td class="o"></td>'.repeat(grn ? 5 : 7)}<td>TOTAL</td><td></td>
         <td class="r" data-t="int" data-sum="qty">${sum(rows, "qty")}</td>
         <td class="r" data-t="int" data-sum="box">${sum(rows, "boxes")}</td>
         <td></td>
         <td class="r" data-t="inr" data-sum="valtot">${wbRupee(sum(rows, "valTotal"))}</td></tr>
     </table>`;
-  return { name: "Purchase", html, sheet: purchaseSheet(ctx, rows), page: "portrait" };
+}
+
+/* PP on "Purchase PP", nylon on "Purchase GRN", each headed with the date of
+   the price list its own lines were bought at. */
+export const B_4 = (ctx) => {
+  const parts = splitRanges(ctx, orderAgg(ctx));
+  const html = parts.map((p) => purchaseHtml(ctx, p.rows, p.key === "grn")).join('<div class="pgbrk"></div>');
+  const sheets = parts.map((p) => (p.key === "grn"
+    ? grnSheet(purchaseSheet(ctx, p.rows), PUR_GRN)
+    : { ...purchaseSheet(ctx, p.rows), name: "Purchase PP" }));
+  return { name: "Purchase", html, sheets, page: "portrait" };
 };

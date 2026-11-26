@@ -223,7 +223,10 @@ function buildOne(no, ctx, report) {
 export function documentParts(no, ctx, report) {
   const split = supplierSplitDocs(no, ctx);
   // Each supplier's copy keeps its paper's orientation — the despatch letter (11) is portrait.
-  if (split.length > 1) return split.map((d) => ({ name: `${d.code}`, html: d.html, sheets: d.sheets, docName: d.docName, page: d.page }));
+  /* Even one supplier's copy comes off its own workbook — the letter and its
+     annexures — never the preview converted, which lost the form's layout
+     (V-7.10.0). */
+  if (split.length) return split.map((d) => ({ name: `${d.code}`, html: d.html, sheets: d.sheets, docName: d.docName, page: d.page }));
   const out = buildOne(no, ctx, report);
   return out ? [{ name: DOC_META[no] || out.name, html: out.html, sheet: out.sheet, sheets: out.sheets, docx: out.docx, page: out.page, docName: out.name }] : [];
 }
