@@ -11,6 +11,7 @@ import { useToast } from "../../providers/ToastProvider.jsx";
 import { INV_STATUS_TONE } from "../../lib/constants.js";
 import { transportsFor } from "../../lib/transports.js";
 import { STEP_LABELS, containerDone, shipStepDone, shipMode, modeLabel } from "../../lib/modes.js";
+import { useTransportLoader } from "../../lib/loaderMode.js";
 
 /* Shipment wizard — three gated steps that move an invoice from
    "Ready to dispatch" → "Dispatched" → "Ready to Ship" → "Shipped".
@@ -87,6 +88,8 @@ export default function ShipmentWizard({ inv, onClose }) {
   const [skip, setSkip] = useState({ ...(inv.step_skip || {}) });
   const [step, setStep] = useState(1);
   const mode = shipMode(ship);
+  // Choosing Air or Land here turns the loading picture at once.
+  useTransportLoader(mode);
   const air = mode === "air";
   const labels = STEP_LABELS[mode];
 

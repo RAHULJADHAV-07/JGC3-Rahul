@@ -12,6 +12,8 @@ import { previewSerials, rangeText } from "../../lib/serials.js";
 import { fillOldest, forget as forgetPicks, fromLines, pickForAll, placement, toPins, togglePick, typeCell } from "../../lib/poAlloc.js";
 import { useDebounced } from "../../lib/useDebounced.js";
 import { PoForAll, PoPicker } from "./PoPicker.jsx";
+import { useTransportLoader } from "../../lib/loaderMode.js";
+import { shipMode } from "../../lib/modes.js";
 
 /* Edit an invoice — number, date, serial start, and the lines themselves:
    retype the boxes, drop an item that never went on the container, or add one
@@ -30,6 +32,7 @@ import { PoForAll, PoPicker } from "./PoPicker.jsx";
    under Custom PO takes those orders' prices. Deleting the invoice outright is left to
    an admin (the API refuses anyone else). */
 export default function InvoiceEditModal({ inv, onClose }) {
+  useTransportLoader(shipMode(inv.ship));
   const itemsQ = useItems();
   const items = itemsQ.data || [];
   const suppliers = useSuppliers().data || [];

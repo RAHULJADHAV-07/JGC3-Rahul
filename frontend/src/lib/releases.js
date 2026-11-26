@@ -19,6 +19,7 @@ export const RELEASES = [
       "Setup → Items: the edit form shows the date the prices hold from and when they were updated, with the price history. A price changed there asks from which day it holds.",
       "Dashboard: Simplified view — every order split into PP and GRN, boxes and volume, supplier by supplier.",
       "Loading: a container ship under way, in the company's colours, in place of the turning circle — by night with the moon out and the bridge lit. A small ship rocks in the buttons while they work.",
+      "An invoice or a purchase order that goes by air loads with a cargo plane climbing over the clouds; by land, with a container truck on the road. Everything else, and anything not yet shipped, loads with the ship. A purchase order goes the way most of its delivered boxes went.",
       "PDF: saved straight to Downloads under the document's own name — no print dialog — with a “PDF downloaded” note. The text in it can be searched and copied.",
       "Long reports in PDF keep a margin at the head and foot of every page, with the heading row repeated.",
       "PO papers (barcode, packing, purchase, sales, suppliers' PO) and the shipment list keep each order and invoice at the price it was raised at when a price is revised later.",

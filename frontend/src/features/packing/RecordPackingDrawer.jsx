@@ -17,6 +17,7 @@ import { fillOldest, forget as forgetPicks, leftAfter, pickForAll, placement, to
 import ShipTermsFields, { ModePicker } from "../shipments/ShipTermsFields.jsx";
 import { shipMode } from "../../lib/modes.js";
 import { PoForAll, PoFrom, PoPicker } from "./PoPicker.jsx";
+import { useTransportLoader } from "../../lib/loaderMode.js";
 
 /* Record packing — boxes clear the oldest open order first (FIFO), or come off
    the orders chosen for each item, under the item itself (Custom PO).
@@ -43,6 +44,8 @@ export default function RecordPackingDrawer({ onClose }) {
   /* The shipment's terms, known when the goods are packed — they are written
      to the invoice's shipment details, where they can still be changed. */
   const [ship, setShip] = useState({});
+  // The mode picked below turns the loading picture with it.
+  useTransportLoader(shipMode(ship));
   /* FIFO, or the orders chosen for each item (lib/poAlloc.js). */
   const [allocation, setAllocation] = useState("fifo");
   const [choice, setChoice] = useState({ picks: {}, manual: {} });

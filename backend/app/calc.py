@@ -1027,8 +1027,28 @@ def build_balance_matrix(po_lines, invoices, items_by_id, suppliers, hidden_pos=
 
 
 # ---------------- PO roll-up ----------------
+def po_mode(detail, inv_mode: dict) -> str:
+    """How an order travels. A purchase order carries no mode of its own — the
+    invoice does (`ship.mode`) — so it is the mode most of its delivered boxes
+    went by; an order nothing has been delivered against yet goes by sea, as
+    every order did before modes existed. A tie goes to the later invoice."""
+    boxes: dict = {}
+    for d in detail:
+        for c in d.get("cleared") or []:
+            m = inv_mode.get(c.get("invoice_no"))
+            if m:
+                boxes[m] = boxes.get(m, 0) + int(c.get("boxes") or 0)
+    if not boxes:
+        return "water"
+    last = {m: i for i, m in enumerate(inv_mode.values())}
+    return max(boxes, key=lambda m: (boxes[m], last.get(m, -1)))
+
+
 def build_po_list(po_lines, invoices, items_by_id, rank=None) -> list:
     ledger = compute_ledger(po_lines, invoices, items_by_id)
+    # Each invoice's mode of transport, newest last (po_mode breaks a tie on it).
+    inv_mode = {inv.invoice_no: ship_mode(inv.ship)
+                for inv in sorted(invoices, key=lambda i: (i.date or "", i.created_at or datetime.min))}
     po_map: dict = {}
     for r in po_lines:
         po_map.setdefault(r.po, []).append(r)
@@ -1077,6 +1097,7 @@ def build_po_list(po_lines, invoices, items_by_id, rank=None) -> list:
             "po": po, "date": date, "buyer_id": buyer_id, "ordered": ordered,
             "completed": completed, "pending": pending, "volume": volume,
             "suppliers": suppliers, "open_suppliers": open_suppliers, "detail": detail,
+            "mode": po_mode(detail, inv_mode),
         })
     out.sort(key=lambda p: (p["date"], p["po"]), reverse=True)
     return out

@@ -188,3 +188,34 @@ class Dashboard(Prices):
         self.assertAlmostEqual(cell["grn"]["vol"], 2.0)
         self.assertEqual(m["totals"]["cells"]["PO1"]["grn"]["boxes"], 20)
         self.assertEqual(m["totals"]["split"]["pp"]["boxes"] + m["totals"]["split"]["grn"]["boxes"], m["totals"]["totBox"])
+
+
+class PoMode(Prices):
+    """The loading picture follows the order's mode of transport (V-7.9.0): an
+    order carries none itself, so it is the mode most of its boxes went by."""
+
+    def mode_of(self, po):
+        return next(p for p in self.ok(self.client.get("/api/purchase-orders")) if p["po"] == po)["mode"]
+
+    def test_an_order_nothing_has_left_on_goes_by_sea(self):
+        self.assertEqual(self.mode_of("PO3"), "water")
+
+    def test_most_boxes_decide(self):
+        air = self.invoice_body("A1", {1: 15})
+        air["ship"] = {"mode": "air"}
+        self.ok(self.client.post("/api/invoices", json=air), 201)
+        self.assertEqual(self.mode_of("PO1"), "air")
+        land = self.invoice_body("L1", {1: 5, 2: 20})
+        land["ship"] = {"mode": "land"}
+        self.ok(self.client.post("/api/invoices", json=land), 201)
+        self.assertEqual(self.mode_of("PO1"), "land")      # 20 + 5 by land against 15 by air
+        self.assertEqual(self.mode_of("PO2"), "water")     # nothing delivered on it yet
+
+    def test_a_tie_goes_to_the_later_invoice(self):
+        a = self.invoice_body("A1", {3: 10}, date="2026-05-01")
+        a["ship"] = {"mode": "air"}
+        self.ok(self.client.post("/api/invoices", json=a), 201)
+        b = self.invoice_body("L1", {3: 10}, date="2026-05-02")
+        b["ship"] = {"mode": "land"}
+        self.ok(self.client.post("/api/invoices", json=b), 201)
+        self.assertEqual(self.mode_of("PO1"), "land")

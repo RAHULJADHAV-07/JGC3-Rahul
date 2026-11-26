@@ -29,6 +29,7 @@ import { INV_STATUS_TONE } from "../../lib/constants.js";
 import ShipmentWizard from "../shipments/ShipmentWizard.jsx";
 import { portsFor } from "../../lib/ports.js";
 import { docInMode, listFor, modeLabel, shipComplete, shipMode } from "../../lib/modes.js";
+import { useTransportLoader } from "../../lib/loaderMode.js";
 
 /* Documents — the export papers, generated live.
 
@@ -211,6 +212,9 @@ export default function DocumentsPage({ group }) {
   /* Which source this screen is reading. A PO-only menu head is always PO;
      the full library follows whichever document is open. */
   const poMode = groupMeta ? groupMeta.source === "po" : isPoDoc(open);
+  /* The loading picture goes the way these goods go: the invoice's mode, or
+     the order's (the mode most of its delivered boxes went by). */
+  useTransportLoader(poMode ? po?.mode : invMode);
 
   const allDocs = allDocsAnyMode.filter(inMode);
   const groups = useMemo(() => {
