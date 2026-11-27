@@ -1,4 +1,4 @@
-import { L, bandOpener, P7, bcDescription, esc, fitSheet, hsnText, hsnValue, poBannerList, poStack, sum, wbFixed } from "./common.js";
+import { numCell, L, bandOpener, P7, bcDescription, esc, fitSheet, hsnText, hsnValue, poBannerList, poStack, sum, wbFixed } from "./common.js";
 
 export function supplierPackingSheet(ctx, rows) {
   const H = (v) => ({ v, s: P7.head });
@@ -45,8 +45,8 @@ export function supplierPackingSheet(ctx, rows) {
       { v: it.code || "", s: P7.codeC },
       { v: it.gd || "", s: P7.code },
       { v: it.oswin || "", s: P7.code },
-      { v: it.size || "", s: P7.mid },
-      { v: it.length || "", s: P7.mid },
+      numCell(it.size, P7.mid),
+      numCell(it.length, P7.mid),
       { v: it.packUnit || "", s: P7.mid },
       { v: r.packing, t: "n", s: P7.mid },
       { v: bcDescription(it), s: P7.desc },

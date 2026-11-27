@@ -1,4 +1,4 @@
-import { L, bandOpener, P7, RS, RUPEE, USD, bcDescription, ddmm, esc, exRate, fitSheet, inr, poBannerList, poStack, sum, usd, wbRupee } from "./common.js";
+import { numCell, L, bandOpener, P7, RS, RUPEE, USD, bcDescription, ddmm, esc, exRate, fitSheet, inr, poBannerList, poStack, sum, usd, wbRupee } from "./common.js";
 
 /* Doc 9 · Sales (Supplier) — against 9-Sales.xlsx. The purchase sheet priced
    the other way round: FOB per piece in dollars, then the RBI reference in
@@ -63,8 +63,8 @@ export function supplierSalesSheet(ctx, rows) {
       { v: it.code || "", s: S.codeC },
       { v: it.gd || "", s: S.code },
       { v: it.gl || "", s: S.gdC },
-      { v: it.size || "", s: S.mid },
-      { v: it.length || "", s: S.mid },
+      numCell(it.size, S.mid),
+      numCell(it.length, S.mid),
       { v: it.packUnit || "", s: S.mid },
       { v: r.packing, t: "n", s: S.mid },
       { v: bcDescription(it), s: S.desc },

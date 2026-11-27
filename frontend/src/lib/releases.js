@@ -7,6 +7,20 @@
 
 export const RELEASES = [
   {
+    version: "7.10.0",
+    date: "2026-11-26",
+    notes: [
+      "Barcode: a LABELS column — TYPE UPS × SHEETS REQD, the labels actually printed on whole sheets. The raw label count is no longer shown.",
+      "Purchase: the VALUE heading carries the date of the supplier's price list the order was priced from, not the order's date.",
+      "Sales: the red date beside the banner is our own price list's — the buyer's price list where the order took the buyer's price, else the FOB set in Setup → Items or the supplier price list.",
+      "Suppliers' PO for Oswin: SIZE and LENGTH in place of DESCRIPTION, on the letter and the annexure. Hansa, VP and Kiran: DESCRIPTION only — no SIZE or LENGTH.",
+      "Barcode, Packing, Purchase and Sales: PP fittings and nylon (GRN) fittings on two sheets, as the client's books keep them — BarcodePP / BarcodeGRN, PackingPP / PackingGRN, Purchase PP / Purchase GRN, SalesPP / SalesGRN. The GRN sheet without CODE and LENGTH, set landscape. The PDF and Word copies split the same way.",
+      "Suppliers' PO: the letter rebuilt cell for cell against the client's file — fine lines between the goods, a double rule under the nett value, our GSTIN boxed over three rows, Your Ref over two lines, PAN as AVIPS-4808-H, the address one line to a row. The screen, the PDF and the Word copy are drawn from the same sheet as the Excel.",
+      "Suppliers' PO for one supplier now downloads as the letter with its PP and GRN annexures, as it does for several.",
+      "Excel: sizes and lengths are numbers (no green 'number stored as text' marks); the PO books open in Arial, the supplier PO in Times New Roman, as the client's files do.",
+    ],
+  },
+  {
     version: "7.9.0",
     date: "2026-11-26",
     notes: [

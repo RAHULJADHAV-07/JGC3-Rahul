@@ -65,6 +65,11 @@ const FONTS = [
   /* Arial 10 — the client's own workbooks, so a document rebuilt cell for cell
      against one of them (2 · Barcode) opens looking like the file it copies. */
   { key: "ref", xml: '<font><sz val="10"/><name val="Arial"/><family val="2"/></font>' },
+  /* What a client workbook's Normal style is set in — the face Excel measures
+     its column widths by. Their PO books are Arial 10; the supplier PO letter
+     Times New Roman 10. Used through a sheet's `baseFont` (V-7.10.0). */
+  { key: "normArial", xml: '<font><sz val="10"/><name val="Arial"/></font>' },
+  { key: "normTnr", xml: '<font><sz val="10"/><name val="Times New Roman"/></font>' },
   { key: "refb", xml: '<font><b/><sz val="10"/><name val="Arial"/><family val="2"/></font>' },
   { key: "refg", xml: '<font><b/><sz val="10"/><color rgb="FF339966"/><name val="Arial"/><family val="2"/></font>' },
   { key: "refr", xml: '<font><b/><sz val="10"/><color rgb="FFFF0000"/><name val="Arial"/><family val="2"/></font>' },
@@ -104,6 +109,7 @@ const FONTS = [
      words on it are underlined. */
   { key: "refbb", xml: '<font><b/><sz val="10"/><color rgb="FF0000FF"/><name val="Arial"/><family val="2"/></font>' },
   { key: "refbl", xml: '<font><sz val="10"/><color rgb="FF3366FF"/><name val="Arial"/><family val="2"/></font>' },
+  { key: "refblu", xml: '<font><sz val="10"/><color rgb="FF0000FF"/><name val="Arial"/><family val="2"/></font>' },
   { key: "refmn", xml: '<font><sz val="10"/><color rgb="FF800000"/><name val="Arial"/><family val="2"/></font>' },
   { key: "brand", xml: '<font><b/><sz val="18"/><color rgb="FF800000"/><name val="Centaur"/><family val="1"/></font>' },
   { key: "refbu", xml: '<font><b/><u/><sz val="10"/><name val="Arial"/><family val="2"/></font>' },
@@ -200,6 +206,19 @@ const BORDERS = [
       + '<top style="thin"><color rgb="FFAEBCCB"/></top><bottom style="thin"><color rgb="FFAEBCCB"/></bottom><diagonal/></border>',
   },
 ];
+/* A registered font as CSS, its size scaled by `k` — how a worksheet drawn as
+   HTML (docs/common.js · sheetHtml) types its cells in the workbook's faces. */
+export function fontCss(key, k = 1) {
+  const f = (FONTS.find((x) => x.key === key) || FONTS[0]).xml;
+  const sz = Number((/<sz val="([\d.]+)"/.exec(f) || [])[1] || 10);
+  const name = (/<name val="([^"]+)"/.exec(f) || [])[1] || "Arial";
+  const rgb = (/<color rgb="FF([0-9A-F]{6})"/i.exec(f) || [])[1];
+  const fam = name === "Centaur" ? "Centaur,Georgia,serif" : name === "Times New Roman" ? "'Times New Roman',Times,serif" : `${name},Arial,sans-serif`;
+  return [`font-family:${fam}`, `font-size:${(sz * 96 / 72 * k).toFixed(2)}px`,
+    `font-weight:${/<b\/>/.test(f) ? 700 : 400}`, `font-style:${/<i\/>/.test(f) ? "italic" : "normal"}`,
+    `text-decoration:${/<u\/>/.test(f) ? "underline" : "none"}`, `color:#${rgb || "000000"}`].join(";");
+}
+
 const fontIx = (k) => Math.max(0, FONTS.findIndex((f) => f.key === k));
 const fillIx = (k) => Math.max(0, FILLS.findIndex((f) => f.key === k));
 
@@ -254,7 +273,7 @@ function borderRegistry() {
 }
 
 /* A style is { font, fill, border, align, valign, wrap, quote, fmt }. */
-function styleXfs(specs) {
+function styleXfs(specs, fonts = FONTS) {
   const numFmts = [];
   const borders = borderRegistry();
   const fmtId = (name) => {
@@ -293,7 +312,7 @@ function styleXfs(specs) {
     : "";
   const bd = borders.xml();
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">${nf}<fonts count="${FONTS.length}">${FONTS.map((f) => f.xml).join("")}</fonts><fills count="${FILLS.length}">${FILLS.map((f) => f.xml).join("")}</fills><borders count="${bd.length}">${bd.join("")}</borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="${xfs.length}">${xfs.join("")}</cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`;
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">${nf}<fonts count="${fonts.length}">${fonts.map((f) => f.xml).join("")}</fonts><fills count="${FILLS.length}">${FILLS.map((f) => f.xml).join("")}</fills><borders count="${bd.length}">${bd.join("")}</borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="${xfs.length}">${xfs.join("")}</cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`;
 }
 
 /* One registered font as the run properties a rich-text run wants. The two
@@ -467,6 +486,16 @@ export function safeName(name, taken) {
 }
 
 /** Build the .xlsx package for a workbook and hand back a Blob. */
+/* The workbook's Normal font is its first. A book whose every sheet copies a
+   client file set in another face (`baseFont`) takes that face, so its
+   column widths measure as theirs do; a mixed book keeps the app's own. Only
+   the face at the front changes — every other font keeps its index. */
+function baseFonts(sheets) {
+  const want = [...new Set(sheets.map((s) => s.baseFont || ""))];
+  const f = want.length === 1 && want[0] && FONTS.find((x) => x.key === want[0]);
+  return f ? [f, ...FONTS.slice(1)] : FONTS;
+}
+
 export function buildXLSX(workbook) {
   /* Rows a sheet repeats at the top of every printed page — its table's
      heading row — as Excel's own "Rows to repeat at top":
@@ -477,6 +506,12 @@ export function buildXLSX(workbook) {
       const tab = X(String(s.name).replace(/'/g, "''"));
       const [a, b] = s.repeatRows;
       return `<definedName name="_xlnm.Print_Titles" localSheetId="${i}">'${tab}'!$${a}:$${b}</definedName>`;
+    }).join("") + list.map((s, i) => {
+      // `printArea: "A1:G64"` — the range the client's book prints.
+      if (!s.printArea) return "";
+      const tab = X(String(s.name).replace(/'/g, "''"));
+      const abs = String(s.printArea).replace(/([A-Z]+)(\d+)/g, (m, c, r) => `$${c}$${r}`);
+      return `<definedName name="_xlnm.Print_Area" localSheetId="${i}">'${tab}'!${abs}</definedName>`;
     }).join("");
     return names ? `<definedNames>${names}</definedNames>` : "";
   };
@@ -573,7 +608,7 @@ export function buildXLSX(workbook) {
       data: utf8(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${sheets.map((_, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join("")}<Relationship Id="rIdStyles" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`),
     },
-    { name: "xl/styles.xml", data: utf8(styleXfs(specs)) },
+    { name: "xl/styles.xml", data: utf8(styleXfs(specs, baseFonts(sheets))) },
     ...sheetXmls.map((xml, i) => ({ name: `xl/worksheets/sheet${i + 1}.xml`, data: utf8(xml) })),
     ...picFiles,
   ];
