@@ -426,6 +426,8 @@ def build_order_master(po, po_lines, items_by_id, rank=None) -> dict:
             "description": it.description, "barcode": it.barcode, "hsn": it.hsn,
             "packing": it.packing, "pack_unit": it.pack_unit,
             "supplier_id": it.supplier_id, "date": r.date, "buyer_id": r.buyer_id,
+            # The packaging type chosen on this line, if any (V-7.10.2).
+            "packaging": getattr(r, "packaging", None),
             "serial": f"{_serial(frm)}–{_serial(to)}" if d["boxes"] else "—",
             **d,
         })
@@ -808,8 +810,12 @@ def invoice_po_legs(ledger) -> dict:
     for iid, b in ledger.items():
         for d in b["demands"]:
             for inv_no, boxes in (d.get("cleared") or {}).items():
-                out.setdefault(inv_no, {}).setdefault(iid, []).append(
-                    {"po": d["po"], "date": d["date"], "boxes": boxes})
+                leg = {"po": d["po"], "date": d["date"], "boxes": boxes}
+                # The packaging chosen on that order line, when one was (V-7.10.2).
+                pack = getattr(d.get("line"), "packaging", None)
+                if pack:
+                    leg["packaging"] = pack
+                out.setdefault(inv_no, {}).setdefault(iid, []).append(leg)
     return out
 
 
@@ -824,8 +830,10 @@ def open_by_po(ledger, item_ids=None) -> dict:
             if d["remaining"] <= 0:
                 continue
             e = rows.setdefault(d["po"], {"po": d["po"], "date": d["date"],
-                                          "buyer_id": d["buyer_id"], "open": 0})
+                                          "buyer_id": d["buyer_id"], "open": 0, "packaging": None})
             e["open"] += d["remaining"]
+            # The packaging chosen on that order (V-7.10.2) — its first line that names one.
+            e["packaging"] = e["packaging"] or getattr(d.get("line"), "packaging", None)
         out[iid] = list(rows.values())
     return out
 
@@ -1083,6 +1091,7 @@ def build_po_list(po_lines, invoices, items_by_id, rank=None) -> list:
                 "description": it.description, "supplier_id": it.supplier_id,
                 "qty": r.qty, "ordered": ordv, "completed": alloc, "pending": rem,
                 "volume": ordv * (it.volume or 0),
+                "packaging": getattr(r, "packaging", None),
                 # Which invoices delivered against this line, and how many boxes
                 # each — the FIFO trail, shown beside the line in the PO.
                 "cleared": cleared_list(dem) if dem else [],

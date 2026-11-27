@@ -43,6 +43,8 @@ def list_po_lines(db: Session = Depends(get_db)):
     return [
         {"id": r.id, "po": r.po, "date": r.date, "item_id": r.item_id,
          "qty": r.qty, "rbi": r.rbi, "buyer_id": r.buyer_id,
+         # "bundle" | "carton" chosen on the order; None = as the item goes.
+         "packaging": r.packaging,
          # The prices this order was agreed at — NULL means "read the item".
          "unit_value": r.unit_value, "value_mode": r.value_mode,
          "unit_fob100": r.unit_fob100, "fob_mode": r.fob_mode,
@@ -116,17 +118,31 @@ def price_drift(item_id: str | None = None, db: Session = Depends(get_db)):
     }
 
 
+def _since(since: str | None) -> str | None:
+    if not since:
+        return None
+    try:
+        return schemas._iso_date(since)
+    except ValueError:
+        raise HTTPException(422, "since: enter a date")
+
+
 @router.get("/pending-for-item/{iid}", dependencies=[Depends(_price_read)])
-def pending_for_item(iid: str, db: Session = Depends(get_db)):
+def pending_for_item(iid: str, since: str | None = None, db: Session = Depends(get_db)):
     """Which orders still have this item outstanding, and how many boxes —
     what the edit form shows beside the "apply to pending orders" tick, so the
-    consequence of ticking it is visible before saving."""
+    consequence of ticking it is visible before saving. With `since` (the day
+    the new price holds from) only orders dated that day or later are listed;
+    `older` names the open ones before it, which keep their price (V-7.10.2)."""
+    since = _since(since)
     items = {i.id: i for i in db.query(models.Item).all()}
     po_lines = db.query(models.PurchaseOrderLine).all()
     invoices = db.query(models.Invoice).all()
     ledger = calc.compute_ledger(po_lines, invoices, items)
 
-    open_demands = [d for d in ledger.get(iid, {}).get("demands", []) if d["remaining"] > 0]
+    every = [d for d in ledger.get(iid, {}).get("demands", []) if d["remaining"] > 0]
+    open_demands = [d for d in every if since is None or d["date"] >= since]
+    older = sorted({d["po"] for d in every if since is not None and d["date"] < since})
     by_po: dict = {}
     for d in open_demands:
         e = by_po.setdefault(d["po"], {"po": d["po"], "date": d["date"], "boxes": 0})
@@ -138,18 +154,30 @@ def pending_for_item(iid: str, db: Session = Depends(get_db)):
         "pos": rows,
         "lines": len(open_demands),
         "boxes": sum(r["boxes"] for r in rows),
+        "older": older,
     }
 
 
 @router.post("/apply-prices", dependencies=[Depends(_price_write)])
-def apply_prices(item_id: str | None = None, db: Session = Depends(get_db)):
+def apply_prices(item_id: str | None = None, since: str | None = None, db: Session = Depends(get_db)):
     """Restate still-open order lines at the item master's current price.
 
     Scoped to one product with `item_id`, which is how the item edit form
     applies a price change it has just saved. Lines already delivered are left
     exactly as they were — the invoice, the customs papers and the bank
     documents raised against them must not move.
+
+    With `since` — the day the new price holds from — only orders dated that
+    day or later move, each to the price in force on its own date; an order
+    dated before it keeps the price before it (V-7.10.2), exactly as the
+    price list's "apply to orders" does.
     """
+    since = _since(since)
+    if since:
+        ids = [item_id] if item_id else [i.id for i in db.query(models.Item.id).all()]
+        out = P.reprice_orders(db, ids, since)
+        db.commit()
+        return out
     items = {i.id: i for i in db.query(models.Item).all()}
     pending = _pending_line_ids(db)
     lines = [r for r in db.query(models.PurchaseOrderLine).all()
@@ -199,7 +227,7 @@ def create_purchase_order(body: schemas.PurchaseOrderCreate, db: Session = Depen
     for l in body.lines:
         row = models.PurchaseOrderLine(
             po=body.po, date=body.date, item_id=l.item_id, qty=l.qty,
-            rbi=body.rbi, buyer_id=body.buyer_id, **priced[l.item_id],
+            rbi=body.rbi, buyer_id=body.buyer_id, packaging=options.pack_name(db, l.packaging), **priced[l.item_id],
         )
         db.add(row)
         created.append(row)
@@ -269,6 +297,8 @@ def update_purchase_order(po: str, body: schemas.PurchaseOrderUpdate, db: Sessio
             if lid and lid in by_id:
                 row = by_id[lid]
                 row.qty = qty
+                if "packaging" in l.model_fields_set:
+                    row.packaging = options.pack_name(db, l.packaging, keep=row.packaging)
                 seen.add(lid)
             else:
                 it = items.get(l.item_id)
@@ -276,7 +306,7 @@ def update_purchase_order(po: str, body: schemas.PurchaseOrderUpdate, db: Sessio
                     raise HTTPException(404, f"Item {l.item_id} not found")
                 row = models.PurchaseOrderLine(
                     po=new_po, date=date, item_id=it.id, qty=qty,
-                    rbi=rbi, buyer_id=buyer_id, **priced[it.id],
+                    rbi=rbi, buyer_id=buyer_id, packaging=options.pack_name(db, l.packaging), **priced[it.id],
                 )
                 db.add(row)
             kept.append(row)

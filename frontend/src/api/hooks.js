@@ -44,7 +44,7 @@ function crudHooks(key, resource, extraInvalidate = []) {
    that drift apart. */
 const LEDGER = ["dashboard", "badges", "po-list", "po-lines", "invoices", "item-detail", "balance",
   "supply-details", "order-lines", "master-2a", "master-7a", "price-drift", "pending-for-item",
-  "alloc-preview", "open-orders", "supplier-refs"];
+  "alloc-preview", "open-orders", "supplier-refs", "prices-reach"];
 
 // Masters — mutations also refresh dependent computed views.
 const DERIVED = [...LEDGER, "item-groups", "items-grouped", "derive", "cost-preview"];
@@ -231,11 +231,12 @@ export const usePriceDrift = (params) =>
 
 /* Which orders still have this item outstanding — shown beside the "apply to
    pending orders" tick in the edit form, so the effect is visible first. */
-export const usePendingForItem = (itemId) =>
+export const usePendingForItem = (itemId, since) =>
   useQuery({
-    queryKey: ["pending-for-item", itemId],
-    queryFn: () => api.purchaseOrders.pendingForItem(itemId),
+    queryKey: ["pending-for-item", itemId, since || ""],
+    queryFn: () => api.purchaseOrders.pendingForItem(itemId, since),
     enabled: !!itemId,
+    placeholderData: keepPreviousData,
   });
 
 export function useApplyPrices() {
@@ -272,6 +273,13 @@ export function useSaveList() {
         ...(MODE_LISTS.includes(key) && out?.modes ? { modes: { ...(old.modes || {}), [key]: out.modes } } : {}),
       } : old));
       ["options", "buyers", "items", "invoices"].forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
+      /* A group or a packaging type renamed is renamed on the items, the order
+         lines and the open invoices' lines too (V-7.10.2) — so everything read
+         off them is read again. */
+      if (key === "groups" || key === "packaging_types") {
+        ["item-groups", "items-grouped", "po-lines", "po-list", "item-detail", "balance", "supply-details",
+          "master-2a", "master-7a", "order-lines", "derive"].forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
+      }
     },
   });
 }
@@ -292,6 +300,8 @@ export function useOptionMutations() {
     removeBank: useMutation({ mutationFn: (id) => api.options.removeBank(id), onSuccess: invalidate }),
     saveSequence: useMutation({ mutationFn: (values) => api.options.saveSequence(values), onSuccess: resequence, ...loud }),
     saveGroups: useMutation({ mutationFn: (ranges) => api.options.saveGroups(ranges), onSuccess: resequence, ...loud }),
+    // Read by every paper and every line's Bundle / Carton tag.
+    savePackRules: useMutation({ mutationFn: (rules) => api.options.savePackRules(rules), onSuccess: invalidate, ...loud }),
   };
 }
 
@@ -378,7 +388,7 @@ export function useCostingMutations() {
    A supplier save moves the item master, so everything drawn from it is read
    again — the same as an item edit in Setup. A buyer save only changes what
    new orders for that buyer are placed at. */
-const PRICE_KEYS = ["prices-supplier", "prices-buyer", "prices-history", "prices-revisions", "supplier-refs"];
+const PRICE_KEYS = ["prices-supplier", "prices-buyer", "prices-history", "prices-revisions", "supplier-refs", "prices-reach"];
 export const useSupplierPrices = (enabled = true) =>
   useQuery({ queryKey: ["prices-supplier"], queryFn: api.prices.supplier, enabled, ...LIVE });
 export const useBuyerPrices = (bid, on) =>
@@ -388,13 +398,24 @@ export const usePriceHistory = (iid, params) =>
 export const usePriceRevisions = (params, enabled = true) =>
   useQuery({ queryKey: ["prices-revisions", params || {}], queryFn: () => api.prices.revisions(params), enabled });
 
+/* The open orders a price change dated `effective` reaches (V-7.10.2) —
+   listed beside the "apply to orders" tick before saving. */
+export const usePriceReach = (body) =>
+  useQuery({
+    queryKey: ["prices-reach", body || {}],
+    queryFn: () => api.prices.reach(body),
+    enabled: !!(body?.effective && body?.item_ids?.length),
+    placeholderData: keepPreviousData,
+  });
+
 export function usePriceMutations() {
   const qc = useQueryClient();
   const refresh = (master) => () => [...PRICE_KEYS, ...(master ? ["items", ...DERIVED] : ["derive"])]
     .forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
   return {
     saveSupplier: useMutation({ mutationFn: (b) => api.prices.saveSupplier(b), onSuccess: refresh(true) }),
-    saveBuyer: useMutation({ mutationFn: ({ bid, body }) => api.prices.saveBuyer(bid, body), onSuccess: refresh(false) }),
+    // Applied to orders already placed, a buyer's prices move the order book too.
+    saveBuyer: useMutation({ mutationFn: ({ bid, body }) => api.prices.saveBuyer(bid, body), onSuccess: refresh(true) }),
     // Going back can move the master too (a supplier revision), so read all of it again.
     withdraw: useMutation({ mutationFn: (rid) => api.prices.withdraw(rid), ...loud, onSuccess: refresh(true) }),
     reinstate: useMutation({ mutationFn: (rid) => api.prices.reinstate(rid), ...loud, onSuccess: refresh(true) }),

@@ -30,7 +30,7 @@ from sqlalchemy.orm import Session
 
 from .config import settings
 from .database import get_db
-from .security import CHALLENGE_PURPOSE, decode_stepup_token, decode_token
+from .security import CHALLENGE_PURPOSE, decode_stepup_token, decode_token, session_day_over
 from . import models
 
 
@@ -67,6 +67,11 @@ def current_user(request: Request, db: Session = Depends(get_db)) -> models.User
             else "That is not a sign-in token",
         )
 
+    # Sessions close at midnight (SESSION_END_MODE). `exp` already says so for
+    # tokens minted under that rule; this also ends older ones.
+    if session_day_over(payload.get("iat")):
+        raise HTTPException(401, "Your session ended at midnight — please sign in again")
+
     user = db.get(models.User, payload.get("sub"))
     if not user:
         raise HTTPException(401, "Account no longer exists")
@@ -78,6 +83,8 @@ def current_user(request: Request, db: Session = Depends(get_db)) -> models.User
         raise HTTPException(403, "This account is not active — ask the admin to approve it")
     if user.hard_locked:
         raise HTTPException(423, "This account is locked — ask the admin to unlock it")
+    # /api/auth/me hands this to the app, which signs out on the dot.
+    request.state.session_exp = payload.get("exp")
     return user
 
 

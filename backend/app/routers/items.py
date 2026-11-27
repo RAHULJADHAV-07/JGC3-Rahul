@@ -116,8 +116,15 @@ def item_groups(db: Session = Depends(get_db)):
 
 @router.post("", response_model=schemas.Item, status_code=201, dependencies=[Depends(_write)])
 def create_item(body: schemas.ItemCreate, db: Session = Depends(get_db)):
-    obj = models.Item(**body.model_dump())
+    data = body.model_dump()
+    for key, field in (("groups", "group"), ("packaging_types", "packaging_type")):
+        if data.get(field) is not None:
+            data[field] = options.canon(db, key, data[field])
+    obj = models.Item(**data)
     db.add(obj)
+    # Its group and packaging join their lists if they are new (V-7.10.2).
+    options.remember(db, "groups", obj.group)
+    options.remember(db, "packaging_types", obj.packaging_type)
     db.commit()
     db.refresh(obj)
     return _out(obj)
@@ -131,6 +138,10 @@ def update_item(iid: str, body: schemas.ItemUpdate, db: Session = Depends(get_db
         raise HTTPException(404, "Item not found")
     before = P.master_prices(obj)
     edits = schemas.changes(body, schemas.Item)
+    # A group or packaging type typed in another case reads as the list has it.
+    for key, field in (("groups", "group"), ("packaging_types", "packaging_type")):
+        if edits.get(field) is not None:
+            edits[field] = options.canon(db, key, edits[field])
     since = edits.pop("price_from", None) or P.today_iso()
     your_ref = edits.pop("price_ref", None) or ""
     edits.pop("price_set_at", None)
@@ -151,6 +162,10 @@ def update_item(iid: str, body: schemas.ItemUpdate, db: Session = Depends(get_db
     for k, v in edits.items():
         if k not in P.FIELDS:
             setattr(obj, k, v)
+    if "group" in edits:
+        options.remember(db, "groups", obj.group)
+    if "packaging_type" in edits:
+        options.remember(db, "packaging_types", obj.packaging_type)
     if moved:
         # A price changed here is a revision on the price list, from `since`.
         P.record_setup_change(db, obj, before, after, since, (user.name or user.email or "").strip(), your_ref)

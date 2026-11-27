@@ -16,8 +16,9 @@ Email verification sits between the password and the session token:
   * an **admin** proves it once a day. `otp_verified_at` records the last
     passcode they passed, and the first sign-in of a new calendar day — read in
     APP_TIMEZONE, so midnight means the office's midnight — asks for a fresh
-    one. A session already open is not cut short by midnight; the *next
-    sign-in* is what asks.
+    one. Sessions themselves end at that midnight (SESSION_END_MODE), whatever
+    hour they began, so the code is asked at the first sign-in after 00:00
+    and the session it opens lasts until the next 00:00.
 
 Three rules hold across everything below:
 
@@ -32,7 +33,8 @@ Three rules hold across everything below:
     that do, and the difference is a login-free way to enumerate staff.
 """
 import logging
-from datetime import datetime, timedelta
+import time
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy.orm import Session
@@ -84,20 +86,26 @@ def _mask(email: str) -> str:
 
 # ---------- The session cookie ----------
 
-def _set_session_cookie(response: Response, token: str) -> None:
+def _set_session_cookie(response: Response, token: str) -> datetime:
     """httpOnly so no script can read it; Secure so it never crosses plain
     HTTP; SameSite so a form on another site cannot make the browser send it,
-    which is what CSRF needs to work."""
+    which is what CSRF needs to work.
+
+    The cookie dies with the token — at midnight by default — so the browser
+    drops it on its own too. Returns that moment (aware UTC)."""
+    exp = (decode_token(token) or {}).get("exp") or 0
+    expires_at = datetime.fromtimestamp(exp, timezone.utc)
     response.set_cookie(
         key=settings.cookie_name,
         value=token,
-        max_age=settings.jwt_expire_minutes * 60,
+        max_age=max(1, int(exp - time.time())),
         httponly=True,
         secure=settings.cookie_secure or settings.is_production,
         samesite=settings.cookie_samesite,
         path="/",
         domain=settings.cookie_domain or None,
     )
+    return expires_at
 
 
 def _clear_session_cookie(response: Response) -> None:
@@ -111,14 +119,14 @@ def _clear_session_cookie(response: Response) -> None:
     )
 
 
-def _admin_code_still_good(last: datetime | None) -> bool:
+def _daily_code_still_good(last: datetime | None) -> bool:
     """Is an admin's last passcode still standing?
 
     In "midnight" mode it stands until the end of the calendar day it was given
     on, read in the office's timezone — so the first sign-in of a new day asks
     for a fresh one, whatever the hour. In "hours" mode it is the older rolling
-    window instead. Consulted at *sign-in* only: an admin already working when
-    midnight passes is not thrown out, their session runs its own course.
+    window instead. Consulted at sign-in; with SESSION_END_MODE=midnight the
+    session itself also ends at 00:00, so that sign-in comes at midnight.
     """
     if not last:
         return False
@@ -132,19 +140,24 @@ def _otp_reason(user: models.User) -> str | None:
     if not settings.otp_enabled:
         return None
     if user.role == "admin":
-        return None if _admin_code_still_good(user.otp_verified_at) else "admin_session_renewal"
-    return None if user.email_verified else "user_first_login"
+        return None if _daily_code_still_good(user.otp_verified_at) else "admin_session_renewal"
+    if not user.email_verified:
+        return "user_first_login"
+    if settings.otp_daily_for == "all" and not _daily_code_still_good(user.otp_verified_at):
+        return "daily_renewal"
+    return None
 
 
 def _issue_session(db: Session, user: models.User, response: Response) -> dict:
     user.last_login = datetime.utcnow()
     lockout.record_success(db, user)   # commits
     db.refresh(user)
-    _set_session_cookie(response, create_token(user.id, user.token_version or 1))
+    ends = _set_session_cookie(response, create_token(user.id, user.token_version or 1))
     return {
         "user": schemas.UserOut.model_validate(user),
         "otp_required": False,
         "must_change_password": bool(user.must_change_password),
+        "session_expires_at": ends,
     }
 
 
@@ -206,7 +219,9 @@ def auth_status(request: Request, db: Session = Depends(get_db)):
         "needs_bootstrap": db.query(models.User).count() == 0,
         "otp_enabled": settings.otp_enabled,
         "session_hours": round(settings.jwt_expire_minutes / 60, 2),
+        "session_ends": settings.session_end_mode,      # midnight | rolling
         "admin_reverify": settings.otp_admin_reverify_mode,
+        "otp_daily_for": settings.otp_daily_for,        # admin | all
         "timezone": settings.app_timezone,
         # So the form can list the same rules the API enforces.
         "password_rules": RULES,
@@ -257,9 +272,9 @@ def bootstrap(
     db.refresh(user)
     audit.write(db, audit.BOOTSTRAP, request=request, actor=user, target_id=user.id,
                 target_label=user.email)
-    _set_session_cookie(response, create_token(user.id, user.token_version))
+    ends = _set_session_cookie(response, create_token(user.id, user.token_version))
     return {"user": schemas.UserOut.model_validate(user), "otp_required": False,
-            "must_change_password": False}
+            "must_change_password": False, "session_expires_at": ends}
 
 
 @router.post("/login")
@@ -445,12 +460,16 @@ def resend_otp(body: schemas.OtpResendRequest, request: Request, db: Session = D
     return _start_challenge(db, user, reason)
 
 
-@router.get("/me", response_model=schemas.UserOut)
-def me(user: models.User = Depends(current_user)):
+@router.get("/me", response_model=schemas.MeOut)
+def me(request: Request, user: models.User = Depends(current_user)):
     """Deliberately on `current_user` and not `active_user`: an account that
     still owes a password change has to be able to load itself, or the screen
     that fixes it could never be drawn."""
-    return user
+    out = schemas.MeOut.model_validate(user)
+    exp = getattr(request.state, "session_exp", None)
+    if exp:
+        out.session_expires_at = datetime.fromtimestamp(exp, timezone.utc)
+    return out
 
 
 @router.post("/logout", status_code=204)
@@ -459,7 +478,7 @@ def logout(request: Request, response: Response, db: Session = Depends(get_db)):
 
     Bumping `token_version` is what makes this real — dropping the cookie only
     tidies this browser, while a token already copied out of it would stay
-    good for the rest of its 24 hours. Answers 204 either way: a caller with a
+    good until midnight. Answers 204 either way: a caller with a
     dead token is trying to sign out, and has succeeded.
     """
     token = session_token(request)

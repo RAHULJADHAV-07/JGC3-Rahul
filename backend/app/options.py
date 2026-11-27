@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import re
 
+from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from . import calc, models
@@ -33,6 +34,10 @@ LISTS: dict[str, tuple[str, list[str]]] = {
     "terms_payment": ("Terms of payment", ["D.P.SIGHT DRAFT"]),
     "ports_loading": ("Port of loading", ["NHAVA SHEVA-MUMBAI (INDIA)"]),
     "ports_ship_to": ("Ship to port", []),
+    # The Group an item belongs to (Setup → Items → Group): 15 MM (1/2"),
+    # PP Moulded, GRN Range, HYDRO TUBES … (V-7.10.2). Offered as a dropdown
+    # on the item form; a renamed group follows onto every item in it.
+    "groups": ("Groups", []),
 }
 
 BANKS_KEY = "banks"
@@ -40,6 +45,7 @@ COLUMNS_KEY = "item_columns"
 DOC_COLUMNS_KEY = "doc_columns"
 SEQUENCE_KEY = "item_sequence"
 GROUPS_KEY = "item_groups"
+PACK_RULE_KEY = "packaging_rule"
 
 MAX_ENTRIES = 200
 MAX_TEXT = 200
@@ -126,7 +132,17 @@ def _in_use(db: Session, key: str) -> list[str]:
             found += list(b.ports or [])
     if key == "packaging_types":
         found += [i[0] for i in db.query(models.Item.packaging_type).distinct().all() if i[0]]
+    if key == "groups":
+        found += sorted({i[0] for i in db.query(models.Item.group).distinct().all() if i[0] and str(i[0]).strip()},
+                        key=group_sort_key)
     return found
+
+
+def group_sort_key(name: str):
+    """Size bands by their millimetres (15 MM before 100 MM), then the rest
+    alphabetically — how the client's own pivot lists them."""
+    m = re.match(r"\s*(\d+(?:\.\d+)?)\s*MM\b", str(name or ""), re.I)
+    return (0, float(m.group(1)), str(name).lower()) if m else (1, 0.0, str(name or "").lower())
 
 
 def get_list(db: Session, key: str) -> list[str]:
@@ -206,11 +222,32 @@ def _carry(db: Session, key: str, before: list[str], kept: list[str], renames: d
                 ship_to = ports[0]
             if ports != list(b.ports or []) or ship_to != (b.ship_to or ""):
                 b.ports, b.ship_to = ports, ship_to
+    if key == "groups" and renamed:
+        for it in db.query(models.Item).filter(models.Item.group.isnot(None)).all():
+            new = renamed.get(str(it.group).strip().lower())
+            if new:
+                it.group = new
     if key == "packaging_types" and renamed:
         for it in db.query(models.Item).filter(models.Item.packaging_type.isnot(None)).all():
             new = renamed.get(str(it.packaging_type).lower())
             if new:
                 it.packaging_type = new
+        # The type picked on order lines and on the lines of open invoices
+        # follows too, and so does its length under Packaging by length.
+        for r in db.query(models.PurchaseOrderLine).filter(models.PurchaseOrderLine.packaging.isnot(None)).all():
+            new = renamed.get(str(r.packaging).lower())
+            if new:
+                r.packaging = new
+        for inv in _open_invoices(db):
+            for l in inv.lines:
+                new = renamed.get(str(l.packaging or "").lower())
+                if new:
+                    l.packaging = new
+        row = _row(db, PACK_RULE_KEY)
+        if row is not None:
+            rules = [{**r, "type": renamed.get(str(r.get("type") or "").lower(), r.get("type"))}
+                     for r in ((row.value or {}).get("rules") or []) if isinstance(r, dict)]
+            row.value = {"rules": rules}
     field = SHIP_FIELDS.get(key)
     if field and renamed:
         for inv in _open_invoices(db):
@@ -397,3 +434,108 @@ def save_groups(db: Session, value) -> dict:
 def item_rank(db: Session):
     """The sort key every list of items is put in order with."""
     return calc.rank_by(_suppliers(db), get_sequence(db), get_groups(db))
+
+
+# ---------- packaging by length (V-7.10.2) ----------
+#
+# Each packaging type on the list may carry a length: goods longer than it
+# travel in that type. Several types may carry one at once (Bundle above 1000
+# mm, a crate above 3000 mm); an item past more than one goes in the type of
+# the longest it passes. Everything else goes as its item says (Setup → Items
+# → Packaging), Cartons unless set. A line on an order or an invoice can still
+# name another type for itself. The rules are read by the browser
+# (frontend/src/lib/packaging.js), which prints the documents.
+
+MAX_LENGTH_MM = 100000
+MAX_PACK_TEXT = 60
+
+
+def _num_mm(v):
+    try:
+        mm = float(v)
+    except (TypeError, ValueError):
+        return None
+    if mm != mm or mm <= 0 or mm > MAX_LENGTH_MM:
+        return None
+    return int(mm) if mm.is_integer() else mm
+
+
+def clean_pack_rules(value, types: list[str]) -> list[dict]:
+    """[{"type": <a packaging type, in the list's spelling>, "above_mm": n}],
+    one per type, shortest length first. Accepts the list itself, {"rules":
+    [...]}, or a single {"type", "above_mm"}. A type no longer on the list, or
+    a length that is not a number above nil, is dropped."""
+    if isinstance(value, dict) and isinstance(value.get("rules"), list):
+        raw = value["rules"]
+    elif isinstance(value, list):
+        raw = value
+    elif isinstance(value, dict) and value.get("type"):
+        raw = [value]
+    else:
+        raw = []
+    canon = {re.sub(r"\s+", " ", t).strip().lower(): t for t in types}
+    kept: dict[str, dict] = {}
+    for r in raw[:MAX_ENTRIES]:
+        if not isinstance(r, dict):
+            continue
+        name = canon.get(re.sub(r"\s+", " ", str(r.get("type") or "")).strip().lower())
+        mm = _num_mm(r.get("above_mm"))
+        if name and mm is not None:
+            kept[name.lower()] = {"type": name, "above_mm": mm}
+    return sorted(kept.values(), key=lambda x: (x["above_mm"], x["type"].lower()))
+
+
+def get_pack_rules(db: Session) -> list[dict]:
+    row = _row(db, PACK_RULE_KEY)
+    return clean_pack_rules(row.value if row else None, get_list(db, "packaging_types"))
+
+
+def save_pack_rules(db: Session, rules) -> list[dict]:
+    _save(db, PACK_RULE_KEY, {"rules": clean_pack_rules(rules, get_list(db, "packaging_types"))})
+    return get_pack_rules(db)
+
+
+def pack_name(db: Session, value, keep: str | None = None) -> str | None:
+    """A line's packaging as stored: a type on the list, in the list's own
+    spelling — or None for "as set". A type since taken off the list is still
+    accepted where the line already had it (`keep`), so an edit that sends it
+    back is not refused. Anything else is refused."""
+    v = re.sub(r"\s+", " ", str(value or "")).strip()
+    if not v:
+        return None
+    for t in get_list(db, "packaging_types"):
+        if t.lower() == v.lower():
+            return t
+    if keep and str(keep).strip().lower() == v.lower():
+        return keep
+    raise HTTPException(422, f"Packaging “{v[:MAX_PACK_TEXT]}” is not on Setup → Additional settings → Packaging types")
+
+
+def canon(db: Session, key: str, value):
+    """`value` in the list's own spelling when the list has it (any case,
+    any spacing) — so "pp" saved on an item reads PP, the same band on every
+    paper as the other PP items. Anything else comes back trimmed."""
+    if value is None:
+        return None
+    text = re.sub(r"\s+", " ", str(value)).strip()
+    for v in get_list(db, key):
+        if v.lower() == text.lower():
+            return v
+    return text
+
+
+def remember(db: Session, key: str, value) -> None:
+    """A group or packaging type an item was saved with, joined onto its list
+    when the list has been saved and does not have it yet — so an item added
+    from the master workbook, or through the API, still shows up under Setup
+    → Additional settings, and in every dropdown that reads the list. A list
+    never saved is worked out from the items anyway. Does not commit."""
+    text = re.sub(r"\s+", " ", str(value or "")).strip()
+    row = _row(db, key)
+    if not text or row is None:
+        return
+    values = clean_list((row.value or {}).get("values", []))
+    if any(v.lower() == text.lower() for v in values):
+        return
+    row.value = {**(row.value or {}), "values": clean_list(values + [text])}
+

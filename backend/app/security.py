@@ -30,6 +30,7 @@ import bcrypt
 import jwt
 
 from .config import settings
+from .timeutil import next_local_midnight, same_local_day
 
 ALGORITHM = "HS256"
 CHALLENGE_PURPOSE = "otp"
@@ -66,12 +67,40 @@ def burn_time() -> None:
     bcrypt.checkpw(b"no-such-account", _DUMMY_HASH.encode("utf-8"))
 
 
+def session_expiry(now: datetime) -> datetime:
+    """When a session minted at `now` (aware UTC) ends.
+
+    "midnight": the next local midnight in APP_TIMEZONE, so every session of a
+    day ends together at 00:00 whatever hour it began. JWT_EXPIRE_MINUTES stays
+    the ceiling in both modes.
+    """
+    cap = now + timedelta(minutes=settings.jwt_expire_minutes)
+    if settings.session_end_mode == "midnight":
+        return min(cap, next_local_midnight(now))
+    return cap
+
+
+def session_day_over(iat: int | float | None, now: datetime | None = None) -> bool:
+    """True when a session token was issued on an earlier local day.
+
+    The `exp` already says midnight for tokens minted under the midnight rule;
+    this also ends the older 24-hour ones still in browsers after an upgrade,
+    and stands if the setting is flipped on with sessions open.
+    """
+    if settings.session_end_mode != "midnight":
+        return False
+    if not iat:
+        return True
+    issued = datetime.fromtimestamp(iat, timezone.utc)
+    return not same_local_day(issued, now or datetime.now(timezone.utc))
+
+
 def create_token(user_id: str, token_version: int = 1) -> str:
     now = datetime.now(timezone.utc)
     payload = {
         "sub": user_id,
         "iat": now,
-        "exp": now + timedelta(minutes=settings.jwt_expire_minutes),
+        "exp": session_expiry(now),
         "purpose": "session",
         "tv": token_version,
     }

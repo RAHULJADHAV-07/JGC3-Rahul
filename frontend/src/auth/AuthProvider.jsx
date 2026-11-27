@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import * as api from "../api/endpoints.js";
 import { onUnauthorized, onPasswordChangeRequired } from "../api/client.js";
@@ -42,16 +42,51 @@ export function AuthProvider({ children }) {
   const [ready, setReady] = useState(false);
   const [expired, setExpired] = useState(false);
   const [mustChangePassword, setMustChangePassword] = useState(false);
+  /* When this session ends, as the server told us ("midnight" | "rolling"
+     is the rule; the ISO time is this session's own end). The cookie itself
+     stays unreadable — these are plain values the API hands out. */
+  const [sessionEnds, setSessionEnds] = useState(null);
+  const [sessionEndsAt, setSessionEndsAt] = useState(null);
+  // Who is asked for the day's passcode: "admin" | "all" (null: codes off).
+  const [otpDailyFor, setOtpDailyFor] = useState(null);
+  const signedIn = useRef(false);
+  useEffect(() => { signedIn.current = Boolean(user); }, [user]);
 
   const clear = useCallback(() => {
     setUser(null);
+    setSessionEndsAt(null);
     setMustChangePassword(false);
     qc.clear();
   }, [qc]);
 
   /* A 401 from anywhere drops us back to the login screen. The cookie is
-     already dead server-side by then; there is nothing on this end to erase. */
-  useEffect(() => onUnauthorized(() => { setUser(null); setMustChangePassword(false); }), []);
+     already dead server-side by then; there is nothing on this end to erase.
+     A 401 while signed in is a session that ran out — say so on the form. */
+  useEffect(() => onUnauthorized(() => {
+    if (signedIn.current) setExpired(true);
+    setUser(null);
+    setSessionEndsAt(null);
+    setMustChangePassword(false);
+  }), []);
+
+  /* Sign out on the dot (midnight by default) rather than at the next click:
+     at the end time, ask the server — its 401 takes the screen to the login
+     form. A laptop that slept through midnight checks as soon as it wakes. */
+  useEffect(() => {
+    if (!user || !sessionEndsAt) return undefined;
+    const end = new Date(sessionEndsAt).getTime();
+    if (!Number.isFinite(end)) return undefined;
+    const check = () => { api.auth.me().catch(() => { /* the 401 hook signs out */ }); };
+    const t = setTimeout(check, Math.min(2 ** 31 - 1, Math.max(0, end - Date.now() + 1500)));
+    const wake = () => { if (Date.now() >= end && document.visibilityState !== "hidden") check(); };
+    window.addEventListener("focus", wake);
+    document.addEventListener("visibilitychange", wake);
+    return () => {
+      clearTimeout(t);
+      window.removeEventListener("focus", wake);
+      document.removeEventListener("visibilitychange", wake);
+    };
+  }, [user, sessionEndsAt]);
 
   /* A 403 carrying X-Password-Change-Required means the session is fine but
      the password is an admin's, not the holder's. */
@@ -66,6 +101,8 @@ export function AuthProvider({ children }) {
         const [status, perms] = await Promise.all([api.auth.status(), api.auth.permissions()]);
         if (!alive) return;
         setNeedsBootstrap(status.needs_bootstrap);
+        setSessionEnds(status.session_ends || null);
+        setOtpDailyFor(status.otp_enabled ? status.otp_daily_for || "admin" : null);
         setCatalogue(perms);
       } catch (e) { /* API down — the login screen reports it */ }
 
@@ -76,6 +113,7 @@ export function AuthProvider({ children }) {
         const me = await api.auth.me();
         if (alive) {
           setUser(me);
+          setSessionEndsAt(me.session_expires_at || null);
           setMustChangePassword(Boolean(me.must_change_password));
         }
       } catch (e) { /* not signed in */ }
@@ -90,6 +128,7 @@ export function AuthProvider({ children }) {
     // screen to redeem.
     if (res?.otp_required) return { ok: true, otp: res };
     setUser(res.user);
+    setSessionEndsAt(res.session_expires_at || null);
     setMustChangePassword(Boolean(res.must_change_password || res.user?.must_change_password));
     setNeedsBootstrap(false);
     setExpired(false);
@@ -152,6 +191,7 @@ export function AuthProvider({ children }) {
       setMustChangePassword(false);
       const me = await api.auth.me();
       setUser(me);
+      setSessionEndsAt(me.session_expires_at || null);
       return { ok: true };
     }),
     [call],
@@ -168,6 +208,7 @@ export function AuthProvider({ children }) {
     try {
       const me = await api.auth.me();
       setUser(me);
+      setSessionEndsAt(me.session_expires_at || null);
       setMustChangePassword(Boolean(me.must_change_password));
     } catch (e) { /* handled by the 401 hook */ }
   }, []);
@@ -183,6 +224,7 @@ export function AuthProvider({ children }) {
     return {
       user, isAdmin, has, ready, needsBootstrap,
       sessionExpired: expired,
+      sessionEnds, sessionEndsAt, otpDailyFor,
       mustChangePassword,
       permTree: catalogue.tree || [],
       allPerms: catalogue.all || [],
@@ -190,7 +232,7 @@ export function AuthProvider({ children }) {
       login, logout, bootstrap, refresh, verifyOtp, resendOtp,
       unlockStart, unlockVerify, completeForcedChange,
     };
-  }, [user, ready, needsBootstrap, expired, mustChangePassword, catalogue, login, logout,
+  }, [user, ready, needsBootstrap, expired, sessionEnds, sessionEndsAt, otpDailyFor, mustChangePassword, catalogue, login, logout,
       bootstrap, refresh, verifyOtp, resendOtp, unlockStart, unlockVerify, completeForcedChange]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

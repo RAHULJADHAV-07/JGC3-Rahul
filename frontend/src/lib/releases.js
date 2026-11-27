@@ -7,6 +7,24 @@
 
 export const RELEASES = [
   {
+    version: "7.10.2",
+    date: "2026-11-27",
+    notes: [
+      "Price list: a new supplier or buyer rate can now be carried onto the orders already placed from the date it holds from. The orders it reaches are listed under the date, and the save waits for your confirmation: tick \"Apply the new prices to the orders already placed from …\" and then Save, and every order dated that day or later that still has boxes to come is restated, each at the prices in force on its own date — or choose \"Save, orders unchanged\" to leave them as placed. The tick starts empty and clears itself if the date or the items change. Orders dated before it, delivered boxes and invoices never move; every new order from that day takes the new rate either way.",
+      "Dashboard → Simplified: each supplier now has three rows — its total boxes and volume on every PO (as the full board shows them), then PP and GRN underneath — with the TOTAL and CNTRS columns, and TOTAL, PP and GRN rows at the foot.",
+      "Setup → Additional settings → Packaging by length: every type on the Packaging types list is listed, each with its own length — e.g. Bundle longer than 1000 mm, Crate longer than 3000 mm — and several can be set at once (the longest length an item passes wins). A type added to the list appears there straight away; a type renamed keeps its length. Goods in a bundle type print \"(BUNDLES)\" beside their length and count as HDP bundles; everything within every length goes as its item says (Cartons unless set).",
+      "Orders and invoices: every line on a new order, an order being edited, record packing and an invoice being edited shows a small packaging tag — Bundle, Cartons or any type on the list — how it will be packed and printed. Click it to pick another type for that line; an invoice line takes what its orders chose unless set itself.",
+      "Dashboard: cells with nothing pending are left empty instead of showing \"—\".",
+      "Setup → Additional settings → Groups: the list of item groups — 15 MM (1/2\"), 20 MM (3/4\"), GRN Range, HYDRO TUBES, PP Moulded … — to add to, correct or remove. Setup → Items picks an item's Group from it (+ adds a new one). Correcting a name renames it on every item in it, and the papers follow; each entry shows how many items are in it. An item saved with a group or packaging type the list does not have yet is added to the list.",
+      "Purchase order detail and the invoice view show each line's packaging tag too, read only.",
+      "Sign-in: a session now ends at 12:00 midnight (India time), whatever the hour of signing in, instead of 24 hours later in the middle of the day's work. A notice appears 10 minutes before; admins confirm the emailed code at the first sign-in after midnight, and that session lasts until the next midnight.",
+      "Fixed: Setup → Items → \"Apply the new price to the pending orders\" moved orders dated before the day the new price holds from as well — those now keep their price, as the form said; the ones it reaches are each priced at their own date.",
+      "Fixed: a buyer's price list saved with orders restated now refreshes the order screens and the documents straight away.",
+      "Fixed: after a session ran out, the sign-in screen never said why — it now says the session ended.",
+      "Fixed (dark theme): the PP tag on the simplified dashboard and the TOTAL / CNTRS headings were unreadable — both now show clearly.",
+    ],
+  },
+  {
     version: "7.10.1",
     date: "2026-11-27",
     notes: [

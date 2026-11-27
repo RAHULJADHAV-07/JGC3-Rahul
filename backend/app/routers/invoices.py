@@ -89,6 +89,7 @@ def _freeze_prices(db: Session, lines, keep=None, exclude_invoice_id=None) -> li
         p = keep.get(l.item_id) or calc.invoiced_prices(it, l.boxes, calc.pinned_demands(demands, pins) if pins else demands)
         out.append(models.InvoiceLine(
             item_id=l.item_id, supplier_id=l.supplier_id, boxes=l.boxes, po_alloc=pins or None,
+            packaging=getattr(l, "packaging", None),
             unit_value=p["unit_value"], value_mode=p["value_mode"],
             unit_fob100=p["unit_fob100"], fob_mode=p["fob_mode"],
             # Carton serials run down the lines in this order.
@@ -147,7 +148,8 @@ def _resolve_allocation(db: Session, mode: str, lines, exclude_invoice_id=None) 
     order still holds are the one thing left unplaced — the ledger reports them
     as excess, the same as on a FIFO invoice."""
     out = [SimpleNamespace(item_id=l.item_id, supplier_id=l.supplier_id, boxes=l.boxes,
-                           po_alloc=_merged(getattr(l, "po_alloc", None)) if mode == "custom" else None)
+                           po_alloc=_merged(getattr(l, "po_alloc", None)) if mode == "custom" else None,
+                           packaging=getattr(l, "packaging", None))
            for l in lines]
     if mode != "custom":
         return out
@@ -209,7 +211,9 @@ def allocation_preview(body: schemas.AllocationPreviewIn, db: Session = Depends(
         if not b:
             continue
         legs = [{"po": d["po"], "date": d["date"], "boxes": d["cleared"][_PREVIEW],
-                 "closes": d["remaining"] == 0}
+                 "closes": d["remaining"] == 0,
+                 # The packaging chosen on that order line (V-7.10.2).
+                 "packaging": getattr(d.get("line"), "packaging", None)}
                 for d in b["demands"] if d["cleared"].get(_PREVIEW)]
         spare = sum(e["boxes"] for e in b["excess"] if e["invoice_no"] == _PREVIEW)
         out[l.item_id] = {"legs": legs, "spare": spare}
@@ -241,6 +245,9 @@ def _no_duplicate(db: Session, invoice_no: str, except_id=None) -> None:
 def create_invoice(body: schemas.InvoiceCreate, db: Session = Depends(get_db)):
     lock_ledger(db)
     _no_duplicate(db, body.invoice_no)
+    # A line's packaging must be a type on the list, in its spelling (V-7.10.2).
+    for l in body.lines:
+        l.packaging = options.pack_name(db, l.packaging)
     inv = models.Invoice(
         invoice_no=body.invoice_no, date=body.date, buyer_id=body.buyer_id,
         rbi=body.rbi, serial_start=body.serial_start,
@@ -279,7 +286,8 @@ def update_invoice(iid: str, body: schemas.InvoiceUpdate, db: Session = Depends(
             data.pop(k)
     # A change of mode with no lines sent restates the lines already there.
     if lines is None and data.get("allocation", inv.allocation or "fifo") != (inv.allocation or "fifo"):
-        lines = [{"item_id": l.item_id, "supplier_id": l.supplier_id, "boxes": l.boxes} for l in inv.lines]
+        lines = [{"item_id": l.item_id, "supplier_id": l.supplier_id, "boxes": l.boxes,
+                  "packaging": l.packaging} for l in inv.lines]
     # The carton numbers every line holds now, and the start they hang off.
     old_base = calc.serial_base(inv)
     old_next = calc.serial_next_of(inv)
@@ -304,11 +312,15 @@ def update_invoice(iid: str, body: schemas.InvoiceUpdate, db: Session = Depends(
         # line it adds into its place in the item sequence. A line that does
         # not say which orders it comes off keeps the ones it had.
         had = {l.item_id: l.po_alloc for l in inv.lines}
+        # A line that does not say how it is packed keeps what it had.
+        had_pack = {l.item_id: l.packaging for l in inv.lines}
         mode = inv.allocation or "fifo"
         incoming = _resolve_allocation(db, mode, [
             SimpleNamespace(item_id=l["item_id"], supplier_id=l.get("supplier_id"), boxes=l.get("boxes", 0),
                             po_alloc=l["po_alloc"] if l.get("po_alloc") is not None
-                            else _trimmed(had.get(l["item_id"]), l.get("boxes", 0)))
+                            else _trimmed(had.get(l["item_id"]), l.get("boxes", 0)),
+                            packaging=options.pack_name(db, l["packaging"], keep=had_pack.get(l["item_id"]))
+                            if "packaging" in l else had_pack.get(l["item_id"]))
             for l in lines
         ], exclude_invoice_id=inv.id)
         now = {l.item_id: l.po_alloc for l in incoming}

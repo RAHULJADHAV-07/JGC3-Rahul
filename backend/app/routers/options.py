@@ -29,6 +29,7 @@ def all_options(db: Session = Depends(get_db)):
     out["banks"] = options.get_banks(db)
     out["item_sequence"] = options.get_sequence(db)
     out["item_groups"] = options.get_groups(db)
+    out["packaging_rules"] = options.get_pack_rules(db)
     out["labels"] = {key: label for key, (label, _) in options.LISTS.items()}
     # Which modes of transport each port / term serves (Setup ticks them).
     out["modes"] = {key: options.get_modes(db, key) for key in options.MODE_LISTS}
@@ -191,3 +192,12 @@ def save_item_sequence(body: ListBody, db: Session = Depends(get_db)):
 @router.put("/item-groups", dependencies=[Depends(_write_items)])
 def save_item_groups(ranges: dict = Body({}, embed=True), db: Session = Depends(get_db)):
     return {"ranges": options.save_groups(db, ranges)}
+
+
+# ---------- packaging by length (V-7.10.2) ----------
+
+@router.put("/packaging-rules", dependencies=[Depends(_write_items)])
+def save_packaging_rules(rules: list = Body([], embed=True), db: Session = Depends(get_db)):
+    """[{type, above_mm}] — one length per packaging type on the list."""
+    return {"rules": options.save_pack_rules(db, rules)}
+

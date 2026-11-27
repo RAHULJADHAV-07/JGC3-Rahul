@@ -25,7 +25,7 @@ from pathlib import Path
 
 from sqlalchemy.orm import Session
 
-from . import models
+from . import models, options
 
 SEED_PATH = Path(__file__).resolve().parent / "data" / "masters_seed.json"
 
@@ -141,6 +141,11 @@ def import_masters(db: Session, seed: dict | None = None,
             stats["items"]["updated"] += 1
         else:
             stats["items"]["unchanged"] += 1
+
+    # Groups the workbook brings that Setup → Additional settings → Groups
+    # does not list yet join it (V-7.10.2).
+    for row in seed.get("items", []):
+        options.remember(db, "groups", row.get("group"))
 
     db.commit()
     return stats

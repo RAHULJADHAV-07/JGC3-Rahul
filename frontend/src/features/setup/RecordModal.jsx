@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Check, Pencil } from "lucide-react";
 import { Modal, Btn, Field, Input, Select } from "../../components/ui/index.jsx";
-import PackagingSelect from "./PackagingSelect.jsx";
+import PackagingSelect, { GroupSelect } from "./PackagingSelect.jsx";
 
 /* Generic create/edit form driven by a field schema:
 
@@ -52,6 +52,9 @@ export default function RecordModal({ title, schema, value, onSave, onClose, sav
   const control = (s) => {
     if (s.type === "packaging") {
       return <PackagingSelect className="input-sm" value={f[s.key]} onChange={(v) => set(s.key, v)} />;
+    }
+    if (s.type === "group") {
+      return <GroupSelect className="input-sm" value={f[s.key]} onChange={(v) => set(s.key, v)} />;
     }
     if (s.type === "pct") {
       return (

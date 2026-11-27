@@ -14,14 +14,17 @@ prices in force on the order's own date, so a price agreed in April and typed
 in in June still prices an order back-dated to May, and an order back-dated to
 March keeps March's. Nothing already on the book moves: each order line and
 invoice line keeps the price it was placed or invoiced at (`freeze_snapshots`
-first makes that true of the oldest lines, which kept no copy of their own).
+first makes that true of the oldest lines, which kept no copy of their own) —
+unless the save asks to apply the change to the orders placed from its date
+(`reprice_orders`, V-7.10.2): those still open are restated at their own
+date's prices; delivered boxes keep what they were invoiced at.
 """
 import math
 from datetime import datetime
 
 from sqlalchemy import bindparam, text
 
-from . import models
+from . import calc, models
 from .timeutil import local_date
 
 FIELDS = ("unit_value", "value_mode", "unit_fob100", "fob_mode")
@@ -305,3 +308,83 @@ def supplier_refs(db) -> list[dict]:
             out.append({"supplier_id": sid, "effective": r.effective, "your_ref": r.your_ref,
                         "created_at": r.created_at.isoformat() if r.created_at else ""})
     return sorted(out, key=lambda x: (x["supplier_id"], x["effective"], x["created_at"]))
+
+
+# ---------------------------------------------------------------------------
+# Carrying a new price onto orders already placed (V-7.10.2)
+# ---------------------------------------------------------------------------
+def pending_lines(db) -> dict:
+    """line id → boxes still outstanding, by the same FIFO ledger the packing
+    screen allocates against. A line with nothing outstanding is delivered:
+    its invoices, customs papers and bank documents must not move."""
+    items = {i.id: i for i in db.query(models.Item).all()}
+    ledger = calc.compute_ledger(db.query(models.PurchaseOrderLine).all(),
+                                 db.query(models.Invoice).all(), items)
+    return {d["line_id"]: d["remaining"] for b in ledger.values() for d in b["demands"] if d["remaining"] > 0}
+
+
+def _reach(db, item_ids, since: str | None, buyer_id: str | None = None):
+    """The order lines a price change reaches: still open, of these items, dated
+    on or after `since` (every open one when None), of `buyer_id` when given."""
+    ids = {i for i in item_ids if i}
+    if not ids:
+        return [], {}
+    open_ = pending_lines(db)
+    q = db.query(models.PurchaseOrderLine).filter(models.PurchaseOrderLine.item_id.in_(list(ids)))
+    if buyer_id:
+        q = q.filter(models.PurchaseOrderLine.buyer_id == buyer_id)
+    rows = [r for r in q.all() if r.id in open_ and (since is None or (r.date or "") >= since)]
+    return rows, open_
+
+
+def orders_reached(db, item_ids, since: str | None, buyer_id: str | None = None) -> dict:
+    """What the "apply to orders" tick shows before saving: each open order a
+    change dated `since` reaches, with its date, lines and boxes outstanding —
+    and how many open orders of these items are older and keep their price."""
+    rows, open_ = _reach(db, item_ids, since, buyer_id)
+    by_po: dict = {}
+    for r in rows:
+        e = by_po.setdefault(r.po, {"po": r.po, "date": r.date, "lines": 0, "boxes": 0})
+        e["lines"] += 1
+        e["boxes"] += open_.get(r.id, 0)
+        e["date"] = min(e["date"], r.date)
+    older, _ = _reach(db, item_ids, None, buyer_id)
+    older_pos = sorted({r.po for r in older if since and (r.date or "") < since})
+    pos = sorted(by_po.values(), key=lambda e: (e["date"], e["po"]))
+    return {"pos": pos, "lines": sum(e["lines"] for e in pos), "boxes": sum(e["boxes"] for e in pos),
+            "older_pos": older_pos}
+
+
+def reprice_orders(db, item_ids, since: str | None, buyer_id: str | None = None,
+                   on_line_date: bool = True) -> dict:
+    """Restate the open order lines a price change reaches at the prices the
+    lists now give them: each at the prices in force on its own date (or today,
+    `on_line_date=False`, the older Setup behaviour). Lines already right are
+    left alone; delivered lines are never touched. Does not commit."""
+    rows, _ = _reach(db, item_ids, since, buyer_id)
+    if not rows:
+        return {"updated": 0, "pos": []}
+    items = {i.id: i for i in db.query(models.Item).filter(
+        models.Item.id.in_(list({r.item_id for r in rows}))).all()}
+    sup = _load(db, "supplier", list(items))
+    buy = {b: _load(db, "buyer", list(items), b) for b in {r.buyer_id for r in rows if r.buyer_id}}
+    today = today_iso()
+    updated, pos = 0, set()
+    for r in rows:
+        it = items.get(r.item_id)
+        if not it:
+            continue
+        on = r.date if on_line_date else today
+        s = supplier_price(it, sup.get(it.id, []), on)
+        b = buyer_price(it, sup.get(it.id, []), buy.get(r.buyer_id, {}).get(it.id, []), on) if r.buyer_id else None
+        t = {"unit_value": s["unit_value"], "value_mode": s["value_mode"],
+             "unit_fob100": b["unit_fob100"] if b else s["unit_fob100"],
+             "fob_mode": b["fob_mode"] if b else s["fob_mode"]}
+        if not differs(t, r):
+            continue
+        r.unit_value, r.value_mode = t["unit_value"], t["value_mode"]
+        r.unit_fob100, r.fob_mode = t["unit_fob100"], t["fob_mode"]
+        updated += 1
+        pos.add(r.po)
+    return {"updated": updated, "pos": sorted(pos)}
+

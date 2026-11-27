@@ -14,6 +14,8 @@ import { useDebounced } from "../../lib/useDebounced.js";
 import { PoForAll, PoPicker } from "./PoPicker.jsx";
 import { useTransportLoader } from "../../lib/loaderMode.js";
 import { shipMode } from "../../lib/modes.js";
+import PackTag from "../../components/ui/PackTag.jsx";
+import { legsFromPlaced } from "../../lib/packaging.js";
 
 /* Edit an invoice — number, date, serial start, and the lines themselves:
    retype the boxes, drop an item that never went on the container, or add one
@@ -45,7 +47,7 @@ export default function InvoiceEditModal({ inv, onClose }) {
   const [serialStart, setSerialStart] = useState(String(inv.serial_start || ""));
   const [lines, setLines] = useState((inv.lines || []).map((l, i) => ({
     key: l.id || `l${i}`, item_id: l.item_id, supplier_id: l.supplier_id,
-    boxes: String(l.boxes ?? ""),
+    boxes: String(l.boxes ?? ""), packaging: l.packaging || null,
   })));
   const [confirm, setConfirm] = useState(false);
   const [adding, setAdding] = useState(false);
@@ -59,6 +61,7 @@ export default function InvoiceEditModal({ inv, onClose }) {
   const opts = useOptions().data;
   const sequence = opts?.item_sequence;
   const itemGroups = opts?.item_groups;
+  const setPack = (key, v) => setLines((p) => p.map((l) => (l.key === key ? { ...l, packaging: v } : l)));
 
   /* Changing a line's boxes undoes any split typed for the old figure; the
      orders chosen for it stand. Removing the line lets those go as well. */
@@ -77,7 +80,7 @@ export default function InvoiceEditModal({ inv, onClose }) {
     setLines((p) => picked.reduce((list, { variant, qty }, i) => {
       const line = {
         key: `new:${variant.item_id}:${Date.now()}:${i}`, item_id: variant.item_id,
-        supplier_id: variant.supplier_id, boxes: String(qty), fresh: true,
+        supplier_id: variant.supplier_id, boxes: String(qty), fresh: true, packaging: null,
       };
       const at = list.findIndex((l) => cmp(line, l) < 0);
       return at < 0 ? [...list, line] : [...list.slice(0, at), line, ...list.slice(at)];
@@ -114,6 +117,7 @@ export default function InvoiceEditModal({ inv, onClose }) {
         allocation,
         lines: lines.map((l) => ({
           item_id: l.item_id, supplier_id: l.supplier_id, boxes: Number(l.boxes) || 0,
+          packaging: l.packaging || null,
           ...(custom ? { po_alloc: toPins(place.byItem[l.item_id]) } : {}),
         })),
         ...(renumber ? { renumber: true } : {}),
@@ -218,6 +222,11 @@ export default function InvoiceEditModal({ inv, onClose }) {
                     <Mono>{it.gd}</Mono>{" "}
                     <span style={{ color: "var(--ink)", whiteSpace: "pre-line" }}>{it.description}</span>
                     {l.fresh && <> <Pill tone="teal">new</Pill></>}
+                    <div>
+                      <PackTag item={it} value={l.packaging} name={it.gd}
+                        legs={placed ? legsFromPlaced(placed, open?.[l.item_id]) : (l.fresh ? null : inv.po_legs?.[l.item_id])}
+                        onChange={(v) => setPack(l.key, v)} />
+                    </div>
                   </td>
                   <td><Pill>{supCode(l.supplier_id)}</Pill></td>
                   <td className="r">

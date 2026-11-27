@@ -133,7 +133,7 @@ export const purchaseOrders = {
   // difference after an item's price is edited in Setup.
   priceDrift: (params) => apiGet(`/api/purchase-orders/price-drift${qs(params)}`),
   applyPrices: (params) => apiPost(`/api/purchase-orders/apply-prices${qs(params)}`),
-  pendingForItem: (id) => apiGet(`/api/purchase-orders/pending-for-item/${id}`),
+  pendingForItem: (id, since) => apiGet(`/api/purchase-orders/pending-for-item/${id}${qs(since ? { since } : {})}`),
 };
 
 export const invoices = {
@@ -175,6 +175,8 @@ export const options = {
   saveItemColumns: (cols) => apiPut("/api/options/item-columns", { cols }),
   saveSequence: (values) => apiPut("/api/options/item-sequence", { values }),
   saveGroups: (ranges) => apiPut("/api/options/item-groups", { ranges }),
+  // Setup → Additional settings → Packaging by length: [{type, above_mm}] (V-7.10.2).
+  savePackRules: (rules) => apiPut("/api/options/packaging-rules", { rules }),
   // Setup → Document columns: the columns each document hides or deletes.
   docColumns: () => apiGet("/api/options/doc-columns"),
   saveDocColumns: (rules) => apiPut("/api/options/doc-columns", { rules }),
@@ -195,6 +197,8 @@ export const prices = {
   buyer: (bid, on) => apiGet(`/api/prices/buyer/${encodeURIComponent(bid)}${qs(on ? { on } : {})}`),
   saveSupplier: (b) => apiPost("/api/prices/supplier", b),
   saveBuyer: (bid, b) => apiPost(`/api/prices/buyer/${encodeURIComponent(bid)}`, b),
+  // The open orders a change dated `effective` would restate (V-7.10.2).
+  reach: (b) => apiPost("/api/prices/reach", b),
   history: (iid, params) => apiGet(`/api/prices/history/${encodeURIComponent(iid)}${qs(params)}`),
   revisions: (params) => apiGet(`/api/prices/revisions${qs(params)}`),
   withdraw: (rid) => apiPost(`/api/prices/revisions/${encodeURIComponent(rid)}/withdraw`),

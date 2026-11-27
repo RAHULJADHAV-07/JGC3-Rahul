@@ -18,6 +18,8 @@ import ShipTermsFields, { ModePicker } from "../shipments/ShipTermsFields.jsx";
 import { shipMode } from "../../lib/modes.js";
 import { PoForAll, PoFrom, PoPicker } from "./PoPicker.jsx";
 import { useTransportLoader } from "../../lib/loaderMode.js";
+import PackTag from "../../components/ui/PackTag.jsx";
+import { legsFromPlaced } from "../../lib/packaging.js";
 
 /* Record packing — boxes clear the oldest open order first (FIFO), or come off
    the orders chosen for each item, under the item itself (Custom PO).
@@ -134,9 +136,19 @@ export default function RecordPackingDrawer({ onClose }) {
      step 2 — one piece of state, so the two can never disagree. Switching the
      supplier moves the boxes onto that factory's own master row, which is
      what decides who we book the goods in from. */
+  /* item id → "bundle" | "carton" picked under the line (V-7.10.2). Absent:
+     as its orders say, else the packaging rule, else the item. */
+  const [packs, setPacks] = useState({});
+  const setPack = (id, v) => setPacks((p) => { const n = { ...p }; if (v) n[id] = v; else delete n[id]; return n; });
   const moveSupplier = (fromId, toId) => {
     if (!toId || toId === fromId) return;
     setChoice((c) => forgetPicks(forgetPicks(c, [fromId], true), [toId]));
+    setPacks((p) => {
+      if (!p[fromId]) return p;
+      const n = { ...p, [toId]: p[fromId] };
+      delete n[fromId];
+      return n;
+    });
     setBoxesBy((p) => {
       const next = { ...p };
       const moved = Number(next[fromId]) || 0;
@@ -148,6 +160,7 @@ export default function RecordPackingDrawer({ onClose }) {
   const dropLine = (id) => {
     setBoxesBy((p) => { const n = { ...p }; delete n[id]; return n; });
     setChoice((c) => forgetPicks(c, [id], true));
+    setPack(id, null);
   };
 
   /* What is still owed goes to the top — that is the work. Items with nothing
@@ -256,6 +269,7 @@ export default function RecordPackingDrawer({ onClose }) {
         allocation,
         lines: rows.map((r) => ({
           item_id: r.item_id, supplier_id: r.supplier_id, boxes: r.boxes,
+          packaging: packs[r.item_id] || null,
           ...(custom ? { po_alloc: toPins(place.byItem[r.item_id]) } : {}),
         })),
       },
@@ -443,7 +457,14 @@ export default function RecordPackingDrawer({ onClose }) {
                 <DataTable serial
                   freeze={3}
                   columns={[
-                    { key: "gd", w: 96, label: "GD code", render: (r) => <Mono>{r.gd}</Mono> },
+                    { key: "gd", w: 104, label: "GD code", render: (r) => (
+                      <span className="pack-cell">
+                        <Mono>{r.gd}</Mono>
+                        <PackTag item={itemById[r.item_id] || r} value={packs[r.item_id]} name={r.gd}
+                          legs={custom ? legsFromPlaced(place.byItem[r.item_id], open?.[r.item_id]) : fifoFor(r.item_id, r.boxes).legs}
+                          onChange={(v) => setPack(r.item_id, v)} />
+                      </span>
+                    ) },
                     { key: "desc", w: 220, label: "Description", render: (r) => <span style={{ whiteSpace: "pre-line" }}>{r.description}</span> },
                     { key: "range", w: 118, label: "Carton serials", render: (r) => <Mono>{r.range}</Mono> },
                     {

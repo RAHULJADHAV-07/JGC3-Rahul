@@ -1554,12 +1554,33 @@ input[type="number"] {
   gap: 8px;
   margin-left: auto;
 }
+/* "Session ends at midnight" (components/layout/SessionEndNotice.jsx): same
+   card, amber, top centre just under the top bar (.topnav, 72px; 56px on a
+   phone) so it covers neither the menu nor the update notice. Centred by
+   margins, not transform — the toastin animation owns transform. */
+.update-notice.session-notice {
+  top: 84px;
+  bottom: auto;
+  left: 0;
+  right: 0;
+  margin: 0 auto;
+  width: fit-content;
+  border-color: var(--amber);
+}
+.update-notice.session-notice .un-i {
+  color: var(--amber);
+}
 @media (max-width: 640px) {
   .update-notice {
     left: 12px;
     right: 12px;
     bottom: 12px;
     max-width: none;
+  }
+  .update-notice.session-notice {
+    top: 66px;
+    bottom: auto;
+    width: auto;
   }
 }
 
@@ -4619,19 +4640,66 @@ input[type="number"] {
   .pl-cell { align-items: stretch; }
 }
 
-/* The dashboard's simplified board (V-7.9.0): each order split PP | GRN. */
-.matrix th.mx-rng {
-  font-size: 10.5px;
-  letter-spacing: 0.5px;
+/* The dashboard's simplified board (V-7.10.2): three rows per supplier — its
+   total, then PP and GRN under it — with a second sticky column naming the
+   part. The supplier column has a set width so the part column can stick
+   beside it. */
+.matrix.mx-simple th.mx-sup,
+.matrix.mx-simple td.mx-sup {
+  width: 230px;
+  min-width: 230px;
+  max-width: 230px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.matrix th.mx-rng.mx-grn:not(.mx-tot) {
-  background: var(--teal);
+.matrix.mx-simple .mx-rngc {
+  position: sticky;
+  left: 230px;
+  z-index: 1;
+  width: 56px;
+  min-width: 56px;
+  text-align: center;
+  background: var(--surface);
 }
-.matrix .mx-gs {
-  border-left: 2px solid var(--brand);
+.matrix.mx-simple thead th.mx-rngc {
+  background: var(--brand);
 }
-.matrix thead th.mx-gs {
-  border-left-color: rgba(255, 255, 255, 0.55);
+.matrix.mx-simple tfoot td.mx-rngc {
+  background: var(--surface-3, var(--surface-2));
+}
+.matrix.mx-simple tbody tr.mx-suprow td {
+  border-top: 2px solid var(--border-2, var(--border));
+}
+.matrix.mx-simple tbody tr.mx-partrow td,
+.matrix.mx-simple tfoot tr.mx-partrow td {
+  font-size: 11.5px;
+  border-top-style: dashed;
+}
+.matrix.mx-simple tfoot tr.mx-partrow td {
+  border-top-width: 1px;
+  font-weight: 650;
+}
+.matrix.mx-simple tbody tr.mx-partrow td.mx-totc {
+  font-weight: 650;
+}
+.matrix .mx-rtag {
+  display: inline-block;
+  min-width: 34px;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 0.4px;
+  /* --ink, not --brand: the brand navy is near the dark theme's surface and
+     the tag went unreadable there. */
+  color: var(--ink);
+  background: var(--surface-2);
+  border: 1px solid var(--border-2, var(--border));
+}
+.matrix .mx-rtag.mx-grn {
+  color: var(--teal-ink);
+  background: var(--teal-bg);
+  border-color: var(--teal);
 }
 
 /* ============================================================
@@ -5075,4 +5143,111 @@ input[type="number"] {
   .jgs * {
     animation: none !important;
   }
+}
+
+/* "Bundle" / "Carton" under a line on an order or an invoice (V-7.10.2,
+   components/ui/PackTag.jsx). A native select lies over it, invisible, so a
+   click opens the choice. */
+.pack-tag {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 3px;
+  padding: 1px 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 650;
+  line-height: 1.5;
+  color: var(--muted);
+  background: var(--surface);
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.pack-tag.pack-bundle {
+  color: var(--amber-ink);
+  background: var(--amber-bg);
+  border-color: var(--amber);
+}
+.pack-tag i {
+  font-style: normal;
+  font-weight: 500;
+  opacity: 0.8;
+}
+.pack-tag select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  opacity: 0;
+  cursor: pointer;
+  font-size: 12px;
+}
+.pack-tag:has(select):hover {
+  border-color: var(--teal);
+}
+.pack-tag:has(select:focus-visible) {
+  outline: 2px solid var(--teal);
+  outline-offset: 1px;
+}
+.pack-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+/* Dark theme: the TOTAL / CNTRS heads take a deeper amber — the dark
+   theme's light --amber-2 left their white text unreadable (V-7.10.2). */
+[data-theme="dark"] .matrix th.mx-tot,
+[data-theme="dark"] .matrix thead .mx-tot {
+  background: #8a5713;
+  color: #fff;
+}
+/* A packaging type that is neither cartons nor bundles (Setup → Packaging types). */
+.pack-tag.pack-other {
+  color: var(--teal-ink);
+  background: var(--teal-bg);
+  border-color: var(--teal);
+}
+/* Packaging by length — one row per packaging type (V-7.10.2). */
+.pk-rules {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.pk-rule {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px 10px;
+  align-items: center;
+  padding: 9px 12px;
+  background: var(--surface);
+}
+.pk-rule + .pk-rule {
+  border-top: 1px solid var(--border);
+}
+.pk-type {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--ink);
+}
+.pk-lbl {
+  font-size: 12px;
+  color: var(--muted);
+}
+.pk-reach {
+  grid-column: 1 / -1;
+  font-size: 12px;
+  color: var(--muted);
+}
+.pk-reach b {
+  color: var(--ink);
+}
+.num-in.bad {
+  border-color: var(--red, #c0392b);
 }

@@ -8,6 +8,7 @@ import ForcePasswordChange from "./auth/ForcePasswordChange.jsx";
 import AppShell from "./components/layout/AppShell.jsx";
 import NotFound from "./components/layout/NotFound.jsx";
 import UpdateNotice from "./components/layout/UpdateNotice.jsx";
+import SessionEndNotice from "./components/layout/SessionEndNotice.jsx";
 import { Spinner, Empty } from "./components/ui/index.jsx";
 import { ROUTE_PERMS, firstAllowedRoute } from "./lib/nav.js";
 
@@ -83,6 +84,7 @@ export default function App() {
           <ToastProvider>
             <Routed />
             <UpdateNotice />
+            <SessionEndNotice />
           </ToastProvider>
         </AuthProvider>
       </HashRouter>

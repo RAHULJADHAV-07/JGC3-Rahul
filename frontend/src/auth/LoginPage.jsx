@@ -26,12 +26,13 @@ import { versionLabel } from "../lib/releases.js";
 const OTP_BLURB = {
   user_first_login: "This is your first sign-in, so we are checking the address is yours. It is asked once — after this, your email and password are all you need.",
   admin_session_renewal: "Admins confirm their address once each day. It is a new day, so confirm the code we just emailed you.",
+  daily_renewal: "Everyone confirms their address once each day. It is a new day, so confirm the code we just emailed you.",
   account_unlock: "Confirm the code we just emailed you and the lock on your account will be lifted straight away.",
 };
 
 export default function LoginPage() {
   const {
-    login, bootstrap, needsBootstrap, verifyOtp, resendOtp, sessionExpired,
+    login, bootstrap, needsBootstrap, verifyOtp, resendOtp, sessionExpired, sessionEnds,
     unlockStart, unlockVerify,
   } = useAuth();
   // "login" | "unlock" — the two things this screen can be doing.
@@ -235,7 +236,9 @@ export default function LoginPage() {
             <div className="stack-sm">
               {sessionExpired && (
                 <Note tone="amber" icon={Timer}>
-                  Your 24-hour session has ended — sign in again to carry on.
+                  {sessionEnds === "midnight"
+                    ? "Your session ended at midnight — sign in again to carry on."
+                    : "Your session has ended — sign in again to carry on."}
                 </Note>
               )}
               {done && <Note tone="teal" icon={Unlock}>{done}</Note>}

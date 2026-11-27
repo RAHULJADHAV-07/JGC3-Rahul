@@ -11,8 +11,9 @@ import {
 import ItemPicker from "../../components/ItemPicker.jsx";
 import {
   usePoList, usePoMutations, useSuppliers, useBuyers, useItemDetail,
-  useMasterFormulas, useOrderMaster,
+  useMasterFormulas, useOrderMaster, useItems,
 } from "../../api/hooks.js";
+import PackTag from "../../components/ui/PackTag.jsx";
 import { useToast } from "../../providers/ToastProvider.jsx";
 import { useAuth } from "../../auth/AuthProvider.jsx";
 import { dmy, dmyNum, num, boxesExact, todayISO } from "../../lib/format.js";
@@ -133,6 +134,8 @@ function PoModal({ po, supplierId = "", onClose, onEdit }) {
   const suppliers = useSuppliers().data || [];
   const buyers = useBuyers().data || [];
   const master = useOrderMaster(po.po);
+  const poItems = useItems().data || [];
+  const itemById = useMemo(() => Object.fromEntries(poItems.map((i) => [i.id, i])), [poItems]);
   const hidden = useHiddenFields();
   /* What has been received on each line, and from which invoice — read off the
      PO roll-up, which carries the FIFO trail line by line. */
@@ -215,7 +218,10 @@ function PoModal({ po, supplierId = "", onClose, onEdit }) {
         <DataTable serial
           freeze={4} section={(r, i) => heads[i]}
           columns={hidePriceCols([
-            { key: "gd", w: 96, label: "GD code", render: (r) => <Mono>{r.gd}</Mono> },
+            { key: "gd", w: 104, label: "GD code", render: (r) => (
+              /* How the line will be packed — read only here; Edit changes it. */
+              <span className="pack-cell"><Mono>{r.gd}</Mono><PackTag item={itemById[r.item_id] || r} value={r.packaging} /></span>
+            ) },
             { key: "code", w: 92, label: "Code", render: (r) => <Mono>{r.code}</Mono> },
             { key: "desc", w: 210, label: "Description", strong: true, render: (r) => <span style={{ whiteSpace: "pre-line" }}>{r.description}</span> },
             { key: "sp", w: 92, label: "Supplier", render: (r) => <Pill tone={live ? "teal" : ""}>{supCode(r.supplier_id)}</Pill> },
@@ -261,6 +267,8 @@ function PoEditModal({ po, onClose }) {
   const suppliers = useSuppliers().data || [];
   const toast = useToast();
   const supCode = (id) => suppliers.find((s) => s.id === id)?.code || "—";
+  const allItems = useItems().data || [];
+  const itemById = useMemo(() => Object.fromEntries(allItems.map((i) => [i.id, i])), [allItems]);
 
   const [poNo, setPoNo] = useState(po.po);
   const [lines, setLines] = useState(() => po.detail.map((d) => ({
@@ -270,11 +278,13 @@ function PoEditModal({ po, onClose }) {
     gd: d.gd, description: d.description, supplier_id: d.supplier_id,
     qty: String(d.qty ?? ""),
     delivered: d.completed || 0,
+    packaging: d.packaging || null,
   })));
   const [confirm, setConfirm] = useState(false);
   const [adding, setAdding] = useState(false);
 
   const setQty = (key, v) => setLines((p) => p.map((l) => (l.key === key ? { ...l, qty: v } : l)));
+  const setPack = (key, v) => setLines((p) => p.map((l) => (l.key === key ? { ...l, packaging: v } : l)));
   const drop = (key) => setLines((p) => p.filter((l) => l.key !== key));
   /* The picker hands back everything that was typed against it at once, so a
      dozen items join the order in one action rather than a dozen. */
@@ -282,7 +292,7 @@ function PoEditModal({ po, onClose }) {
     setLines((p) => [...p, ...picked.map(({ group, variant, qty }, i) => ({
       key: `new:${variant.item_id}:${Date.now()}:${i}`,
       line_id: null, item_id: variant.item_id, gd: group.gd, description: group.description,
-      supplier_id: variant.supplier_id, qty: String(qty), delivered: 0, fresh: true,
+      supplier_id: variant.supplier_id, qty: String(qty), delivered: 0, fresh: true, packaging: null,
     }))]);
     setAdding(false);
   };
@@ -298,7 +308,9 @@ function PoEditModal({ po, onClose }) {
         po: po.po,
         body: {
           po: poNo,
-          lines: lines.map((l) => ({ id: l.line_id || undefined, item_id: l.item_id, qty: Number(l.qty) || 0 })),
+          lines: lines.map((l) => ({
+            id: l.line_id || undefined, item_id: l.item_id, qty: Number(l.qty) || 0, packaging: l.packaging || null,
+          })),
         },
       },
       { onSuccess: () => { toast(`PO ${poNo} updated — ${lines.length} line${lines.length === 1 ? "" : "s"}`); onClose(); } },
@@ -367,6 +379,10 @@ function PoEditModal({ po, onClose }) {
                   <Mono>{l.gd}</Mono>{" "}
                   <span style={{ color: "var(--ink)", whiteSpace: "pre-line" }}>{l.description}</span>
                   {l.fresh && <> <Pill tone="teal">new</Pill></>}
+                  <div>
+                    <PackTag item={itemById[l.item_id] || l} value={l.packaging} name={l.gd}
+                      onChange={(v) => setPack(l.key, v)} />
+                  </div>
                 </td>
                 <td><Pill>{supCode(l.supplier_id)}</Pill></td>
                 <td className="r">
