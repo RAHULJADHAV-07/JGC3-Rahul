@@ -100,11 +100,21 @@ export default function InvoiceEditModal({ inv, onClose }) {
   const open = custom ? openQ.data : undefined;
   const place = useMemo(() => placement(poRows, open, choice.picks, choice.manual), [poRows, open, choice]);
 
+  /* Renumbering puts the lines in today's item sequence first — the order the
+     papers list them in — exactly as the save does (V-7.10.2). An invoice
+     raised under an older sequence would otherwise renumber in its old order
+     and still print out of step. The table shows them in that order too. */
+  const shown = useMemo(() => {
+    if (!renumber) return lines;
+    const cmp = bySequence({ suppliers, sequence, groups: itemGroups, getItem: (l) => byId[l.item_id] || {}, supplierOf: (l) => l.supplier_id });
+    return lines.map((l, i) => [l, i]).sort((a, b) => cmp(a[0], b[0]) || a[1] - b[1]).map(([l]) => l);
+  }, [renumber, lines, suppliers, sequence, itemGroups, byId]);
+
   /* What the save will number each line — kept numbers for the lines already
      on the invoice, the next free ones for a line added here. */
   const serials = useMemo(
-    () => previewSerials({ inv, lines, start: serialStart, renumber }),
-    [inv, lines, serialStart, renumber],
+    () => previewSerials({ inv, lines: shown, start: serialStart, renumber }),
+    [inv, shown, serialStart, renumber],
   );
   const clashing = new Set(serials.clashes.flat());
   const gdOf = (key) => { const l = lines.find((x) => x.key === key); return byId[l?.item_id]?.gd || "a line"; };
@@ -115,7 +125,7 @@ export default function InvoiceEditModal({ inv, onClose }) {
       body: {
         invoice_no: invoiceNo, date, serial_start: Number(serialStart) || 0,
         allocation,
-        lines: lines.map((l) => ({
+        lines: shown.map((l) => ({
           item_id: l.item_id, supplier_id: l.supplier_id, boxes: Number(l.boxes) || 0,
           packaging: l.packaging || null,
           ...(custom ? { po_alloc: toPins(place.byItem[l.item_id]) } : {}),
@@ -175,14 +185,14 @@ export default function InvoiceEditModal({ inv, onClose }) {
 
       <Note tone="teal" icon={Hash}>
         {renumber
-          ? <>Every line will be numbered afresh from {Number(serialStart) || "the start"}, closing any gaps.</>
+          ? <>Every line will be numbered afresh from {Number(serialStart) || "the start"} in the order the papers list the items, closing any gaps.</>
           : <>Allotted serials stay with their line — removing an item leaves its numbers unused, and an added item takes the numbers from {serials.next}.</>}
         {" "}· <b style={{ color: "var(--ink)" }}>{totalBoxes} boxes</b> on {lines.length} line{lines.length === 1 ? "" : "s"}
         {!renumber && serials.gaps > 0 ? <> · {serials.gaps} number{serials.gaps === 1 ? "" : "s"} unused</> : null}.
       </Note>
       <label className="row" style={{ gap: 8, fontSize: 12.5, color: "var(--muted)", margin: "8px 0 12px" }}>
         <input type="checkbox" checked={renumber} onChange={(e) => setRenumber(e.target.checked)} />
-        Renumber all cartons from the serial start — only if these numbers have not gone to customs yet
+        Renumber all cartons from the serial start, in the order the papers list the items — only if these numbers have not gone to customs yet
       </label>
       {serials.clashes.length > 0 && (
         <Note tone="amber" icon={AlertTriangle}>
@@ -212,7 +222,7 @@ export default function InvoiceEditModal({ inv, onClose }) {
             </tr>
           </thead>
           <tbody>
-            {lines.map((l) => {
+            {shown.map((l) => {
               const it = byId[l.item_id] || {};
               const placed = custom && Number(l.boxes) > 0 ? place.byItem[l.item_id] : null;
               return (
