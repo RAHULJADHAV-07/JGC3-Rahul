@@ -242,3 +242,48 @@ class Groups(Base):
             "group": "pp", "packaging_type": "Cartons"}), 201)
         self.assertEqual(self.groups(), ["PP", "DEMO2"])        # "pp" is PP already
         self.assertEqual(made["group"], "PP")                   # in the list's spelling
+
+
+class Renumber(Base):
+    """An invoice whose lines were stored in an older item sequence: renumbering
+    must number them in the sequence the papers print today."""
+
+    def scramble(self, inv_id):
+        """Store the lines back to front, numbered that way — what an invoice
+        raised under an older sequence looks like."""
+        from app.database import SessionLocal
+        from app import models
+        db = SessionLocal()
+        inv = db.get(models.Invoice, inv_id)
+        lines = sorted(inv.lines, key=lambda l: l.position)[::-1]
+        nxt = inv.serial_start
+        for pos, l in enumerate(lines):
+            l.position, l.serial_from = pos, nxt
+            nxt += l.boxes
+        inv.serial_next = nxt
+        db.commit()
+        db.close()
+
+    def test_renumber_follows_todays_sequence(self):
+        inv = self.record("INV1", {1: 5, 2: 3, 3: 4})
+        sequence = [l["item_id"] for l in sorted(inv["lines"], key=lambda l: l["position"])]
+        self.scramble(inv["id"])
+        stored = self.ok(self.client.get(f"/api/invoices/{inv['id']}"))
+        self.assertEqual([l["item_id"] for l in stored["lines"]], sequence[::-1])
+        # Renumber alone (no lines sent).
+        out = self.ok(self.client.put(f"/api/invoices/{inv['id']}", json={"renumber": True}))
+        froms = {l["item_id"]: l["serial_from"] for l in out["lines"]}
+        self.assertEqual([l["item_id"] for l in out["lines"]], sequence)
+        self.assertEqual(sorted(froms.values()), [froms[i] for i in sequence])
+        self.assertEqual(froms[sequence[0]], 1001)
+        # Renumber with the lines sent back in the stored (old) order, as the edit form does.
+        self.scramble(inv["id"])
+        stored = self.ok(self.client.get(f"/api/invoices/{inv['id']}"))
+        body = {"renumber": True, "lines": [{"item_id": l["item_id"], "supplier_id": l["supplier_id"], "boxes": l["boxes"]}
+                                            for l in stored["lines"]]}
+        out = self.ok(self.client.put(f"/api/invoices/{inv['id']}", json=body))
+        froms = {l["item_id"]: l["serial_from"] for l in out["lines"]}
+        self.assertEqual([l["item_id"] for l in out["lines"]], sequence)
+        self.assertEqual([froms[i] for i in sequence], sorted(froms.values()))
+        last = sequence[-1]
+        self.assertEqual(froms[last] + next(l["boxes"] for l in out["lines"] if l["item_id"] == last) - 1, 1012)

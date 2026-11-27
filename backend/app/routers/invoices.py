@@ -301,7 +301,13 @@ def update_invoice(iid: str, body: schemas.InvoiceUpdate, db: Session = Depends(
     shift = calc.serial_base(inv) - old_base
     if lines is None and (shift or renumber):
         if renumber:
-            inv.serial_next = calc.allot_serials(inv.lines, calc.serial_base(inv))
+            # Afresh, and in today's item sequence — the order every paper
+            # lists the goods in. An invoice raised under an older sequence
+            # otherwise kept its old order and printed out of step.
+            ordered = _in_sequence(db, inv.lines)
+            for pos, l in enumerate(ordered):
+                l.position = pos
+            inv.serial_next = calc.allot_serials(ordered, calc.serial_base(inv))
         else:
             for l in inv.lines:
                 l.serial_from = held[l.item_id] + shift
@@ -347,6 +353,11 @@ def update_invoice(iid: str, body: schemas.InvoiceUpdate, db: Session = Depends(
         # line's numbers are left unused, and a line new to the invoice takes
         # the numbers after the highest ever allotted — unless asked to renumber.
         if renumber:
+            # Renumbered lines are put in today's item sequence first, so the
+            # cartons climb down the papers in the order they print (V-7.10.2).
+            new_lines = _in_sequence(db, new_lines)
+            for pos, l in enumerate(new_lines):
+                l.position = pos
             inv.serial_next = calc.allot_serials(new_lines, calc.serial_base(inv))
         else:
             clashes, inv.serial_next = calc.lock_serials(

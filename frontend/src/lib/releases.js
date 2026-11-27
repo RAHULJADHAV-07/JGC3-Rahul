@@ -20,6 +20,7 @@ export const RELEASES = [
       "Sign-in: a session now ends at 12:00 midnight (India time), whatever the hour of signing in, instead of 24 hours later in the middle of the day's work. A notice appears 10 minutes before; admins confirm the emailed code at the first sign-in after midnight, and that session lasts until the next midnight.",
       "Fixed: Setup → Items → \"Apply the new price to the pending orders\" moved orders dated before the day the new price holds from as well — those now keep their price, as the form said; the ones it reaches are each priced at their own date.",
       "Fixed: a buyer's price list saved with orders restated now refreshes the order screens and the documents straight away.",
+      "Fixed: Edit invoice → \"Renumber all cartons\" numbered the lines in the order they were first saved, so an invoice raised under an older item order (or with lines added later) still printed its carton numbers out of step — 12173 above 12001. Renumbering now puts the lines in the order the papers list them and numbers them straight down from the serial start; the edit form shows that order and those numbers before you save.",
       "Fixed: after a session ran out, the sign-in screen never said why — it now says the session ended.",
       "Fixed (dark theme): the PP tag on the simplified dashboard and the TOTAL / CNTRS headings were unreadable — both now show clearly.",
     ],
