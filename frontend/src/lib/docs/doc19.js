@@ -19,7 +19,7 @@ import { colLetter } from "../xlsx.js";
 export function packingListSheets(ctx, form) {
   const E = ctx.EXPORTER, b = ctx.buyer, s = ctx.inv.ship || {};
   const rows = L(ctx);
-  const bands = packingBands(ctx, form.buyer);
+  const bands = packingBands(ctx, form.buyer, { pipeLen: !!form.pipeLen });
   const { p1, carry, p2, one } = plLayout(ctx, bands, form);
   const marks = ciMarks(ctx, rows);
   const desc = packingDescribe(ctx, bands, rows, form.buyer);
@@ -408,7 +408,7 @@ export function packingListHtml(ctx, form) {
   const signed = !!form.signed;
   const E = ctx.EXPORTER, b = ctx.buyer, s = ctx.inv.ship || {};
   const rows = L(ctx);
-  const bands = packingBands(ctx, form.buyer);
+  const bands = packingBands(ctx, form.buyer, { pipeLen: !!form.pipeLen });
   const { p1, carry, p2, one } = plLayout(ctx, bands, form);
   const marks = ciMarks(ctx, rows);
   const desc = packingDescribe(ctx, bands, rows, form.buyer);

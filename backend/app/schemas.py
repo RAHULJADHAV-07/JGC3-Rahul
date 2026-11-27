@@ -535,6 +535,8 @@ class ItemUpdate(_ItemFigures):
     # The day a price changed here holds from — today if not given. Orders
     # dated before it keep the price before it (app/prices.py).
     price_from: Optional[IsoDate] = None
+    # The supplier's reference for the new price (the supplier PO's "Your Ref").
+    price_ref: Optional[str] = Field(None, max_length=300)
 
 
 class Item(ItemBase, ORMModel):
@@ -576,6 +578,8 @@ class SupplierPricesIn(BaseModel):
     and each item changed."""
     effective: IsoDate
     note: str = Field("", max_length=300)
+    # The supplier's reference for these rates — the supplier PO's "Your Ref".
+    your_ref: str = Field("", max_length=300)
     rows: list[SupplierPriceIn] = Field(..., min_length=1, max_length=5000)
 
 

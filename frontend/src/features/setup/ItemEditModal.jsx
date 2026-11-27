@@ -40,6 +40,8 @@ export default function ItemEditModal({ item, onClose }) {
      otherwise, never before the price now in force. Orders dated before it
      keep the price before it. */
   const [since, setSince] = useState(localToday());
+  // The supplier's reference for the new price — the supplier PO's "Your Ref" (V-7.10.1).
+  const [priceRef, setPriceRef] = useState("");
   const [hist, setHist] = useState(false);
   const supCode = (id) => suppliers.find((s) => s.id === id)?.code || "—";
   const when = (s) => (s ? new Date(/Z|[+-]\d\d:?\d\d$/.test(s) ? s : `${s}Z`).toLocaleDateString("en-GB") : "");
@@ -56,6 +58,7 @@ export default function ItemEditModal({ item, onClose }) {
     const priceMoved = changed(item, draft);
     const { price_set_at: _a, price_from: _b, ...body } = draft;
     if (priceMoved) body.price_from = since;
+    if (priceMoved && priceRef.trim()) body.price_ref = priceRef.trim();
     update.mutate({ id: item.id, body }, {
       onSuccess: () => {
         // Only ever apply when a price actually moved and the tick is on.
@@ -89,6 +92,10 @@ export default function ItemEditModal({ item, onClose }) {
         <Input type="date" className="input-sm" style={{ width: 160 }} value={since}
           min={item.price_from || undefined} max={localToday()} onChange={(e) => setSince(e.target.value || localToday())}
           aria-label="The new price holds from" />
+        <b>Your Ref</b>
+        <Input className="input-sm" style={{ width: 240 }} value={priceRef} maxLength={300}
+          onChange={(e) => setPriceRef(e.target.value)} placeholder="optional — printed on the supplier PO"
+          aria-label="Your Ref for the new price" />
         <span style={{ color: "var(--muted)" }}>
           Orders dated before it keep the old price{item.price_from ? ` — and it cannot be before ${item.price_from.split("-").reverse().join("/")}, when the price now in force began (an earlier one goes in on Other Reports → Price list)` : ""}.
         </span>

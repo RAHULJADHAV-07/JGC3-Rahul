@@ -273,16 +273,17 @@ group("Length column", () => {
 const moulded = (bands) => bands.filter((b) => ["ppm", "grn"].includes(b.key));
 check("Length column", "doc 18/31 bands: moulded fittings carry no LEN", moulded(C.invoiceBands(ctx)).every((b) => !b.len));
 check("Length column", "doc 19/20/32 bands: moulded fittings carry no LEN", moulded(C.packingBands(ctx)).every((b) => !b.len));
-check("Length column", "no range prints a LEN column — the PP pipes neither", C.packingBands(ctx).every((b) => !b.len) && C.invoiceBands(ctx).every((b) => !b.len));
-check("Length column", "docs 18, 19, 31 print no LEN (MM) heading", ["18", "19", "31"].every((no) => !/LEN \(MM\)/.test(html(no))));
+// V-7.10.1: the PP pipes print their length on 17, 18 and 19 by sea; 31 still prints none.
+check("Length column", "17, 18, 19 give the PP pipes a LEN column; the shared default does not", C.packingBands(ctx, false, { pipeLen: true }).some((b) => b.len) && C.invoiceBands(ctx, undefined, { pipeLen: true }).some((b) => b.len) && C.packingBands(ctx).every((b) => !b.len) && C.invoiceBands(ctx).every((b) => !b.len));
+check("Length column", "docs 18 and 19 print LEN (MM) for the pipes, 31 does not", ["18", "19"].every((no) => /LEN \(MM\)/.test(html(no))) && !/LEN \(MM\)/.test(html("31")));
 check("Length column", "doc 19: PET1512 prints no 300 length", /PET1512 15 300 /.test(t19) && !/PET1512 15 300 300/.test(t19), "PET1512 → size 15, then Qty/Ctn 300");
 });
 
 // 4 · bundles in brackets (19)
 group("Bundles (19)", () => {
-check("Bundles (19)", "the 1800 mm pipe in bundles shows (BUNDLES) beside its size", t19.includes('2" (BUNDLES)'));
+check("Bundles (19)", "the 1800 mm pipe in bundles shows (BUNDLES) beside its length", t19.includes("1800 (BUNDLES)"));
 check("Bundles (19)", "corrugated boxes show (BUNDLES) beside the size", t19.includes("570 X 368 X 178 (BUNDLES)"));
-check("Bundles (19)", "Excel carries the same", cells("19").includes('2" (BUNDLES)'));
+check("Bundles (19)", "Excel carries the same", cells("19").includes("1800 (BUNDLES)"));
 });
 
 // 4b · the HS code table on the shipping instructions (26)
@@ -480,7 +481,7 @@ group("Air layout", () => {
     tabs("19", ctxOf(NOBOX)).join(",") === "Page1" && tabs("19", airCtx).join(",") === "Page1,Page2" && tabs("19", ctx).join(",") === "Page1,Page2");
   const t18 = text(html("18", airCtx));
   check(A, "18: the pipes print LEN (MM) by air", t18.includes("LEN (MM)"));
-  check(A, "18 / 19 by sea still leave LEN out", !text(html("18")).includes("LEN (MM)") && !t19.includes("LEN (MM)"));
+  check(A, "18 / 19 by sea print LEN for the pipes", text(html("18")).includes("LEN (MM)") && t19.includes("LEN (MM)"));
   check(A, "18: no RoDTEP claim by air, and the GSTIN dated", !t18.includes("RoDTEP") && t18.includes("w.e.f 20.01.2021"));
   check(A, "18: the marks put the count under the run (NOS : start - end)", /NOS : \d+ - \d+/.test(t18) && !/GDW NOS :/.test(t18));
   check(A, "19: the pipes are counted in boxes by air", text(html("19", airCtx)).includes("Qty/Box-Pcs"));

@@ -16,7 +16,7 @@ export function customsLayout(ctx, bands) {
 export function customsInvoiceSheets(ctx) {
   const E = ctx.EXPORTER, b = ctx.buyer, s = ctx.inv.ship || {};
   const rows = L(ctx), ex = exRate(ctx);
-  const bands = invoiceBands(ctx);
+  const bands = invoiceBands(ctx, undefined, { pipeLen: true });
   const { p1, p2, one, room } = customsLayout(ctx, bands);
   const marks = ciMarks(ctx, rows);
   const mk = marksLines(ctx, marks);
@@ -190,9 +190,15 @@ export function customsInvoiceSheets(ctx) {
   }
 
   /* One line of the goods frame, whichever page it lands on. */
+  /* An empty line of the frame keeps the columns of the band above it, ruled
+     down and not across (V-7.10.1). */
+  let lastLen = false;
+  const fillCells = (s) => [[1, { v: "", s }], [lastLen ? 1 : 2, { v: "", s }], ...(lastLen ? [[1, { v: "", s }]] : []),
+    ...Array.from({ length: 7 }, () => [1, { v: "", s }])];
   function bodyLine(grid, line, at) {
     const { row } = grid;
-    if (!line) { row([[1, { v: "", s: G.colA }], [10, { v: "", s: G.fill }]]); return; }
+    if (!line) { row([[1, { v: "", s: G.colA }], ...fillCells(V)]); return; }
+    if (line.band) lastLen = !!line.band.len;
     if (line.kind === "head") {
       row([[1, { v: "", s: G.colA }], [6, { v: line.band.head, s: G.head }], ...blank(4, G.fill)]);
       return;
@@ -524,7 +530,7 @@ export function customsInvoiceSheets(ctx) {
 export function customsInvoiceHtml(ctx) {
   const E = ctx.EXPORTER, b = ctx.buyer, s = ctx.inv.ship || {};
   const rows = L(ctx), ex = exRate(ctx);
-  const bands = invoiceBands(ctx);
+  const bands = invoiceBands(ctx, undefined, { pipeLen: true });
   const { p1, p2, one, room } = customsLayout(ctx, bands);
   const marks = ciMarks(ctx, rows);
   const mk = marksLines(ctx, marks);
@@ -609,8 +615,10 @@ export function customsInvoiceHtml(ctx) {
       ${td(esc(`EX. RATE @ Rs.${num(ex)}`), "c", 2)}${td("", "", 2)}</tr>
     <tr>${vl(mk[2])}${td(esc(desc2[1]), "l", 4)}${td("", "", 6)}</tr>`;
 
+  let lastLenH = false;
   const line = (l) => {
-    if (!l) return `<tr class="gd fl">${td("")}${td("", "", 10)}</tr>`;
+    if (!l) return `<tr class="ln fl">${td("")}${td("")}${td("", "", lastLenH ? 1 : 2)}${lastLenH ? td("") : ""}${td("").repeat(7)}</tr>`;
+    if (l.band) lastLenH = !!l.band.len;
     if (l.kind === "head") return `<tr class="gd"><td>&nbsp;</td>${td(esc(l.band.head), "bnd l", 6)}${td("", "", 4)}</tr>`;
     if (l.kind === "cols") {
       const B = l.band;
@@ -681,7 +689,7 @@ export function customsInvoiceHtml(ctx) {
   const framed = (lines) => Array.from({ length: bodyN }, (_, i) => {
     const html = line(lines[i]);
     const m = margin[i];
-    return m ? html.replace('<tr class="gd fl">', '<tr class="gd">').replace("<td>&nbsp;</td>", td(esc(String(m[0])), m[1])) : html;
+    return m ? html.replace('<tr class="ln fl">', '<tr class="gd fl">').replace("<td>&nbsp;</td>", td(esc(String(m[0])), m[1])) : html;
   }).join("");
 
   /* The totals, the breakup by HSN code, the words and the declaration — the

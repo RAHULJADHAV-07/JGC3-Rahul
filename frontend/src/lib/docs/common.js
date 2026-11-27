@@ -232,7 +232,7 @@ export const gstinLine = (ctx) => {
 /* The families that print a LEN (MM) column by air: the pipes, as the air
    invoices and packing list do (2" | 300). Sea papers follow LEN_FAMILIES. */
 export const AIR_LEN_FAMILIES = ["mxm", "mxf"];
-export const lenFamilies = (ctx) => (airOf(ctx) ? AIR_LEN_FAMILIES : LEN_FAMILIES);
+export const lenFamilies = (ctx, pipes = false) => (airOf(ctx) ? AIR_LEN_FAMILIES : pipes ? PIPE_LEN_FAMILIES : LEN_FAMILIES);
 
 export function marksStart(ctx) { const m = (ctx.inv.ship?.marks || "").match(/(\d{3,})/); return m ? Number(m[1]) : 2001; }
 
@@ -1394,14 +1394,45 @@ export const ewAddr = (addr) => {
   return [`${parts.slice(0, n).join(", ")},`, parts.slice(n).join(", ")];
 };
 
-/* What the consignment is called on the bill — the factory's range, not the
-   size band a particular line happens to sit in. */
+/* What the consignment is called on the bill — every range of the factory's
+   that is on it, not only the commonest (V-7.10.1): Hansa sending both its PP
+   and its nylon groups is "PP & NYLON MOULDED FITTINGS". A line's range comes
+   off its block (Setup → Item groups), else its sticker rule. */
 export const ewGoods = (arr) => {
-  const rule = commonOf(arr, (x) => x.it.stickerRule || "pp");
-  if (rule === "grn") return "NYLON MOULDED FITTINGS";
-  if (rule === "oswin") return "PP EXTRUDED PIPES";
-  return "PP MOULDED FITTINGS";
+  const kind = (x) => {
+    const range = String(x.block?.range || "").toLowerCase();
+    if (range === "oswin" || x.it.stickerRule === "oswin") return "pipe";
+    if (range ? /-grn$/.test(range) : x.it.stickerRule === "grn") return "grn";
+    return "pp";
+  };
+  const has = new Set(arr.map(kind));
+  const names = [];
+  if (has.has("pipe")) names.push("PP EXTRUDED PIPES");
+  if (has.has("pp") && has.has("grn")) names.push("PP & NYLON MOULDED FITTINGS");
+  else if (has.has("grn")) names.push("NYLON MOULDED FITTINGS");
+  else if (has.has("pp")) names.push("PP MOULDED FITTINGS");
+  return names.join(", ") || "PP MOULDED FITTINGS";
 };
+
+/* The bill's item lines (V-7.10.1): one per kind of goods on it — the pipes,
+   the PP and the nylon moulded fittings, the corrugated boxes — each with its
+   own HSN, quantity and value, so a box under 4819 is never counted in with
+   fittings under 3917. The totals beneath are the bill's. */
+export function ewItems(arr) {
+  const ORDER = ["PP EXTRUDED PIPES", "PP MOULDED FITTINGS", "NYLON MOULDED FITTINGS", "CORRUGATED BOXES"];
+  const by = new Map();
+  arr.forEach((r) => {
+    const name = familyOf(r.it) === "box" ? "CORRUGATED BOXES" : ewGoods([r]);
+    if (!by.has(name)) by.set(name, []);
+    by.get(name).push(r);
+  });
+  return [...by.entries()]
+    .sort((a, b) => ORDER.indexOf(a[0]) - ORDER.indexOf(b[0]))
+    .map(([name, rows]) => ({
+      name, hsn: (commonOf(rows, (x) => x.it.hsn) || "").slice(0, 4),
+      qty: sum(rows, "pieces"), value: sum(rows, "valTotal"),
+    }));
+}
 
 export function eway10Block(ctx, sid, arr) {
   const sp = supFor(ctx, sid);
@@ -1414,8 +1445,6 @@ export function eway10Block(ctx, sid, arr) {
      it (₹7,278.00 on ₹40,432.50 at 18%). */
   const cut = (name) => Math.round(taxable * rateOf(name));
   const cgst = cut("CGST"), sgst = cut("SGST"), igst = cut("IGST");
-  const goods = ewGoods(arr);
-  const hsn = (commonOf(arr, (x) => x.it.hsn) || "").slice(0, 4);
   const [sAddr1, sAddr2] = ewAddr(sp.addr);
   const money = (n) => Number(n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const box = (v, cls = "") => `<td class="fld ${cls}">${v === "" ? "&nbsp;" : v}</td>`;
@@ -1456,8 +1485,8 @@ export function eway10Block(ctx, sid, arr) {
     <table class="ewitems">
       <tr class="hd"><td>Product Name</td><td>Descripton</td><td>HSN</td><td>Quantity</td><td>Unit</td>
         <td>Value/Taxable<br>Value(RS)</td><td colspan="4">Tax Rate (C+S+I+C)</td></tr>
-      <tr>${box(esc(goods))}${box(esc(goods))}${box(esc(hsn), "c")}${box(qty, "c")}${box("PCS", "c")}
-        ${box(money(taxable), "c")}${box(money(rateOf("CGST") * 100), "c")}${box(money(rateOf("SGST") * 100), "c")}${box(money(rateOf("IGST") * 100), "c")}${box("0.00", "c")}</tr>
+      ${ewItems(arr).map((g) => `<tr>${box(esc(g.name))}${box(esc(g.name))}${box(esc(g.hsn), "c")}${box(g.qty, "c")}${box("PCS", "c")}
+        ${box(money(g.value), "c")}${box(money(rateOf("CGST") * 100), "c")}${box(money(rateOf("SGST") * 100), "c")}${box(money(rateOf("IGST") * 100), "c")}${box("0.00", "c")}</tr>`).join("")}
     </table>
 
     <table class="ewtot">
@@ -1517,8 +1546,6 @@ export const EW = {                                     // the form's own styles
 export function eway10Sheet(ctx, sid, arr) {
   const sp = supFor(ctx, sid);
   const tr = transportInfo(ctx, sid);
-  const goods = ewGoods(arr);
-  const hsn = (commonOf(arr, (x) => x.it.hsn) || "").slice(0, 4);
   const [sAddr1, sAddr2] = ewAddr(sp.addr);
   const tax = supplierTax(ctx, sid);
   const ratePc = (name) => Number(((tax.heads.find((h) => h.name === name)?.rate || 0) * 100).toFixed(2));
@@ -1568,19 +1595,22 @@ export function eway10Sheet(ctx, sid, arr) {
     run(1, "Quantity", EW.hdC), run(1, "Unit", EW.hdC), run(2, "Value/Taxable\nValue(RS)", EW.hdC),
     run(4, "Tax Rate (C+S+I+C)", EW.hdC)], 26);
   const item = G.at() + 1;
-  row([run(2, goods, EW.fld), run(2, goods, EW.fld), run(1, hsn, EW.fldC, { t: "s" }),
-    run(1, sum(arr, "pieces"), EW.num, { t: "n" }), run(1, "PCS", EW.fldC),
-    run(2, sum(arr, "valTotal"), EW.money, { t: "n" }),
+  ewItems(arr).forEach((g) => row([run(2, g.name, EW.fld), run(2, g.name, EW.fld), run(1, g.hsn, EW.fldC, { t: "s" }),
+    run(1, g.qty, EW.num, { t: "n" }), run(1, "PCS", EW.fldC),
+    run(2, g.value, EW.money, { t: "n" }),
     run(1, ratePc("CGST"), EW.money, { t: "n" }), run(1, ratePc("SGST"), EW.money, { t: "n" }),
-    run(1, ratePc("IGST"), EW.money, { t: "n" }), run(1, 0, EW.money, { t: "n" })], 25.5);
+    run(1, ratePc("IGST"), EW.money, { t: "n" }), run(1, 0, EW.money, { t: "n" })], 25.5));
+  const itemEnd = G.at();
+  // The bill's taxable value is every item line's; the tax is worked on it whole.
+  const val = `SUM(H${item}:H${itemEnd})`;
   gap();
 
   row([run(3, "Total Amt / Taxable Amt", EW.hdC), run(2, "CGST Amount", EW.hdC), run(2, "SGST Amount", EW.hdC),
     run(2, "IGST Amount", EW.hdC), run(2, "CESS Amount", EW.hdC), run(2, "Total Inv . Value", EW.hdC)]);
   const tot = G.at() + 1;
-  row([[3, { f: `H${item}`, s: EW.money }],
-    [2, { f: `ROUND(H${item}*J${item}/100,0)`, s: EW.money }], [2, { f: `ROUND(H${item}*K${item}/100,0)`, s: EW.money }],
-    [2, { f: `ROUND(H${item}*L${item}/100,0)`, s: EW.money }], run(2, 0, EW.money, { t: "n" }),
+  row([[3, { f: val, s: EW.money }],
+    [2, { f: `ROUND(${val}*J${item}/100,0)`, s: EW.money }], [2, { f: `ROUND(${val}*K${item}/100,0)`, s: EW.money }],
+    [2, { f: `ROUND(${val}*L${item}/100,0)`, s: EW.money }], run(2, 0, EW.money, { t: "n" }),
     [2, { f: `A${tot}+D${tot}+F${tot}+H${tot}+J${tot}`, s: EW.money }]]);
   gap();
 
@@ -1678,20 +1708,44 @@ export const LETTER_DAY = (s) => {
 
 export const LETTER_DATE = (s) => (s ? new Date(s).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) : "");
 
-/* The marking line: the buyer's mark, the serial run this supplier's boxes
-   carry, and how many packages that comes to. */
+/* The marking line (V-7.10.1): the buyer's mark, then this supplier's carton
+   numbers group by group as its Packing (doc 7) numbers them — each group of
+   Setup → Item groups (Hansa-PP, Hansa-GRN …) with its own run, runs that follow
+   on merged into one — then this supplier's packages and their kinds. Nothing
+   of the rest of the shipment: the factory marks only its own boxes.
+     "All Packages to be marked as GDW NOS : 11362 – 11400 (PP) / 11401 – 11438
+      (NYLON) / 77 Packages (53 Cartons & 24 HDP Bundles)" */
 export function despatchMarks(ctx, arr) {
   const s = ctx.inv.ship || {};
-  const mark = (s.marks || "G.D.W").replace(/[\d\s.–-]+$/, "").trim() || "G.D.W";
-  /* The lowest and highest carton of this supplier's lines — read off every
-     line rather than the first and last, which need not be the ends once the
-     lines are listed in the item sequence. */
-  const ends = arr.map((r) => String(r.range || "").split("-").map(Number)).filter((p) => p.length === 2 && p.every(Number.isFinite));
-  const from = ends.length ? String(Math.min(...ends.map((p) => p[0]))) : "";
-  const to = ends.length ? String(Math.max(...ends.map((p) => p[1]))) : "";
+  // The mark is what is typed before the first carton number: "GDW NOS : 1-9" → GDW.
+  const mark = String(s.marks || "").split(/\d/)[0].replace(/\bNOS\b|[:/\s.–-]+$/gi, " ").replace(/[\s:/–-]+$/, "").trim() || "G.D.W";
+  const runsOf = (rows) => {
+    const spans = rows.filter((r) => r.boxes > 0).map((r) => String(r.range || "").split("-").map(Number))
+      .filter((p) => p.length === 2 && p.every(Number.isFinite)).sort((x, y) => x[0] - y[0]);
+    const runs = [];
+    spans.forEach(([f, t]) => {
+      const last = runs[runs.length - 1];
+      if (last && f <= last[1] + 1) last[1] = Math.max(last[1], t); else runs.push([f, t]);
+    });
+    return runs.map(([f, t]) => `${f} – ${t}`).join(" / ");
+  };
+  const groups = [];
+  arr.forEach((r) => {
+    const key = r.block?.key || "";
+    let g = groups.find((x) => x.key === key);
+    // A group named in Setup → Item groups goes by that name (PMF); the rest by its range.
+    const range = { "PP EXTRUDED PIPES": "PIPES", "NYLON MOULDED FITTINGS": "NYLON" }[ewGoods([r])] || "PP";
+    if (!g) groups.push(g = { key, rows: [], name: String(r.block?.name || "").trim() || range });
+    g.rows.push(r);
+  });
+  const nos = groups.map((g) => {
+    const runs = runsOf(g.rows);
+    return runs && groups.length > 1 ? `${runs} (${g.name})` : runs;
+  }).filter(Boolean).join(" / ");
+  const { cartons, bundles } = packageCounts(arr);
+  const kinds = [cartons && `${cartons} Cartons`, bundles && `${bundles} HDP Bundles`].filter(Boolean).join(" & ");
   const pkgs = sum(arr, "boxes");
-  const kinds = s.pkgs ? ` (${s.pkgs})` : "";
-  return `All Packages to be marked as ${mark}${from ? ` ${from} – ${to}` : ""} / ${pkgs} Packages${kinds}`;
+  return `All Packages to be marked as ${mark} NOS : ${nos || "—"} / ${pkgs} Packages${kinds ? ` (${kinds})` : ""}`;
 }
 
 /* The letterhead itself — the name in Centaur maroon with the mark against the
@@ -2557,6 +2611,10 @@ export function familyOf(it) {
    fittings, though the master holds a length for them — and give its width
    to the size. (The cartons give the column to their three dimensions.) */
 export const LEN_FAMILIES = [];
+/* The papers that print the PP extruded pipes' length by sea as well — the
+   proforma (17), customs invoice (18) and packing list (19), as the client
+   asked (V-7.10.1). The moulded fittings, nylon and boxes never have one. */
+export const PIPE_LEN_FAMILIES = ["mxm", "mxf"];
 
 /* Goods that travel in bundles rather than cartons (Setup → Items →
    Packaging). Their packing list says so beside the length — "1800 (BUNDLES)"
@@ -2730,7 +2788,7 @@ export const CI_BUYER_BANDS = [
   ["box", "CORRUGATED BOXES"],
 ];
 
-export function invoiceBands(ctx, labels = CI_BANDS) {
+export function invoiceBands(ctx, labels = CI_BANDS, { pipeLen = false } = {}) {
   const by = new Map();
   L(ctx).forEach((r) => {
     const k = familyOf(r.it);
@@ -2747,7 +2805,7 @@ export function invoiceBands(ctx, labels = CI_BANDS) {
       head: hsn && !named ? `${label} (HSN CODE : ${hsn})` : label,
       // The pipes carry a length; the fittings do not, and the cartons give
       // the size that column as well — their size is three dimensions.
-      len: lenFamilies(ctx).includes(k) && rows.some((r) => String(r.it.length || "").trim()),
+      len: lenFamilies(ctx, pipeLen).includes(k) && rows.some((r) => String(r.it.length || "").trim()),
       wide: k === "box",
       rate: per100 ? "PER 100 PCS" : "PER PC",
       size: k === "box" ? "SIZE ( MM)" : "SIZE (IN / MM)",
@@ -2910,7 +2968,11 @@ export const ciMarks = (ctx, rows) => {
     ? (ctx.inv.lines || []).reduce((n, l) => n + (Number(l.boxes) || 0), 0)
     : sum(rows, "boxes");
   const end = ends.length ? Math.max(...ends.map((p) => p[1])) : start + Math.max(0, boxes - 1);
-  const prefix = String(s.marks || "").replace(/[\d\-–\s]+/g, " ").trim() || "GDW";
+  /* The mark alone: the carton numbers out, and a "NOS" typed with them —
+     every form adds its own "NOS :", so "GDW NOS : 11001-11519" is "GDW", never
+     "GDW NOS NOS :" (V-7.10.1). */
+  const prefix = String(s.marks || "").replace(/[\d\-–\s]+/g, " ").trim()
+    .replace(/[^A-Za-z0-9.]+$/, "").replace(/\s*\bNOS\b\.?\s*:?$/i, "").replace(/[^A-Za-z0-9.]+$/, "").trim() || "GDW";
   return { prefix, start, end };
 };
 
@@ -3002,7 +3064,7 @@ export const PL_P2_TOP = 26;                  // page 2's first goods line — 2
    printed at — theirs is set to fit the paper, and a deeper page is set
    smaller. Column F is a shade wider in the item-wise book. */
 export const PL_FORMS = {
-  19: { p1Body: 45, p2Body: 42, scale: [86, 86], colF: [9.33203125, 9.33203125], orders: "ref", breakup: true },
+  19: { p1Body: 45, p2Body: 42, scale: [86, 86], colF: [9.33203125, 9.33203125], orders: "ref", breakup: true, pipeLen: true },
   20: { p1Body: 51, p2Body: 46, scale: [79, 81], colF: [10.1640625, 10.6640625], orders: "list", breakup: false },
   /* 32 · the buyer's copy of the list. The same frame as 19, headed with the
      buyer's own run of orders as 20 is, the goods under the trade names the
@@ -3037,7 +3099,7 @@ export function plOrderBox(ctx, form, orderRef, s) {
     [label2, other, ["lt", "lrt"]], ["", "", ["lb", "lrb"]]];
 }
 
-export function packingBands(ctx, buyer = false) {
+export function packingBands(ctx, buyer = false, { pipeLen = false } = {}) {
   const by = new Map();
   L(ctx).forEach((r) => {
     const k = familyOf(r.it);
@@ -3053,7 +3115,7 @@ export function packingBands(ctx, buyer = false) {
     // The pipes carry a length in its own column; a family that has none gives
     // the size that column as well, which is what the cartons need — theirs is
     // three dimensions.
-    const len = lenFamilies(ctx).includes(key) && rows.some((r) => String(r.it.length || "").trim());
+    const len = lenFamilies(ctx, pipeLen).includes(key) && rows.some((r) => String(r.it.length || "").trim());
     // The air list heads the size "SIZE (MM)" even beside a length.
     return { key, rows, head, pkg, per, len, size: len && !airOf(ctx) ? "SIZE (MM/IN)" : "SIZE (MM)" };
   });
@@ -3223,6 +3285,8 @@ export const PL20_TABS = [
     margins: { left: 0.5, right: 0.5, top: 0.5, bottom: 0.5, header: 0, footer: 0 },
     cols: [
       { h: "CODE", sub: "", w: 15.6640625, get: (r) => r.it.code, s: dtCodeL },
+      // Both the item code and the GD code, as the Risers tab has them (V-7.10.1).
+      { h: "GD CODE", sub: "", w: 14.6640625, get: (r) => r.it.gd, s: dtCodeL },
       { h: "GL CODE", sub: "", w: 15.6640625, get: (r) => r.it.gl, s: dtCodeC },
       { h: "SIZE", sub: "MM", w: 6, get: (r) => r.it.size, s: DT.ctrB },
       { h: "LENGTH", sub: "MM", w: 10, get: (r) => r.it.length, s: DT.ctrB },
@@ -3505,12 +3569,13 @@ export function pkdWidths(rows, base) {
 
 /* Their shipment carries the vessel and its voyage in one field — "CAPE SYROS
    VOYAGE 092E", or the voyage code run straight onto the name as "XIN MEI ZHOU
-   167 E" — and the form asks for them in two boxes. The word "voyage" splits it
+   167 E" — and the form asks for them in two boxes. The word "voyage", or its
+   short "VOY" / "VOY." ("XIN MEI ZHOU VOY 0FBIOE1NL", V-7.10.1), splits it
    where it is used; otherwise the trailing code does. */
 export function vesselVoyage(vessel) {
   const t = String(vessel || "").trim();
   if (!t) return ["", ""];
-  const named = /^(.*?)\s*\bvoyage\b\s*(.*)$/i.exec(t);
+  const named = /^(.*?)\s*\b(?:voyage|voy)\b\.?:?\s*(.*)$/i.exec(t);
   if (named) return [named[1].trim(), named[2].trim()];
   const trailing = /^(.*?)\s+(\d+\s*[A-Za-z]?)$/.exec(t);
   return trailing ? [trailing[1].trim(), trailing[2].trim()] : [t, ""];

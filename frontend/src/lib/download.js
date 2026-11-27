@@ -154,6 +154,10 @@ export const GRID_CSS = (p = "") => `
   ${p}table.wb.letter tr.gi > th,
   ${p}table.bpo tr.ln > td,
   ${p}.bla td.c { border: 1px solid #000 !important; }
+  /* The empty lines that run a goods frame on to its depth (17, 18, 19) rule
+     their columns only — no line across (V-7.10.1). */
+  ${p}table.bpo tr.ln.fl > td, ${p}table.ci tr.ln.fl > td, ${p}table.ci tr.fl > td {
+    border-top: none !important; border-bottom: none !important; }
 `;
 
 export const PRINT_CSS = `

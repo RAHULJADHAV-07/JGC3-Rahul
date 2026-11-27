@@ -171,7 +171,7 @@ def revisions(scope: str = Query("supplier", pattern="^(supplier|buyer)$"),
             live[rid] += 1 if active else 0
     return [{
         "id": r.id, "scope": r.scope, "buyer_id": r.buyer_id, "effective": r.effective,
-        "margin_pct": r.margin_pct, "note": r.note or "", "created_at": r.created_at,
+        "margin_pct": r.margin_pct, "note": r.note or "", "your_ref": r.your_ref or "", "created_at": r.created_at,
         "created_by": r.created_by or "", "items": total[r.id], "active": live[r.id],
         "status": "withdrawn" if not live[r.id] else ("partly" if live[r.id] < total[r.id] else "live"),
     } for r in revs]
@@ -212,7 +212,8 @@ def save_supplier(body: schemas.SupplierPricesIn, db: Session = Depends(get_db),
     P.freeze_snapshots(db, ids)
     P.ensure_baselines(db, [it for it, _ in changes], versions)
     now, who = datetime.utcnow(), _who(user)
-    rev = models.PriceRevision(scope="supplier", effective=day, note=body.note.strip(), created_at=now, created_by=who)
+    rev = models.PriceRevision(scope="supplier", effective=day, note=body.note.strip(),
+                               your_ref=body.your_ref.strip(), created_at=now, created_by=who)
     db.add(rev)
     db.flush()
     for it, new in changes:

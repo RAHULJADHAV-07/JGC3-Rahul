@@ -7,6 +7,21 @@
 
 export const RELEASES = [
   {
+    version: "7.10.1",
+    date: "2026-11-27",
+    notes: [
+      "E-way bill (inward): Item Details has a line for each kind of goods the supplier is sending — PP moulded fittings, nylon moulded fittings, pipes, corrugated boxes — each with its own HSN, quantity and value. Before, only one group was named and corrugated boxes (HSN 4819) were counted in with the fittings under 3917. The totals are unchanged.",
+      "Despatch instruction: the marks line is this supplier's own, group by group as its Packing report numbers them — \"GDW NOS : 11362 – 11400 (PP) / 11401 – 11438 (NYLON) / 77 Packages (53 Cartons & 24 HDP Bundles)\" — with none of the rest of the shipment's numbers or packages.",
+      "Suppliers' PO — Your Ref: give the supplier's reference with a rate change (Other Reports → Price list → Suppliers, or Setup → Items when a price is changed). Every supplier PO dated from that day prints it, until a later change gives another. Without one, Setup → Suppliers' own reference prints as before.",
+      "Proforma invoice, customs invoice and packing list: the PP extruded pipes have a LEN (MM) column; the moulded and nylon fittings do not.",
+      "Proforma invoice, customs invoice and packing list: the empty lines that run the goods frame to the foot of the page rule the columns only — no line across.",
+      "Packing list item-wise: the PP Fittings sheet has both CODE and GD CODE.",
+      "Packing declaration: a vessel typed as \"XIN MEI ZHOU VOY 0FBIOE1NL\" splits into Vessel Name XIN MEI ZHOU and Voyage Number 0FBIOE1NL — VOY and VOY. are read as VOYAGE.",
+      "Marks: a shipment's marks typed with their own NOS (\"GDW NOS : 11001-11519\") no longer print as \"GDW NOS NOS :\".",
+      "Setup → Document columns: columns told apart by their currency — hiding Taxable Sales (USD) no longer takes Taxable Sales (INR) with it, and the Excel and the PDF hide the same column.",
+    ],
+  },
+  {
     version: "7.10.0",
     date: "2026-11-26",
     notes: [

@@ -58,6 +58,10 @@ export function colKey(label) {
   const raw = String(label || "").toUpperCase().replace(/\s+/g, " ").trim();
   const k = raw
     .replace(/&/g, " AND ")
+    /* A currency in brackets tells two columns apart — "Taxable Sales (USD)"
+       and "Taxable Sales (INR)" are not one column (V-7.10.1). */
+    .replace(/\(\s*(?:USD|US\s*\$|\$)\s*\)/g, " USD ")
+    .replace(/\(\s*(?:INR|RS\.?|₹)\s*\)/g, " INR ")
     .replace(/\([^)]*\)/g, " ")                              // units: (MM), (IN / MM)
     .replace(/\b\d{1,2}[./-]\d{1,2}[./-]\d{2,4}\b/g, " ")    // a date in the heading
     .replace(/[^A-Z0-9%]+/g, " ")

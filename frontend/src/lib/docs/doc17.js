@@ -11,17 +11,16 @@ export function proformaBands(ctx) {
   });
   // Families in the order their form prints them, whatever order they were
   // packed in; anything unrecognised follows, under its own heading.
-  const air = airOf(ctx);
   return PROFORMA_FAMILIES.filter(([k]) => bands.has(k)).map(([k, head]) => {
     const rows = bands.get(k);
     return {
       head,
       rows,
       boxes: k === "box",
-      /* By sea no range prints a length (LEN_FAMILIES) and the size takes its
-         column; the air order gives the pipes theirs (Docs/JG_Air_Docs/
-         Proforma Invoice.pdf: 2" | 300). */
-      lengths: !!air && lenFamilies(ctx).includes(k) && rows.some((r) => String(r.it.length || "").trim()),
+      /* The pipes print their length beside the size, by sea and by air
+         (LEN_FAMILIES, V-7.10.1); the moulded and nylon fittings have none and
+         the size takes the column. */
+      lengths: lenFamilies(ctx, true).includes(k) && rows.some((r) => String(r.it.length || "").trim()),
       per: commonOf(rows, (r) => fobModeOf(r.it)) === "piece" ? "Per Piece" : "Per 100 Pieces",
     };
   });
@@ -61,7 +60,8 @@ export function proforma17Sheet(ctx, bands) {
     per: { font: "ref", border: "box", align: "center", valign: "center", wrap: true },
     num: { font: "ref", border: "box", align: "center", valign: "center", fmt: "int" },
     money: { font: "ref", border: "box", align: "right", valign: "center", fmt: USD },
-    blank: { font: "ref", border: "box", valign: "center" },
+    // The frame's empty lines rule its columns only, not across (V-7.10.1).
+    blank: { font: "ref", border: "lr", valign: "center" },
     tot: { font: "refb", border: "rt", align: "right", valign: "center", fmt: USD },
     totLbl: { font: "refb", border: "t", align: "center", valign: "center" },
     plain: { font: "ref", border: false, valign: "center" },
