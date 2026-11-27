@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  Tags, Truck, Users, History, RotateCcw, Check, CalendarDays, AlertTriangle, Undo2, Percent, ListChecks, X,
+  Tags, Truck, Users, History, RotateCcw, Check, CalendarDays, AlertTriangle, Undo2, Percent, ListChecks, X, RefreshCw,
 } from "lucide-react";
 import {
   Card, CardHead, Btn, Seg, Mono, Pill, DataTable, Input, NumberInput, Select, Note, Modal, Spinner,
@@ -9,7 +9,7 @@ import {
 import DownloadMenu from "../../components/ui/DownloadMenu.jsx";
 import {
   useItems, useSuppliers, useBuyers, useSupplierPrices, useBuyerPrices, usePriceHistory,
-  usePriceRevisions, usePriceMutations,
+  usePriceRevisions, usePriceMutations, usePriceReach,
 } from "../../api/hooks.js";
 import { useToast } from "../../providers/ToastProvider.jsx";
 import { useDebounced } from "../../lib/useDebounced.js";
@@ -29,9 +29,12 @@ import { UNIT_MODES } from "../../lib/constants.js";
    Buyers — the same list, priced for one buyer: a margin over the supplier's
    price (both the ₹ price and the FOB move by it), or figures typed for a line.
 
-   Nothing on the book moves. An order is placed at the prices in force on its
-   own date, and every order and invoice already raised keeps what it was
-   raised at. Any save can be withdrawn and any earlier price gone back to —
+   An order is placed at the prices in force on its own date. Orders already
+   placed from the date a save holds from, and still open, take the new prices
+   too once "apply to orders" is ticked (V-7.10.2) — the tick starts empty and
+   the save waits for it, or for "Save, orders unchanged" — the same choice
+   Setup → Items offers, listed by order before saving. Delivered boxes and
+   every invoice keep what they were raised at. Any save can be withdrawn and any earlier price gone back to —
    the history is kept, never overwritten. Leaving with unsaved changes asks
    first (lib/leaveGuard.js). */
 
@@ -44,9 +47,13 @@ const when = (s) => {
   return Number.isNaN(d.getTime()) ? "" : d.toLocaleDateString("en-GB");
 };
 const descLine = (s) => String(s || "").split("\n")[0];
+/* " — 6 order lines restated (PO 2036486, 2036510)" after a save that applied
+   the change to orders already placed. */
+const repricedText = (res) => (res?.repriced
+  ? ` — ${res.repriced} order line${res.repriced === 1 ? "" : "s"} restated (PO ${(res.pos || []).join(", ")})` : "");
 
 /* ---- Unsaved changes ------------------------------------------------------ */
-function useUnsaved({ count, save, discard, canSave, what }) {
+function useUnsaved({ count, save, discard, canSave, what, blocked }) {
   const [pending, setPending] = useState(null);     // the move waiting on an answer
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -79,7 +86,7 @@ function useUnsaved({ count, save, discard, canSave, what }) {
         {count} {what}{count === 1 ? " has" : "s have"} been changed on this list and not saved.
         Save {count === 1 ? "it" : "them"} before leaving, or let {count === 1 ? "it" : "them"} go?
       </p>
-      {!canSave && <Note tone="amber" icon={CalendarDays}>Pick the date the prices hold from (at the head of the list) to save them.</Note>}
+      {!canSave && <Note tone="amber" icon={CalendarDays}>{blocked || "Pick the date the prices hold from (at the head of the list) to save them."}</Note>}
       {err && <Note tone="amber" icon={AlertTriangle}>{err}</Note>}
     </Modal>
   );
@@ -117,7 +124,7 @@ const fromCell = (effective, setAt, setBy, none = "as in the item master") => (
 );
 
 /* ---- The head: the date, the note, save ---------------------------------- */
-function SaveBar({ day, setDay, note, setNote, count, hidden, saving, canEdit, onSave, onDiscard, onRevisions, extra }) {
+function SaveBar({ day, setDay, note, setNote, count, hidden, saving, canEdit, onSave, onDiscard, onRevisions, extra, blocked, onSaveKeep }) {
   return (
     <Card>
       <div className="pl-bar">
@@ -134,9 +141,17 @@ function SaveBar({ day, setDay, note, setNote, count, hidden, saving, canEdit, o
         <div className="row wrap pl-actions">
           <Btn variant="ghost" size="sm" icon={ListChecks} onClick={onRevisions}>Price changes</Btn>
           {count > 0 && <Btn variant="ghost" size="sm" icon={Undo2} onClick={onDiscard}>Discard</Btn>}
+          {/* Open orders reached: the save waits for the tick that confirms
+              they take the new prices — or for this, which says they do not. */}
+          {canEdit && blocked && onSaveKeep && (
+            <Btn variant="ghost" size="sm" disabled={saving} onClick={onSaveKeep}
+              title="Save the new prices; the open orders already placed keep the prices they were placed at">
+              Save, orders unchanged
+            </Btn>
+          )}
           {canEdit && (
-            <Btn size="sm" icon={Check} disabled={!count || !day || saving} onClick={onSave}
-              title={!day && count ? "Pick the date the prices hold from" : undefined}>
+            <Btn size="sm" icon={Check} disabled={!count || !day || saving || !!blocked} onClick={onSave}
+              title={!day && count ? "Pick the date the prices hold from" : blocked || undefined}>
               {saving ? "Saving…" : count ? `Save ${count} change${count === 1 ? "" : "s"}` : "Save"}
             </Btn>
           )}
@@ -146,10 +161,75 @@ function SaveBar({ day, setDay, note, setNote, count, hidden, saving, canEdit, o
         <div className="pl-status">
           <b>{count}</b> item{count === 1 ? "" : "s"} changed{hidden ? ` (${hidden} not shown by the filter)` : ""}.
           {!day && <span className="pl-need"> Pick the date the prices hold from to save.</span>}
-          {" "}Orders and invoices already raised keep their prices; a new order takes the price in force on its own date.
+          {day && blocked && <span className="pl-need"> {blocked}</span>}
+          {" "}A new order takes the price in force on its own date; open orders from that date follow only when “apply” below is ticked. Invoices never move.
         </div>
       )}
     </Card>
+  );
+}
+
+/* ---- Carrying the change onto orders already placed (V-7.10.2) ------------ */
+/* Which open orders a change reaches, and whether the save must wait for the
+   "apply" tick. The tick starts empty and clears itself whenever the orders
+   reached change (another date, other items): a confirmation is for the
+   orders it was given against, never carried over. */
+function useReach({ day, itemIds, buyerId, canEdit }) {
+  const body = useMemo(() => (canEdit && day && itemIds.length
+    ? { effective: day, item_ids: [...itemIds].sort(), ...(buyerId ? { buyer_id: buyerId } : {}) } : null),
+  [canEdit, day, itemIds.join("|"), buyerId]); // eslint-disable-line react-hooks/exhaustive-deps
+  const q = usePriceReach(body);
+  const [apply, setApplyNow] = useState(false);
+  const pos = body ? q.data?.pos || [] : [];
+  const key = body && q.data ? `${body.effective}|${pos.map((p) => `${p.po}:${p.boxes}`).join(",")}` : "";
+  const [ticked, setTicked] = useState("");
+  useEffect(() => { if (ticked !== key) setApplyNow(false); }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
+  const setApply = (v) => { setApplyNow(v); setTicked(v ? key : ""); };
+  /* Still checking, or orders reached and not yet confirmed: nothing saves
+     with the main button. */
+  const blocked = !body ? ""
+    : q.isLoading || q.isFetching && !q.data ? "Checking which open orders the new prices reach…"
+      : pos.length && !apply ? "Tick “Apply the new prices…” below to confirm the open orders take them, or save with the orders unchanged."
+        : "";
+  return { body, q, apply: !!(apply && pos.length), setApply, blocked, reached: pos.length > 0 };
+}
+
+function ApplyToOrders({ day, itemIds, reach, canEdit }) {
+  const { body, q, apply, setApply } = reach;
+  if (!body || !canEdit) return null;
+  const r = q.data || { pos: [], lines: 0, boxes: 0, older_pos: [] };
+  const older = r.older_pos || [];
+  if (q.isLoading) return <Note tone="teal" icon={RefreshCw}>Checking which orders from {dmyNum(day)} are still open…</Note>;
+  if (q.isError) return <Note tone="amber" icon={AlertTriangle}>Could not check the open orders — the prices still save, and every new order dated from {dmyNum(day)} uses them.</Note>;
+  return (
+    <Note tone="amber" icon={apply || !r.pos.length ? RefreshCw : AlertTriangle}>
+      {r.pos.length ? (
+        <label className="row" style={{ gap: 9, alignItems: "flex-start", cursor: "pointer" }}>
+          <input type="checkbox" checked={apply} onChange={(e) => setApply(e.target.checked)}
+            style={{ width: 15, height: 15, accentColor: "var(--teal)", cursor: "pointer", marginTop: 2, flexShrink: 0 }} />
+          <span>
+            <b>Apply the new prices to the orders already placed from {dmyNum(day)}.</b>
+            {!apply && <span className="pl-need"> Tick to confirm — the prices are not saved until you do, or choose “Save, orders unchanged”.</span>}
+            <div style={{ marginTop: 3 }}>
+              {r.boxes} box{r.boxes === 1 ? "" : "es"} still outstanding across{" "}
+              <span className="row wrap" style={{ gap: 4, display: "inline-flex", verticalAlign: "middle" }}>
+                {r.pos.map((p) => <Pill key={p.po} tone="amber">{p.po} ({dmyNum(p.date)}) · {p.boxes}</Pill>)}
+              </span>
+            </div>
+            <div style={{ marginTop: 4, color: "var(--muted)" }}>
+              Ticked, each is restated at the prices in force on its own date when you save.
+              Delivered boxes and invoices never move; every new order dated from {dmyNum(day)} takes the new prices either way.
+              {older.length > 0 && <> Open orders dated before it ({older.join(", ")}) keep their prices.</>}
+            </div>
+          </span>
+        </label>
+      ) : (
+        <span>
+          No open order dated from {dmyNum(day)} has {itemIds.length === 1 ? "this item" : "these items"} — every new order from that day takes the new prices.
+          {older.length > 0 && <> Open orders dated before it ({older.join(", ")}) keep their prices.</>}
+        </span>
+      )}
+    </Note>
   );
 }
 
@@ -335,21 +415,26 @@ function SupplierPrices({ canEdit, sup, q }) {
 
   const set = (id, k, v) => setDraft((p) => ({ ...p, [id]: { ...p[id], [k]: v } }));
   const discard = () => { setDraft({}); setErr(""); };
-  const save = async () => {
+  /* The open orders this change reaches, and the tick that confirms they take
+     it (V-7.10.2). */
+  const reach = useReach({ day, itemIds: changes.map(([it]) => it.id), canEdit });
+  const save = async (apply = reach.apply) => {
     setErr("");
     const res = await saveSupplier.mutateAsync({
-      effective: day, note, your_ref: yourRef,
+      effective: day, note, your_ref: yourRef, apply_to_orders: !!apply,
       rows: changes.map(([it, c]) => ({ item_id: it.id, ...c })),
     });
     setDraft({});
     setYourRef("");
     toast(res.changed
-      ? `Prices saved — ${res.changed} item${res.changed === 1 ? "" : "s"}, holding from ${dmyNum(day)}`
+      ? `Prices saved — ${res.changed} item${res.changed === 1 ? "" : "s"}, holding from ${dmyNum(day)}${repricedText(res)}`
       : "Nothing to save — those were already the prices on that day");
     return res;
   };
   const onSave = () => save().catch((e) => setErr(errorText(e).text));
-  const leave = useUnsaved({ count: changes.length, save, discard, canSave: !!day, what: "price" });
+  const onSaveKeep = () => save(false).catch((e) => setErr(errorText(e).text));
+  const leave = useUnsaved({ count: changes.length, save, discard, canSave: !!day && !reach.blocked, what: "price",
+    blocked: reach.blocked && "Choose first whether the open orders take the new prices — the tick below the date, or “Save, orders unchanged”." });
 
   const cols = [
     { key: "gd", w: 104, label: "GD code", primary: true, render: (it) => <Mono>{it.gd || it.code}</Mono> },
@@ -405,6 +490,7 @@ function SupplierPrices({ canEdit, sup, q }) {
     <>
       <SaveBar day={day} setDay={setDay} note={note} setNote={setNote} count={changes.length} hidden={hiddenCount}
         saving={saveSupplier.isPending} canEdit={canEdit} onSave={onSave} onDiscard={discard} onRevisions={() => setRevs(true)}
+        blocked={changes.length ? reach.blocked : ""} onSaveKeep={reach.reached ? onSaveKeep : undefined}
         extra={(
           /* The supplier's own reference for these rates — printed as "Your Ref"
              on every supplier PO dated from this day until the next change
@@ -416,6 +502,9 @@ function SupplierPrices({ canEdit, sup, q }) {
           </Field>
         )} />
       {err && <Note tone="amber" icon={AlertTriangle}>{err}</Note>}
+      {changes.length > 0 && (
+        <ApplyToOrders day={day} itemIds={changes.map(([it]) => it.id)} reach={reach} canEdit={canEdit} />
+      )}
       {behind.length > 0 && (
         <Note tone="amber" icon={CalendarDays}>
           {behind.length} of the changed item{behind.length === 1 ? " has" : "s have"} a later price already in force. The figures typed
@@ -512,20 +601,26 @@ function BuyerPrices({ canEdit, sup, q, buyerId }) {
     });
   };
   const discard = () => { setDraft({}); setErr(""); };
-  const save = async () => {
+  const reach = useReach({ day, itemIds: changes.map(([it]) => it.id), buyerId, canEdit });
+  const save = async (apply = reach.apply) => {
     setErr("");
     const res = await saveBuyer.mutateAsync({
       bid: buyerId,
-      body: { effective: day, note, margin_pct: figure(margin), rows: changes.map(([it, c]) => ({ item_id: it.id, ...c })) },
+      body: {
+        effective: day, note, margin_pct: figure(margin), apply_to_orders: !!apply,
+        rows: changes.map(([it, c]) => ({ item_id: it.id, ...c })),
+      },
     });
     setDraft({});
     toast(res.changed
-      ? `Buyer prices saved — ${res.changed} item${res.changed === 1 ? "" : "s"}, holding from ${dmyNum(day)}`
+      ? `Buyer prices saved — ${res.changed} item${res.changed === 1 ? "" : "s"}, holding from ${dmyNum(day)}${repricedText(res)}`
       : "Nothing to save — those were already the prices on that day");
     return res;
   };
   const onSave = () => save().catch((e) => setErr(errorText(e).text));
-  const leave = useUnsaved({ count: changes.length, save, discard, canSave: !!day, what: "price" });
+  const onSaveKeep = () => save(false).catch((e) => setErr(errorText(e).text));
+  const leave = useUnsaved({ count: changes.length, save, discard, canSave: !!day && !reach.blocked, what: "price",
+    blocked: reach.blocked && "Choose first whether the open orders take the new prices — the tick below the date, or “Save, orders unchanged”." });
 
   const curMargin = (cur) => (cur.mode === "margin" ? `${num(cur.margin_pct, 1)}%` : cur.mode === "manual" ? "typed" : "none");
   const cols = [
@@ -593,6 +688,7 @@ function BuyerPrices({ canEdit, sup, q, buyerId }) {
     <>
       <SaveBar day={day} setDay={setDay} note={note} setNote={setNote} count={changes.length} hidden={hiddenCount}
         saving={saveBuyer.isPending} canEdit={canEdit} onSave={onSave} onDiscard={discard} onRevisions={() => setRevs(true)}
+        blocked={changes.length ? reach.blocked : ""} onSaveKeep={reach.reached ? onSaveKeep : undefined}
         extra={canEdit && (
           <Field label="Margin over the supplier's price" hint="Moves the ₹ price and the FOB alike — 50% on ₹100 / $1 is ₹150 / $1.50">
             <span className="row" style={{ gap: 6 }}>
@@ -605,6 +701,9 @@ function BuyerPrices({ canEdit, sup, q, buyerId }) {
           </Field>
         )} />
       {err && <Note tone="amber" icon={AlertTriangle}>{err}</Note>}
+      {changes.length > 0 && (
+        <ApplyToOrders day={day} itemIds={changes.map(([it]) => it.id)} reach={reach} canEdit={canEdit} />
+      )}
       <Card>
         <CardHead icon={Users} title={`${bname || "Buyer"} · ${shown.length} item${shown.length === 1 ? "" : "s"}`}>
           <span style={{ fontSize: 11.5, color: "var(--faint)" }}>A margin follows the supplier's later prices; a typed price stays as typed.</span>

@@ -21,6 +21,10 @@ import { carriageRef } from "../../lib/modes.js";
    they stay in the PO summary, in the masters and in every report, and can be
    put back from the foot of this card. */
 
+/* "22 / 2.08" on a phone card — blank when nothing is owed, never "— / —". */
+const pairText = (c) => (c?.boxes || c?.vol
+  ? <><b>{c.boxes || 0}</b> / {num(c.vol || 0, 2)}</> : "");
+
 /* The balance matrix on a phone: suppliers across the top of a wide grid does
    not survive a 390px screen, so one supplier is chosen at a time and their
    open POs are listed down the page with the boxes and volume still owed. */
@@ -50,15 +54,21 @@ function BalanceCards({ M, empty, sel, onToggle, onOpenPo, simple }) {
               <span className="dt-card-n">{dmy(M.po_date[po])}</span>
             </div>
             <dl className="dt-card-body">
-              {simple ? RANGES.map(([k, label]) => (
-                <div key={k} className="dt-pair">
-                  <dt>{label} · boxes / m³</dt>
-                  <dd className="r"><b>{cells[po][k]?.boxes || "—"}</b> / {cells[po][k]?.vol ? num(cells[po][k].vol, 2) : "—"}</dd>
-                </div>
-              )) : (
+              {simple ? [
+                <div key="all" className="dt-pair">
+                  <dt>Total · boxes / m³</dt>
+                  <dd className="r">{pairText(cells[po])}</dd>
+                </div>,
+                ...RANGES.map(([k, label]) => (
+                  <div key={k} className="dt-pair">
+                    <dt>{label} · boxes / m³</dt>
+                    <dd className="r">{pairText(cells[po][k])}</dd>
+                  </div>
+                )),
+              ] : (
                 <>
-                  <div className="dt-pair"><dt>Boxes pending</dt><dd className="r"><b>{cells[po].boxes || "—"}</b></dd></div>
-                  <div className="dt-pair"><dt>Volume m³</dt><dd className="r">{cells[po].vol ? num(cells[po].vol, 2) : "—"}</dd></div>
+                  <div className="dt-pair"><dt>Boxes pending</dt><dd className="r"><b>{cells[po].boxes || ""}</b></dd></div>
+                  <div className="dt-pair"><dt>Volume m³</dt><dd className="r">{cells[po].vol ? num(cells[po].vol, 2) : ""}</dd></div>
                 </>
               )}
               {!sup && (
@@ -87,7 +97,16 @@ function BalanceCards({ M, empty, sel, onToggle, onOpenPo, simple }) {
             <dl className="dt-card-body">
               <div className="dt-pair"><dt>Boxes pending</dt><dd className="r"><b>{totBox}</b></dd></div>
               <div className="dt-pair"><dt>Volume m³</dt><dd className="r">{num(totVol, 2)}</dd></div>
-              <div className="dt-pair"><dt>Containers</dt><dd className="r">{totVol > 0 ? (totVol / M.cntr_vol).toFixed(3) : "—"}</dd></div>
+              {simple && RANGES.map(([k, label]) => {
+                const sp = (row ? row.split : M.totals.split)?.[k] || {};
+                return (
+                  <div key={k} className="dt-pair">
+                    <dt>{label} · boxes / m³</dt>
+                    <dd className="r">{pairText(sp)}</dd>
+                  </div>
+                );
+              })}
+              <div className="dt-pair"><dt>Containers</dt><dd className="r">{totVol > 0 ? (totVol / M.cntr_vol).toFixed(3) : ""}</dd></div>
             </dl>
           </div>
         )}
@@ -117,54 +136,72 @@ function BalanceCards({ M, empty, sel, onToggle, onOpenPo, simple }) {
   );
 }
 
-/* The simplified board (V-7.9.0): the same suppliers and orders, each order
-   split into what is still owed of the PP range and of the GRN (nylon) range —
-   boxes and volume of each. Everything not GRN is PP: the PP fittings and the
-   pipes. */
+/* The simplified board (V-7.9.0; laid out as the client drew it in V-7.10.2):
+   the same suppliers and orders, with each supplier given three rows — its
+   total boxes and volume on every order, exactly as the full board shows
+   them, then the PP and the GRN (nylon) part of that underneath. Everything
+   not GRN is PP: the PP fittings and the pipes. The foot does the same for
+   the whole board. */
 const RANGES = [["pp", "PP"], ["grn", "GRN"]];
 
 function SimpleMatrix({ M, poHead, cntr }) {
-  const pair = (c) => RANGES.flatMap(([k], i) => [
-    <td key={k + "b"} className={`r${i ? "" : " mx-gs"}`}>{c?.[k]?.boxes || "—"}</td>,
-    <td key={k + "v"} className="r mx-vol">{c?.[k]?.vol ? num(c[k].vol, 2) : "—"}</td>,
-  ]);
+  // Nothing owed is an empty cell — a column of dashes only cluttered the board.
+  const box = (n) => (n ? n : "");
+  const vol = (v) => (v ? num(v, 2) : "");
+  /* One row's cells across every order, then its total and containers. `pick`
+     reads the figure off a cell: the cell itself, or its PP / GRN part. */
+  const cells = (src, pick, tot, strong) => [
+    ...M.pos.flatMap((po) => {
+      const c = pick(src.cells[po]);
+      return [
+        <td key={po + "b"} className={`r${strong ? " strong" : ""}`}>{box(c?.boxes)}</td>,
+        <td key={po + "v"} className="r mx-vol">{vol(c?.vol)}</td>,
+      ];
+    }),
+    <td key="tb" className="r strong mx-totc">{box(tot.boxes)}</td>,
+    <td key="tv" className="r strong mx-totc">{vol(tot.vol)}</td>,
+    <td key="cn" className="r">{cntr(tot.vol)}</td>,
+  ];
+  const whole = (c) => c;
+  const part = (k) => (c) => c?.[k];
   return (
     <XScroll className="tbl-wrap" deps={[M.pos.length, M.rows.length, "simple"]}>
       <table className="matrix mx-simple">
         <thead>
           <tr>
-            <th rowSpan={3} className="mx-sup">Supplier</th>
-            {M.pos.map((po) => poHead(po, 4))}
-            <th colSpan={4} className="mx-tot">TOTAL</th>
-            <th rowSpan={3} className="mx-tot">CNTRS</th>
+            <th rowSpan={2} className="mx-sup">Supplier</th>
+            <th rowSpan={2} className="mx-rngc" aria-label="Range" />
+            {M.pos.map((po) => poHead(po, 2))}
+            <th colSpan={2} className="mx-tot">TOTAL</th>
+            <th rowSpan={2} className="mx-tot">CNTRS</th>
           </tr>
           <tr>
-            {[...M.pos, "_t"].map((po) => RANGES.map(([k, label]) => (
-              <th key={po + k} colSpan={2} className={`mx-rng mx-${k}${k === "pp" ? " mx-gs" : ""}${po === "_t" ? " mx-tot" : ""}`}>{label}</th>
-            )))}
-          </tr>
-          <tr>
-            {[...M.pos, "_t"].map((po) => RANGES.flatMap(([k], i) => [
-              <th key={po + k + "b"} className={`mx-sub${i ? "" : " mx-gs"}${po === "_t" ? " mx-tot" : ""}`}>BOX</th>,
-              <th key={po + k + "v"} className={`mx-sub${po === "_t" ? " mx-tot" : ""}`}>VOL</th>,
-            ]))}
+            {M.pos.map((po) => [
+              <th key={po + "b"} className="mx-sub">BOX</th>,
+              <th key={po + "v"} className="mx-sub">VOL</th>,
+            ])}
+            <th className="mx-sub mx-tot">BOX</th>
+            <th className="mx-sub mx-tot">VOL</th>
           </tr>
         </thead>
         <tbody>
-          {M.rows.map((r) => (
-            <tr key={r.supplier.id}>
-              <td className="mx-sup"><Pill>{r.supplier.code}</Pill> <span style={{ color: "var(--ink)" }}>{r.supplier.name}</span></td>
-              {M.pos.map((po) => pair(r.cells[po]))}
-              {RANGES.flatMap(([k], i) => [
-                <td key={k + "tb"} className={`r strong${i ? "" : " mx-gs"}`}>{r.split?.[k]?.boxes || "—"}</td>,
-                <td key={k + "tv"} className="r strong">{r.split?.[k]?.vol ? num(r.split[k].vol, 2) : "—"}</td>,
-              ])}
-              <td className="r">{cntr(r.totVol)}</td>
-            </tr>
-          ))}
+          {M.rows.map((r) => [
+            <tr key={r.supplier.id} className="mx-suprow">
+              <td className="mx-sup" title={`${r.supplier.code} — ${r.supplier.name}`}><Pill>{r.supplier.code}</Pill> <span style={{ color: "var(--ink)" }}>{r.supplier.name}</span></td>
+              <td className="mx-rngc" />
+              {cells(r, whole, { boxes: r.totBox, vol: r.totVol }, true)}
+            </tr>,
+            ...RANGES.map(([k, label]) => (
+              <tr key={r.supplier.id + k} className={`mx-partrow mx-${k}`}>
+                <td className="mx-sup" />
+                <td className="mx-rngc"><span className={`mx-rtag mx-${k}`}>{label}</span></td>
+                {cells(r, part(k), r.split?.[k] || {}, false)}
+              </tr>
+            )),
+          ])}
           {!M.rows.length && (
             <tr>
-              <td className="mx-sup" colSpan={M.pos.length * 4 + 6}
+              <td className="mx-sup" colSpan={M.pos.length * 2 + 5}
                 style={{ textAlign: "center", color: "var(--faint)", position: "static" }}>
                 No boxes are pending — every order above has been delivered in full.
               </td>
@@ -174,10 +211,16 @@ function SimpleMatrix({ M, poHead, cntr }) {
         <tfoot>
           <tr>
             <td className="mx-sup">TOTAL</td>
-            {M.pos.map((po) => pair(M.totals.cells[po]))}
-            {pair(M.totals.split)}
-            <td className="r">{cntr(M.totals.totVol)}</td>
+            <td className="mx-rngc" />
+            {cells(M.totals, whole, { boxes: M.totals.totBox, vol: M.totals.totVol }, true)}
           </tr>
+          {RANGES.map(([k, label]) => (
+            <tr key={k} className={`mx-partrow mx-${k}`}>
+              <td className="mx-sup" />
+              <td className="mx-rngc"><span className={`mx-rtag mx-${k}`}>{label}</span></td>
+              {cells(M.totals, part(k), M.totals.split?.[k] || {}, false)}
+            </tr>
+          ))}
         </tfoot>
       </table>
     </XScroll>
@@ -204,7 +247,7 @@ function InvoiceCards({ rows, brand, onOpen }) {
             <div className="dt-pair"><dt>Volume m³</dt><dd className="r">{num(volume, 3)}</dd></div>
             <div className="dt-pair">
               <dt>Container / AWB</dt>
-              <dd className="r">{carriageRef(inv.ship) ? <Mono>{carriageRef(inv.ship)}</Mono> : "—"}</dd>
+              <dd className="r">{carriageRef(inv.ship) ? <Mono>{carriageRef(inv.ship)}</Mono> : ""}</dd>
             </div>
             <div className="dt-pair">
               <dt>Status</dt>
@@ -263,7 +306,7 @@ export default function DashboardPage() {
 
   const invoices = invq.data || [];
   const byId = useMemo(() => Object.fromEntries(items.map((i) => [i.id, i])), [items]);
-  const brand = (id) => buyers.find((b) => b.id === id)?.brand || "—";
+  const brand = (id) => buyers.find((b) => b.id === id)?.brand || "";
 
   const emptyPos = mq.data?.empty_pos || [];
   const hiddenPos = mq.data?.hidden_pos || [];
@@ -290,7 +333,7 @@ export default function DashboardPage() {
   const M = mq.data;
   /* CNTRS = pending volume ÷ 30 m³ (the API's cntr_vol), to three places —
      12.06 m³ reads 0.402. */
-  const cntr = (vol) => (vol > 0 ? (vol / M.cntr_vol).toFixed(3) : "—");
+  const cntr = (vol) => (vol > 0 ? (vol / M.cntr_vol).toFixed(3) : "");
   /* A PO header opens that purchase order — straight into its item-wise
      detail — rather than the summary of every order. */
   const openPo = (po) => nav(`/orders?po=${encodeURIComponent(po)}`);
@@ -377,8 +420,8 @@ export default function DashboardPage() {
                   <tr key={r.supplier.id}>
                     <td className="mx-sup"><Pill>{r.supplier.code}</Pill> <span style={{ color: "var(--ink)" }}>{r.supplier.name}</span></td>
                     {M.pos.map((po) => [
-                      <td key={po + "b"} className="r">{r.cells[po].boxes || "—"}</td>,
-                      <td key={po + "v"} className="r mx-vol">{r.cells[po].vol ? num(r.cells[po].vol, 2) : "—"}</td>,
+                      <td key={po + "b"} className="r">{r.cells[po].boxes || ""}</td>,
+                      <td key={po + "v"} className="r mx-vol">{r.cells[po].vol ? num(r.cells[po].vol, 2) : ""}</td>,
                     ])}
                     <td className="r strong">{r.totBox}</td>
                     <td className="r strong">{num(r.totVol, 2)}</td>
@@ -400,8 +443,8 @@ export default function DashboardPage() {
                 <tr>
                   <td className="mx-sup">TOTAL</td>
                   {M.pos.map((po) => [
-                    <td key={po + "b"} className="r">{M.totals.cells[po].boxes || "—"}</td>,
-                    <td key={po + "v"} className="r mx-vol">{M.totals.cells[po].vol ? num(M.totals.cells[po].vol, 2) : "—"}</td>,
+                    <td key={po + "b"} className="r">{M.totals.cells[po].boxes || ""}</td>,
+                    <td key={po + "v"} className="r mx-vol">{M.totals.cells[po].vol ? num(M.totals.cells[po].vol, 2) : ""}</td>,
                   ])}
                   <td className="r">{M.totals.totBox}</td>
                   <td className="r">{num(M.totals.totVol, 2)}</td>
@@ -445,7 +488,7 @@ export default function DashboardPage() {
               { key: "buyer", w: 150, label: "Buyer", render: (r) => brand(r.inv.buyer_id) },
               { key: "boxes", w: 78, label: "Boxes", align: "r", strong: true, render: (r) => r.boxes },
               { key: "vol", w: 106, label: "Volume m³", align: "r", render: (r) => num(r.volume, 3) },
-              { key: "container", label: "Container / AWB", render: (r) => carriageRef(r.inv.ship) ? <Mono>{carriageRef(r.inv.ship)}</Mono> : <span style={{ color: "var(--faint)" }}>—</span> },
+              { key: "container", label: "Container / AWB", render: (r) => carriageRef(r.inv.ship) ? <Mono>{carriageRef(r.inv.ship)}</Mono> : null },
               { key: "status", label: "Status", render: (r) => <Pill tone={INV_STATUS_TONE[r.inv.status] || ""}>{r.inv.status}</Pill> },
             ]}
             rows={invRows} rowKey={(r) => r.inv.id}

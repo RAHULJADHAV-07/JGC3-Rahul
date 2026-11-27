@@ -1,4 +1,5 @@
 """Pydantic request/response schemas."""
+import re
 from datetime import date as _date, datetime
 from typing import Annotated, Literal, Optional, Any
 from fastapi import HTTPException
@@ -145,6 +146,14 @@ class TokenResponse(BaseModel):
     # True when this sign-in used a password an admin set: the app must send
     # the person straight to the change-password screen.
     must_change_password: bool = False
+    # When this session ends (UTC) — midnight in APP_TIMEZONE by default.
+    session_expires_at: Optional[datetime] = None
+
+
+class MeOut(UserOut):
+    """/api/auth/me: the account, plus when the session it was asked on ends,
+    so the app can sign out on the dot rather than at the next click."""
+    session_expires_at: Optional[datetime] = None
 
 
 class OtpChallenge(BaseModel):
@@ -581,6 +590,10 @@ class SupplierPricesIn(BaseModel):
     # The supplier's reference for these rates — the supplier PO's "Your Ref".
     your_ref: str = Field("", max_length=300)
     rows: list[SupplierPriceIn] = Field(..., min_length=1, max_length=5000)
+    # Also restate the orders already placed from `effective` on that still
+    # have boxes outstanding, each at the prices in force on its own date
+    # (V-7.10.2). Delivered boxes keep what they were invoiced at.
+    apply_to_orders: bool = False
 
 
 class BuyerPriceIn(BaseModel):
@@ -600,6 +613,14 @@ class BuyerPricesIn(BaseModel):
     note: str = Field("", max_length=300)
     margin_pct: Optional[Margin] = None
     rows: list[BuyerPriceIn] = Field(..., min_length=1, max_length=5000)
+    apply_to_orders: bool = False
+
+
+class PriceReachIn(BaseModel):
+    """Which orders a price change dated `effective` would reach (V-7.10.2)."""
+    effective: IsoDate
+    item_ids: list[str] = Field(default_factory=list, max_length=5000)
+    buyer_id: Ref = None
 
 
 # ---------- Transport ----------
@@ -633,9 +654,26 @@ class Transport(TransportBase, ORMModel):
 
 
 # ---------- Purchase orders ----------
+def _pack(v):
+    """A line's packaging (V-7.10.2): a type from Setup → Additional settings
+    → Packaging types, or None for "as the item goes". Blank and "auto" mean
+    None; whether the type is on the list is checked where the line is saved
+    (options.pack_name)."""
+    t = re.sub(r"\s+", " ", str(v or "")).strip()
+    if t.lower() in ("", "auto", "none"):
+        return None
+    if len(t) > 60:
+        raise ValueError("packaging: at most 60 characters")
+    return t
+
+
+Pack = Annotated[Optional[str], BeforeValidator(_pack)]
+
+
 class POLineIn(BaseModel):
     item_id: str
     qty: Pieces
+    packaging: Pack = None
 
 
 class POLineEdit(BaseModel):
@@ -644,6 +682,8 @@ class POLineEdit(BaseModel):
     id: Optional[str] = None
     item_id: Optional[str] = None
     qty: Pieces = 0
+    # Left out, a kept line keeps the packaging it had.
+    packaging: Pack = None
 
     @field_validator("qty", mode="before")
     @classmethod
@@ -678,6 +718,9 @@ class InvoiceLineIn(BaseModel):
     boxes: Boxes = 0
     # Custom PO only — ignored on a FIFO invoice.
     po_alloc: Optional[list[PoPin]] = Field(None, max_length=1000)
+    # "bundle" | "carton" for this line; left out on an edit, the line keeps
+    # what it had.
+    packaging: Pack = None
 
 
 class InvoiceLineOut(ORMModel):
@@ -696,6 +739,7 @@ class InvoiceLineOut(ORMModel):
     serial_from: Optional[int] = None
     # Custom PO only: [{po, boxes}] — NULL on a FIFO line.
     po_alloc: Optional[list[dict[str, Any]]] = None
+    packaging: Optional[str] = None
 
 
 class InvoiceCreate(BaseModel):

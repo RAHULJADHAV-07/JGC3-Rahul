@@ -100,7 +100,7 @@ function poLegs(invoices, poLines, items) {
   const pack = Object.fromEntries(items.map((i) => [i.id, Number(i.packing) || 1]));
   const open = {};
   [...poLines].sort((a, b) => a.date.localeCompare(b.date) || a.po.localeCompare(b.po)).forEach((r) => {
-    (open[r.item_id] ||= []).push({ po: r.po, date: r.date, left: Math.ceil(r.qty / pack[r.item_id]) });
+    (open[r.item_id] ||= []).push({ po: r.po, date: r.date, left: Math.ceil(r.qty / pack[r.item_id]), packaging: r.packaging || null });
   });
   [...invoices].sort((a, b) => a.date.localeCompare(b.date)).forEach((inv) => {
     inv.po_legs = {};
@@ -109,7 +109,10 @@ function poLegs(invoices, poLines, items) {
       for (const d of open[l.item_id] || []) {
         if (want <= 0) break;
         const take = Math.min(d.left, want);
-        if (take > 0) { d.left -= take; want -= take; (inv.po_legs[l.item_id] ||= []).push({ po: d.po, date: d.date, boxes: take }); }
+        if (take > 0) {
+          d.left -= take; want -= take;
+          (inv.po_legs[l.item_id] ||= []).push({ po: d.po, date: d.date, boxes: take, ...(d.packaging ? { packaging: d.packaging } : {}) });
+        }
       }
     });
   });
@@ -284,6 +287,57 @@ group("Bundles (19)", () => {
 check("Bundles (19)", "the 1800 mm pipe in bundles shows (BUNDLES) beside its length", t19.includes("1800 (BUNDLES)"));
 check("Bundles (19)", "corrugated boxes show (BUNDLES) beside the size", t19.includes("570 X 368 X 178 (BUNDLES)"));
 check("Bundles (19)", "Excel carries the same", cells("19").includes("1800 (BUNDLES)"));
+});
+
+// 4a · packaging by length, and a line's own packaging (V-7.10.2)
+group("Packaging (V-7.10.2)", () => {
+const A = "Packaging (V-7.10.2)";
+/* The 1800 mm riser as cartons in the master: only the rule, a line or its
+   order can put it in bundles. */
+const base = JSON.parse(JSON.stringify(D));
+base.items.find((i) => i.id === "i-90448820").packaging_type = "Cartons";
+const ctxWith = (data, packRule) => docCtx({
+  invoice: data.invoices.find((i) => i.invoice_no === "DEMO/2"), items: data.items, buyers: data.buyers,
+  suppliers: data.suppliers, poLines: data.poLines, transports: data.transports, invoices: data.invoices, packRule,
+});
+const t = (c, no = "19") => text(html(no, c));
+const RULE = [{ type: "Bundle", above_mm: 1000 }];
+const plain = t(ctxWith(base, null));
+check(A, "no rule, item in cartons: no (BUNDLES) by the 1800 mm riser", !plain.includes("1800 (BUNDLES)"));
+check(A, "rule Bundle above 1000 mm: (BUNDLES) by the 1800 mm riser on 18 and 19", t(ctxWith(base, RULE)).includes("1800 (BUNDLES)") && t(ctxWith(base, RULE), "18").includes("1800 (BUNDLES)"));
+check(A, "rule above 2000 mm: the 1800 mm riser stays in cartons", !t(ctxWith(base, [{ type: "Bundle", above_mm: 2000 }])).includes("1800 (BUNDLES)"));
+check(A, "Cartons above 1000 mm beats the item's Bundles", !t(ctxWith(D, [{ type: "Cartons", above_mm: 1000 }])).includes("1800 (BUNDLES)") && t(ctxWith(D, null)).includes("1800 (BUNDLES)"));
+const two = [{ type: "Bundle", above_mm: 1000 }, { type: "Demo pack", above_mm: 1500 }];
+check(A, "two lengths: the 1800 mm riser passes both and goes in the longer one's type (Demo pack)", !t(ctxWith(base, two)).includes("1800 (BUNDLES)") && C.L(ctxWith(base, two)).find((r) => r.it.id === "i-90448820")?.it.packType === "Demo pack");
+check(A, "…a type that is not a bundle counts with the cartons", C.packageCounts(C.L(ctxWith(base, two))).bundles === 4);
+check(A, "two lengths: Bundle reaches it when Demo pack starts above it", t(ctxWith(base, [{ type: "Bundle", above_mm: 1000 }, { type: "Demo pack", above_mm: 2000 }])).includes("1800 (BUNDLES)"));
+check(A, "pieces under the limit are untouched by the rule", t(ctxWith(base, RULE)).includes("PET1512 15 300") && !t(ctxWith(base, RULE)).includes("15 (BUNDLES)"));
+const lc = C.L(ctxWith(base, RULE));
+const counts = C.packageCounts(lc);
+check(A, "rule: the riser's 4 boxes count as HDP bundles with the corrugated boxes", counts.bundles === 8, JSON.stringify(counts));
+check(A, "package words follow the rule", C.packagesMade(lc).includes("8 HDP BUNDLES"), C.packagesMade(lc));
+// A line's own choice beats the rule.
+const own = JSON.parse(JSON.stringify(base));
+own.invoices.find((i) => i.invoice_no === "DEMO/2").lines.find((l) => l.item_id === "i-90448820").packaging = "Demo pack";
+check(A, "a line set to another type (Demo pack) prints no (BUNDLES) despite the rule", !t(ctxWith(own, RULE)).includes("1800 (BUNDLES)"));
+check(A, "…and counts as a carton", C.packageCounts(C.L(ctxWith(own, RULE))).bundles === 4);
+const boxLine = JSON.parse(JSON.stringify(D));
+boxLine.invoices.find((i) => i.invoice_no === "DEMO/2").lines.find((l) => l.item_id === "i-gd3").packaging = "Cartons";
+boxLine.items.find((i) => i.id === "i-gd3").packaging_type = "Cartons";
+check(A, "corrugated boxes set to Carton on the line count as cartons", C.packageCounts(C.L(ctxWith(boxLine, null))).bundles === 4);
+// The order's choice reaches the invoice that clears it.
+const viaPo = JSON.parse(JSON.stringify(base));
+viaPo.poLines.find((r) => r.item_id === "i-90448820").packaging = "Bundle";
+poLegs(viaPo.invoices, viaPo.poLines, viaPo.items);
+check(A, "a Bundle picked on the order prints on the invoice that clears it", t(ctxWith(viaPo, null)).includes("1800 (BUNDLES)"));
+check(A, "…unless the invoice line says Carton", (() => {
+  const x = JSON.parse(JSON.stringify(viaPo));
+  x.invoices.find((i) => i.invoice_no === "DEMO/2").lines.find((l) => l.item_id === "i-90448820").packaging = "Cartons";
+  return !t(ctxWith(x, null)).includes("1800 (BUNDLES)");
+})());
+check(A, "the Excel follows the rule too", cells("19", ctxWith(base, RULE)).includes("1800 (BUNDLES)"));
+check(A, "every invoice paper still renders with a rule in force",
+  ["17", "18", "19", "20", "21", "22", "26", "31", "32", "33"].every((no) => { try { return !!html(no, ctxWith(base, RULE)); } catch { return false; } }));
 });
 
 // 4b · the HS code table on the shipping instructions (26)

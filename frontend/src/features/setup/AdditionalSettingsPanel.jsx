@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   Truck, Package, Wallet, Anchor, MapPin, Landmark, ListOrdered, Plus, Pencil, Trash2, Check, X,
-  ArrowUp, ArrowDown, ArrowLeft, ArrowRight, RotateCcw, AlertTriangle, Layers,
+  ArrowUp, ArrowDown, ArrowLeft, ArrowRight, RotateCcw, AlertTriangle, Layers, Ruler, FolderTree,
 } from "lucide-react";
 import {
-  Card, CardHead, Btn, Field, Input, Pill, Mono, Note, Empty, Spinner, ErrorState, Modal, Seg, Select,
+  Card, CardHead, Btn, Field, Input, Pill, Mono, Note, Empty, Spinner, ErrorState, Modal, Seg, Select, NumberInput,
 } from "../../components/ui/index.jsx";
 import { ShipSpin } from "../../components/ui/ShipLoader.jsx";
 import { useOptions, useOptionMutations, useSaveList, useItems, useSuppliers } from "../../api/hooks.js";
@@ -13,6 +13,7 @@ import {
   DEFAULT_GROUPS, rangeBlocks, rangeKey, itemCategory, fullSequence, rangeLabel, rangeShort,
 } from "../../lib/sequence.js";
 import { MODES, MODE_LISTS } from "../../lib/modes.js";
+import { cleanRules, isBundleName, ownPack, rulePack, samePack } from "../../lib/packaging.js";
 
 /* Setup → Additional settings.
 
@@ -31,12 +32,14 @@ import { MODES, MODE_LISTS } from "../../lib/modes.js";
 const LISTS = [
   { key: "terms_delivery", title: "Terms of delivery", icon: Truck, eg: "e.g. FOB MUMBAI",
     hint: "Offered on the shipment details and on record packing, for the modes ticked. A corrected entry follows onto unshipped invoices." },
-  { key: "packaging_types", title: "Packaging types", icon: Package, eg: "e.g. Bundles",
-    hint: "What an item travels in — picked on each item. Every existing item is in Cartons." },
+  { key: "packaging_types", title: "Packaging types", icon: Package, eg: "e.g. Bundles", itemField: "packaging_type", itemDefault: "Cartons",
+    hint: "What an item travels in — picked on each item. Every existing item is in Cartons. Each type can be given a length under Packaging by length — longer goods then go in it." },
   { key: "terms_payment", title: "Terms of payment", icon: Wallet, eg: "e.g. D.P.SIGHT DRAFT",
     hint: "Offered on the shipment details and on record packing." },
   { key: "ports_loading", title: "Port of loading", icon: Anchor, eg: "e.g. NHAVA SHEVA-MUMBAI (INDIA)",
     hint: "Where the goods are loaded — a sea port, an air cargo terminal or a land border. Offered on shipments of the modes ticked." },
+  { key: "groups", title: "Groups", icon: FolderTree, eg: 'e.g. 63 MM (2")', itemField: "group",
+    hint: "The Group each item belongs to — picked from this list on the item form (Setup → Items). Correcting a name here renames it on every item in it. The papers read the name: a size such as 25 MM (1\") opens its own band on the supplier sheets and sorts by bore; GRN / NYLON, MOULDED, M/F and CORRUGATED decide which table an item prints in." },
   { key: "ports_ship_to", title: "Ship to port", icon: MapPin, eg: "e.g. FREMANTLE",
     hint: "Offered on shipments of the modes ticked — a buyer's own ports (Setup → Buyers) come first. Removing one takes it off the buyers too." },
 ];
@@ -75,7 +78,10 @@ function ModeToggles({ value, onToggle, disabled, label, savingKey }) {
    shows the state it is being saved to. The rest of the card waits (each save
    sends the whole list, so two at once would overwrite each other); the other
    cards stay free. */
-function ListCard({ cfg, values, modes }) {
+function ListCard({ cfg, values, modes, counts }) {
+  /* How many items use an entry — lists that items pick from show it, so a
+     removal says what it leaves behind. */
+  const used = (v) => (counts ? counts[String(v).toLowerCase()] || 0 : null);
   const toast = useToast();
   const saveList = useSaveList();
   const withModes = !!modes;
@@ -202,7 +208,10 @@ function ListCard({ cfg, values, modes }) {
                   </>
                 ) : askAt === i ? (
                   <>
-                    <span className="opt-text">Remove “{v}”?</span>
+                    <span className="opt-text">
+                      Remove “{v}”?
+                      {used(v) > 0 && <span className="grp-sub"> {used(v)} item{used(v) === 1 ? " keeps" : "s keep"} it until changed on the item.</span>}
+                    </span>
                     <Btn size="sm" variant="danger" icon={saving?.kind === "remove" ? SpinIcon : Trash2} disabled={busy} onClick={() => remove(i)}>
                       {saving?.kind === "remove" ? "Removing…" : "Remove"}
                     </Btn>
@@ -212,6 +221,7 @@ function ListCard({ cfg, values, modes }) {
                   <>
                     <span className="opt-text">
                       {v}
+                      {counts && <span className="grp-sub" title="Items in Setup → Items that have it"> · {used(v) || "no"} item{used(v) === 1 ? "" : "s"}</span>}
                       {withModes && !modesOf(v).length && saving?.kind !== "confirm" && !(saving?.kind === "mode" && saving.v === v)
                         && <span className="opt-unset" title="Added before modes existed — counted as Water until confirmed"> · mode?</span>}
                     </span>
@@ -649,6 +659,117 @@ function ItemGroupsCard({ saved, sequence, suppliers, categories, counts, m }) {
   );
 }
 
+/* ---------------- packaging by length (V-7.10.2) ----------------
+
+   Every packaging type on the list above can carry a length: goods longer
+   than it travel in that type — Bundle above 1000 mm, say, and a crate above
+   3000 mm, both at once. An item past more than one length goes in the type
+   of the longest one it passes; an item past none goes as Setup → Items says
+   (Cartons unless set). A type added to the list shows here straight away; a
+   type renamed takes its length with it, one removed drops it. On the papers,
+   a type named Bundle / Bundles / BDL prints "(BUNDLES)" beside the length and
+   counts as HDP bundles; the others count as cartons. Any line on an order or
+   an invoice can still be set to another type, under the line itself. */
+function PackRuleCard({ types, rules, m }) {
+  const toast = useToast();
+  const items = useItems().data;
+  const saved = useMemo(() => cleanRules(rules, types), [rules, types]);
+  const savedMm = (t) => saved.find((r) => samePack(r.type, t))?.above_mm;
+  const fromSaved = () => Object.fromEntries(types.map((t) => [t, savedMm(t) != null ? String(savedMm(t)) : ""]));
+  const [mm, setMm] = useState(fromSaved);
+  const sig = JSON.stringify(saved) + types.join("|");
+  useEffect(() => setMm(fromSaved()), [sig]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const typed = types.map((t) => {
+    const raw = String(mm[t] ?? "").trim();
+    const n = Number(raw);
+    return { type: t, raw, ok: raw === "" || (Number.isFinite(n) && n > 0 && n <= 100000), mm: raw === "" ? null : n };
+  });
+  const bad = typed.filter((x) => !x.ok);
+  const draft = typed.filter((x) => x.ok && x.mm != null).map((x) => ({ type: x.type, above_mm: x.mm }));
+  const dirty = JSON.stringify(cleanRules(draft)) !== JSON.stringify(saved);
+
+  /* What the lengths as typed would do to the master: per type, the items it
+     would take, and how many of those that changes. */
+  const reach = useMemo(() => {
+    if (!items) return null;
+    const out = {};
+    items.forEach((i) => {
+      const t = rulePack(i, draft);
+      if (!t) return;
+      const e = (out[t.toLowerCase()] ||= { all: 0, moved: [] });
+      e.all += 1;
+      if (!samePack(ownPack(i), t)) e.moved.push(i);
+    });
+    return out;
+  }, [items, JSON.stringify(draft)]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const save = () => m.savePackRules.mutate(draft, {
+    onSuccess: () => toast(draft.length
+      ? `Packaging by length saved — ${draft.map((r) => `${r.type} above ${r.above_mm} mm`).join(", ")}`
+      : "Packaging by length cleared — every item goes as Setup → Items says"),
+  });
+
+  return (
+    <Card className="opt-card">
+      <CardHead icon={Ruler} title="Packaging by length" />
+      <div className="opt-body">
+        <div className="opt-hint">
+          Give a packaging type a length and goods longer than it travel in that type. Several types can have one —
+          the longest length an item passes wins. Leave a type blank and it is not used by length. Items within every
+          length go as Setup → Items says (Cartons unless set). A line on an order or an invoice can still be set
+          otherwise, under the line itself.
+        </div>
+        <div className="pk-rules">
+          {typed.map((x) => {
+            const r = reach?.[x.type.toLowerCase()];
+            return (
+              <div key={x.type} className="pk-rule">
+                <span className="pk-type">
+                  <Package size={14} />
+                  <b>{x.type}</b>
+                  {isBundleName(x.type) && <Pill tone="amber">bundles on the papers</Pill>}
+                </span>
+                <span className="row" style={{ gap: 6, alignItems: "center" }}>
+                  <span className="pk-lbl">longer than</span>
+                  <NumberInput decimal className={`input-sm num-in${x.ok ? "" : " bad"}`} style={{ width: 96 }}
+                    value={mm[x.type] ?? ""} onChange={(v) => setMm((p) => ({ ...p, [x.type]: v }))}
+                    placeholder="—" aria-label={`Length above, in mm, for ${x.type}`} />
+                  <span className="pk-lbl">mm</span>
+                </span>
+                {x.mm != null && x.ok && r && (
+                  <span className="pk-reach">
+                    {r.all} item{r.all === 1 ? "" : "s"}{r.moved.length ? <> · <b>{r.moved.length}</b> change to {x.type}</> : ""}
+                    {r.moved.length > 0 && (
+                      <span className="row wrap" style={{ gap: 4, marginTop: 4 }}>
+                        {r.moved.slice(0, 8).map((i) => <Pill key={i.id}><Mono>{i.gd || i.code}</Mono> · {i.length}</Pill>)}
+                        {r.moved.length > 8 && <Pill>+{r.moved.length - 8} more</Pill>}
+                      </span>
+                    )}
+                  </span>
+                )}
+                {x.mm != null && x.ok && reach && !r && <span className="pk-reach">No item is longer — or a longer type takes them.</span>}
+              </div>
+            );
+          })}
+        </div>
+        {bad.length > 0 && <Note tone="amber" icon={AlertTriangle}>Give {bad.map((x) => x.type).join(", ")} a length in mm — a number above 0 — or leave it blank.</Note>}
+        <Note tone="teal" icon={Package}>
+          {saved.length
+            ? <>In force: {saved.slice().sort((a, b) => a.above_mm - b.above_mm).map((r, k) => <span key={r.type}>{k ? "; " : ""}longer than <b>{r.above_mm} mm</b> → <b>{r.type}</b></span>)}.</>
+            : <>No length set — every item goes as Setup → Items says (Cartons unless set).</>}
+        </Note>
+        <div className="row wrap" style={{ gap: 8 }}>
+          <Btn size="sm" icon={m.savePackRules.isPending ? SpinIcon : Check} disabled={!dirty || bad.length > 0 || m.savePackRules.isPending} onClick={save}>
+            {m.savePackRules.isPending ? "Saving…" : "Save lengths"}
+          </Btn>
+          {dirty && <Btn size="sm" variant="ghost" icon={RotateCcw} onClick={() => setMm(fromSaved())}>Undo</Btn>}
+        </div>
+      </div>
+    </Card>
+  );
+}
+
 export default function AdditionalSettingsPanel() {
   const q = useOptions();
   const m = useOptionMutations();
@@ -658,6 +779,20 @@ export default function AdditionalSettingsPanel() {
      settings, so a supplier added or removed shows here straight away. */
   const sequence = useMemo(() => fullSequence(q.data?.item_sequence, suppliers), [q.data?.item_sequence, suppliers]);
   const defaults = useMemo(() => fullSequence([], suppliers), [suppliers]);
+  /* For the lists items pick from: how many items carry each entry. */
+  const allItems = useItems().data;
+  const itemCounts = useMemo(() => {
+    const out = {};
+    LISTS.filter((c) => c.itemField).forEach((c) => {
+      const m = {};
+      (allItems || []).forEach((i) => {
+        const v = String(i[c.itemField] || c.itemDefault || "").trim().toLowerCase();
+        if (v) m[v] = (m[v] || 0) + 1;
+      });
+      out[c.key] = allItems ? m : null;
+    });
+    return out;
+  }, [allItems]);
 
   if (q.isLoading) return <Spinner label="Loading the settings…" />;
   if (q.error) return <ErrorState error={q.error} onRetry={q.refetch} />;
@@ -667,11 +802,13 @@ export default function AdditionalSettingsPanel() {
     <div className="opt-grid">
       {LISTS.map((cfg) => (
         <ListCard key={cfg.key} cfg={cfg} values={o[cfg.key] || []}
-          modes={MODE_LISTS.includes(cfg.key) ? (o.modes?.[cfg.key] || {}) : null} />
+          modes={MODE_LISTS.includes(cfg.key) ? (o.modes?.[cfg.key] || {}) : null}
+          counts={cfg.itemField ? itemCounts[cfg.key] : null} />
       ))}
       <SequenceCard sequence={sequence} defaults={defaults} suppliers={suppliers} counts={counts} m={m} />
       <ItemGroupsCard saved={o.item_groups || DEFAULT_GROUPS} sequence={sequence} suppliers={suppliers}
         categories={categories} counts={counts} m={m} />
+      <PackRuleCard types={o.packaging_types || ["Cartons"]} rules={o.packaging_rules} m={m} />
       <BanksCard banks={o.banks || []} m={m} />
     </div>
   );

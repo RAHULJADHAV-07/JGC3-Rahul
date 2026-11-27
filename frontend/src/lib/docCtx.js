@@ -1,5 +1,6 @@
 import { cmpKey, itemBlock, itemRank } from "./sequence.js";
 import { DOC_BLANKABLE } from "./columnPrefs.js";
+import { cleanPack, itemPack, packKind } from "./packaging.js";
 
 /* Adapter — API records into the shape the document engine reads.
 
@@ -23,7 +24,7 @@ export const EXPORTER = {
 /* `hidden` is the set of item fields unticked under Setup → Items. The
    papers blank the ones that are pure identity (OSWIN, GL, bar code); see
    lib/columnPrefs.js for why the rest always print. */
-export const docItem = (i, hidden) => {
+export const docItem = (i, hidden, packRule) => {
   const blank = (k, v) => (hidden && DOC_BLANKABLE[k] && hidden.has(k) ? "" : v);
   return {
     id: i.id, code: i.code, gd: i.gd, oswin: blank("oswin", i.oswin), gl: blank("gl", i.gl),
@@ -37,6 +38,12 @@ export const docItem = (i, hidden) => {
     fobMode: i.fob_mode, unitFob100: i.unit_fob100,
     group: i.group, supplierId: i.supplier_id,
     sourceSheet: i.source_sheet, packagingType: i.packaging_type || "Cartons",
+    /* The packaging type the item goes in — Setup → Additional settings →
+       Packaging by length, else its own (lib/packaging.js, V-7.10.2) — and
+       the papers' kind of it, "bundle" | "carton". A line may still say
+       otherwise — docs/common.js invoiceLines. */
+    packType: itemPack(i, packRule),
+    pack: packKind(itemPack(i, packRule)),
     priceFrom: i.price_from || "",
   };
 };
@@ -123,6 +130,8 @@ export const docInvoice = (inv) => (inv ? {
        removed from the invoice leaves its numbers unused rather than shifting
        the rest (customs already have them). Null on an API that predates it. */
     serialFrom: l.serial_from ?? null,
+    // The packaging type picked for this line; null = as its orders / the item say.
+    packaging: l.packaging || null,
   })),
 } : null);
 
@@ -147,9 +156,13 @@ export const docOrderLines = (poLines, itemsById) =>
       // Our own price list the FOB came from (Sales heading).
       fobFrom: r.fob_from || (r.unit_fob100 == null ? item.priceFrom : "") || "",
     };
+    const pack = cleanPack(r.packaging);
     return {
       id: r.id, po: r.po, date: r.date, buyerId: r.buyer_id,
-      itemId: r.item_id, qty: r.qty, rbi: r.rbi, item: priced,
+      itemId: r.item_id, qty: r.qty, rbi: r.rbi,
+      // The packaging type chosen on this order line (V-7.10.2).
+      item: pack ? { ...priced, pack: packKind(pack), packType: pack, packSet: true } : priced,
+      packaging: pack,
     };
   }).filter(Boolean);
 
@@ -163,9 +176,9 @@ export const docOrderLines = (poLines, itemsById) =>
    (lib/docColumns.js rulesByDoc). */
 export function docCtx({
   invoice, items = [], buyers = [], suppliers = [], poLines = [], transports = [], invoices = [],
-  supplierId = "", sequence, groups, hidden, colRules,
+  supplierId = "", sequence, groups, hidden, colRules, packRule,
 }) {
-  const docItems = items.map((i) => docItem(i, hidden));
+  const docItems = items.map((i) => docItem(i, hidden, packRule));
   const byId = Object.fromEntries(docItems.map((i) => [i.id, i]));
   const sups = suppliers.map(docSupplier);
   const inv = docInvoice(invoice);
@@ -198,9 +211,9 @@ export function docCtx({
    that number as the order reference. */
 export function poCtx({
   po, items = [], buyers = [], suppliers = [], poLines = [], transports = [],
-  supplierId = "", sequence, groups, hidden, colRules, supplierRefs = [],
+  supplierId = "", sequence, groups, hidden, colRules, supplierRefs = [], packRule,
 }) {
-  const docItems = items.map((i) => docItem(i, hidden));
+  const docItems = items.map((i) => docItem(i, hidden, packRule));
   const byId = Object.fromEntries(docItems.map((i) => [i.id, i]));
   const all = (poLines || []).filter((r) => r.po === po);
   const poDate = all.reduce((min, r) => (!min || r.date < min ? r.date : min), null);

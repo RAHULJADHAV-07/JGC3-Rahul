@@ -34,8 +34,16 @@ class Settings(BaseSettings):
     # development convenience only, and `_guard_secrets()` below refuses to
     # start a production process that is still carrying it.
     jwt_secret: str = "jaikvin-dev-secret-change-me"
-    # 24 hours: every session — user and admin — expires a day after sign-in.
+    # The longest a session can last, whatever SESSION_END_MODE says.
     jwt_expire_minutes: int = 60 * 24
+    # When a session ends — user and admin alike.
+    #   "midnight" — at the next midnight in APP_TIMEZONE after sign-in, whatever
+    #                the hour of sign-in (and never later than JWT_EXPIRE_MINUTES).
+    #                Signed in at 09:00 or at 18:00, the session ends at 00:00;
+    #                the first sign-in of the new day is a fresh one, which is
+    #                where an admin is asked for the day's passcode.
+    #   "rolling"  — the older rule: JWT_EXPIRE_MINUTES after sign-in.
+    session_end_mode: str = "midnight"
 
     # How long a passcode-confirmed "yes, it is really me" lasts before an
     # admin must confirm again to set another account's password.
@@ -123,10 +131,14 @@ class Settings(BaseSettings):
     #                APP_TIMEZONE. A code confirmed at 23:50 is good for ten
     #                minutes; one confirmed at 09:00 lasts the working day.
     #   "hours"    — the older rolling window of `otp_admin_reverify_hours`.
-    # This is separate from JWT_EXPIRE_MINUTES: a session already open is not
-    # cut short by midnight, the *next sign-in* is what asks for a code.
+    # With SESSION_END_MODE=midnight the session itself also closes at
+    # midnight, so the code asked for is the very next sign-in after 00:00.
     otp_admin_reverify_mode: str = "midnight"
     otp_admin_reverify_hours: int = 24
+    # Who is asked for that daily code.
+    #   "admin" — admins only; a user proves the address once, on first sign-in.
+    #   "all"   — everybody, once each day, by the same rule as admins.
+    otp_daily_for: str = "admin"
     # The office's day. Timestamps stay UTC in the database; this only decides
     # where the day boundary falls. Needs the `tzdata` package on slim images.
     app_timezone: str = "Asia/Kolkata"
@@ -193,6 +205,18 @@ class Settings(BaseSettings):
     def _known_reverify_mode(cls, v):
         m = str(v or "midnight").strip().lower()
         return m if m in ("midnight", "hours") else "midnight"
+
+    @field_validator("session_end_mode", mode="before")
+    @classmethod
+    def _known_session_end(cls, v):
+        m = str(v or "midnight").strip().lower()
+        return m if m in ("midnight", "rolling") else "midnight"
+
+    @field_validator("otp_daily_for", mode="before")
+    @classmethod
+    def _known_daily_for(cls, v):
+        m = str(v or "admin").strip().lower()
+        return m if m in ("admin", "all") else "admin"
 
     @property
     def mail_configured(self) -> bool:

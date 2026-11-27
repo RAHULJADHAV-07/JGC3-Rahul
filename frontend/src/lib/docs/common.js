@@ -16,6 +16,7 @@ import { colLetter, fontCss } from "../xlsx.js";
 import { calibriLines, calibriRunLines } from "../calibri.js";
 import { boreMm } from "../sequence.js";
 import { shipMode, flightLegs } from "../modes.js";
+import { cleanPack, fromOrders, packKind } from "../packaging.js";
 
 // The supplier order prints on the letterhead, so the mark is fetched up front.
 primeLogo();
@@ -312,13 +313,17 @@ function invoiceLines(ctx) {
     /* Priced as invoiced, not as the master reads today. Everything else —
        packing, volume, weights, stickers — is a physical fact of the item and
        still comes from the master. */
-    const it = l.unitValue == null && l.unitFob100 == null ? master : {
+    const priced = l.unitValue == null && l.unitFob100 == null ? master : {
       ...master,
       unitValue: l.unitValue == null ? master.unitValue : Number(l.unitValue),
       valueMode: l.valueMode || master.valueMode,
       unitFob100: l.unitFob100 == null ? master.unitFob100 : Number(l.unitFob100),
       fobMode: l.fobMode || master.fobMode,
     };
+    /* Cartons or bundles, as this line says — or as the orders it cleared
+       all say (V-7.10.2). Neither, and the item's own (docItem) stands. */
+    const chosen = cleanPack(l.packaging) || fromOrders(ctx.inv.poLegs?.[l.itemId]);
+    const it = chosen ? { ...priced, pack: packKind(chosen), packType: chosen, packSet: true } : priced;
     const boxes = Number(l.boxes) || 0, packing = Number(it.packing) || 0;
     const pieces = boxes * packing;
     const volTotal = boxes * (Number(it.volume) || 0);
@@ -2616,10 +2621,15 @@ export const LEN_FAMILIES = [];
    asked (V-7.10.1). The moulded fittings, nylon and boxes never have one. */
 export const PIPE_LEN_FAMILIES = ["mxm", "mxf"];
 
-/* Goods that travel in bundles rather than cartons (Setup → Items →
-   Packaging). Their packing list says so beside the length — "1800 (BUNDLES)"
-   — or, for the cartons, which have no length, beside the size. */
-export const inBundles = (it) => /bundle|bdl/i.test(String(it?.packagingType || ""));
+/* Goods that travel in bundles rather than cartons. Their packing list says
+   so beside the length — "1800 (BUNDLES)" — or, for the cartons, which have no
+   length, beside the size. `it.pack` is what lib/packaging.js decided
+   (V-7.10.2): the line's own choice or its orders', else Setup → Additional
+   settings → Packaging by length, else Setup → Items → Packaging. An item
+   built without it reads its packaging type as before. */
+export const inBundles = (it) => (it?.pack === "bundle" || it?.pack === "carton"
+  ? it.pack === "bundle"
+  : /bundle|bdl/i.test(String(it?.packagingType || "")));
 export const bundled = (v, it) => {
   const t = String(v ?? "").trim();
   return inBundles(it) ? `${t}${t ? " " : ""}(BUNDLES)` : v;
@@ -3585,7 +3595,7 @@ export function vesselVoyage(vessel) {
    A line goes in bundles when its item's packaging (Setup → Items) says so,
    or when it is the corrugated boxes, which always travel in HDP bundles;
    everything else is cartons. */
-export const isBundle = (it) => inBundles(it) || familyOf(it) === "box";
+export const isBundle = (it) => (it?.packSet ? it.pack === "bundle" : inBundles(it) || familyOf(it) === "box");
 export function packageCounts(rows) {
   const total = sum(rows, "boxes");
   const bundles = sum(rows.filter((r) => isBundle(r.it)), "boxes");

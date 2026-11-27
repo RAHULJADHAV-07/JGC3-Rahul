@@ -32,14 +32,15 @@ export default function ItemEditModal({ item, onClose }) {
   const suppliers = useSuppliers().data || [];
   const update = useUpdateItem();
   const applyPrices = useApplyPrices();
-  const pending = usePendingForItem(item.id);
   const toast = useToast();
   const { has } = useAuth();
   const [applyToPending, setApplyToPending] = useState(false);
   /* The day a price changed here holds from (V-7.9.0): today unless said
      otherwise, never before the price now in force. Orders dated before it
-     keep the price before it. */
+     keep the price before it — and so does "apply to pending orders", which
+     reaches only the open orders dated from it (V-7.10.2). */
   const [since, setSince] = useState(localToday());
+  const pending = usePendingForItem(item.id, since);
   // The supplier's reference for the new price — the supplier PO's "Your Ref" (V-7.10.1).
   const [priceRef, setPriceRef] = useState("");
   const [hist, setHist] = useState(false);
@@ -51,7 +52,8 @@ export default function ItemEditModal({ item, onClose }) {
     [suppliers],
   );
 
-  const open = pending.data || { pos: [], boxes: 0, lines: 0 };
+  const open = pending.data || { pos: [], boxes: 0, lines: 0, older: [] };
+  const older = open.older || [];
   const hasPending = open.pos.length > 0;
 
   const save = (draft) => {
@@ -63,7 +65,7 @@ export default function ItemEditModal({ item, onClose }) {
       onSuccess: () => {
         // Only ever apply when a price actually moved and the tick is on.
         if (priceMoved && applyToPending && hasPending) {
-          applyPrices.mutate({ item_id: item.id }, {
+          applyPrices.mutate({ item_id: item.id, since }, {
             onSuccess: (res) => toast(
               res.updated
                 ? `Item updated — ${res.updated} pending order line${res.updated === 1 ? "" : "s"} repriced (PO ${res.pos.join(", ")})`
@@ -123,7 +125,7 @@ export default function ItemEditModal({ item, onClose }) {
           <input type="checkbox" checked={applyToPending} onChange={(e) => setApplyToPending(e.target.checked)}
             style={{ width: 15, height: 15, accentColor: "var(--teal)", cursor: "pointer", marginTop: 2, flexShrink: 0 }} />
           <span>
-            <b>Apply the new price to all the pending orders for this item.</b>
+            <b>Apply the new price to the pending orders for this item dated from {dmyNum(since)}.</b>
             <div style={{ marginTop: 3 }}>
               {open.boxes} box{open.boxes === 1 ? "" : "es"} still outstanding across{" "}
               <span className="row wrap" style={{ gap: 4, display: "inline-flex", verticalAlign: "middle" }}>
@@ -136,8 +138,13 @@ export default function ItemEditModal({ item, onClose }) {
               Leave this unticked and those orders keep the price
               {item.unit_value ? <> they were placed at ({inr(item.unit_value)}
                 {item.unit_fob100 ? <> · {usdp(item.unit_fob100)}{item.fob_mode === "100" ? "/100" : "/pc"}</> : null})</> : null}.
-              Anything already delivered never moves either way, and new orders always use the new price.
+              Anything already delivered never moves either way, and new orders dated from {dmyNum(since)} always use the new price.
             </div>
+            {older.length > 0 && (
+              <div style={{ marginTop: 4, color: "var(--muted)" }}>
+                Older open order{older.length === 1 ? "" : "s"} {older.join(", ")} — dated before {dmyNum(since)} — keep {older.length === 1 ? "its" : "their"} price.
+              </div>
+            )}
           </span>
         </label>
       ) : (
@@ -145,7 +152,7 @@ export default function ItemEditModal({ item, onClose }) {
           <b>Price changed.</b>{" "}
           {pending.isLoading ? "Checking which orders are still open…"
             : pending.isError ? "Could not check the open orders — the new price still saves, and every new order will use it."
-              : "There is nothing outstanding on this item, so no order is affected. Every new order will use the new price; anything already delivered keeps what it was invoiced at."}
+              : `There is nothing outstanding on this item dated from ${dmyNum(since)}, so no order is affected${older.length ? ` (older open order${older.length === 1 ? "" : "s"} ${older.join(", ")} keep${older.length === 1 ? "s" : ""} the old price)` : ""}. Every new order will use the new price; anything already delivered keeps what it was invoiced at.`}
         </span>
       )}
     </Note>

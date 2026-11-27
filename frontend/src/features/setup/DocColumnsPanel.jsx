@@ -74,7 +74,9 @@ export default function DocColumnsPanel({ leave = null, onLeave = () => {}, onDi
   const suppliers = useSuppliers().data;
   const transports = useTransports().data;
   const poLines = usePoLines().data;
-  const sequence = useOptions().data?.item_sequence;
+  const optsData = useOptions().data;
+  const sequence = optsData?.item_sequence;
+  const packRule = optsData?.packaging_rules;
   const invoices = invq.data || [];
   const pos = poq.data || [];
   const ready = !!(items && buyers && suppliers && transports && poLines && !invq.isLoading && !poq.isLoading);
@@ -82,11 +84,11 @@ export default function DocColumnsPanel({ leave = null, onLeave = () => {}, onDi
   /* Built with no rules at all, so every column is on offer — including the
      ones already hidden. */
   const invCtx = useMemo(() => (ready && invoices[0] ? docCtx({
-    invoice: invoices[0], items, buyers, suppliers, poLines, transports, invoices, sequence,
-  }) : null), [ready, invoices, items, buyers, suppliers, poLines, transports, sequence]);
+    invoice: invoices[0], items, buyers, suppliers, poLines, transports, invoices, sequence, packRule,
+  }) : null), [ready, invoices, items, buyers, suppliers, poLines, transports, sequence, packRule]);
   const orderCtx = useMemo(() => (ready && pos[0] ? poCtx({
-    po: pos[0].po, items, buyers, suppliers, poLines, transports, sequence,
-  }) : null), [ready, pos, items, buyers, suppliers, poLines, transports, sequence]);
+    po: pos[0].po, items, buyers, suppliers, poLines, transports, sequence, packRule,
+  }) : null), [ready, pos, items, buyers, suppliers, poLines, transports, sequence, packRule]);
   const ctxFor = (no) => (isPoDoc(no) ? orderCtx : invCtx);
 
   /* Every document's columns. Building forty papers takes a moment, so it is

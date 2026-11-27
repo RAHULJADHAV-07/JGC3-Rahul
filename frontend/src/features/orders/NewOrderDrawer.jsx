@@ -10,6 +10,7 @@ import { useToast } from "../../providers/ToastProvider.jsx";
 import { todayISO, num, boxesExact } from "../../lib/format.js";
 import { useDebounced } from "../../lib/useDebounced.js";
 import { hidePriceCols } from "../../lib/priceCols.js";
+import PackTag from "../../components/ui/PackTag.jsx";
 
 /* New buyer order — three steps.
 
@@ -29,6 +30,9 @@ export default function NewOrderDrawer({ onClose }) {
   const [date, setDate] = useState(todayISO());
   const [buyerId, setBuyerId] = useState("");
   const [qtys, setQtys] = useState({});      // item id → typed quantity
+  // item id → "bundle" | "carton" picked under the line (V-7.10.2); absent = as set.
+  const [packs, setPacks] = useState({});
+  const setPack = (id, v) => setPacks((p) => { const n = { ...p }; if (v) n[id] = v; else delete n[id]; return n; });
   const [q, setQ] = useState("");
 
   const dq = useDebounced(q);
@@ -62,8 +66,15 @@ export default function NewOrderDrawer({ onClose }) {
       next[toId] = String((Number(next[toId]) || 0) + moved);
       return next;
     });
+    // A packaging picked for the line goes with it to the other supplier.
+    setPacks((p) => {
+      if (!p[fromId]) return p;
+      const n = { ...p, [toId]: p[fromId] };
+      delete n[fromId];
+      return n;
+    });
   };
-  const dropLine = (id) => setQtys((p) => { const n = { ...p }; delete n[id]; return n; });
+  const dropLine = (id) => { setQtys((p) => { const n = { ...p }; delete n[id]; return n; }); setPack(id, null); };
 
   /* Priced as the order will be: the prices in force on its date, the
      buyer's own where the buyer has a price list (Other Reports → Price list). */
@@ -78,7 +89,9 @@ export default function NewOrderDrawer({ onClose }) {
      opens (Oswin, then Oswin · PMF …) the summary heads it, exactly as the
      order's documents will print it. */
   const items = useItems().data || [];
-  const itemGroups = useOptions().data?.item_groups;
+  const optsData = useOptions().data;
+  const itemGroups = optsData?.item_groups;
+  const itemById = useMemo(() => Object.fromEntries(items.map((i) => [i.id, i])), [items]);
   const rows = useMemo(() => {
     // Nothing typed is nothing to show — not the last answer held over.
     const list = chosen.length ? derived.data?.rows || [] : [];
@@ -92,7 +105,8 @@ export default function NewOrderDrawer({ onClose }) {
   const save = () => {
     if (!po || !chosen.length) return;
     create.mutate(
-      { po, date, buyer_id: buyerId || null, rbi: 0, lines: chosen.map((r) => ({ item_id: r.item_id, qty: r.qty })) },
+      { po, date, buyer_id: buyerId || null, rbi: 0,
+        lines: chosen.map((r) => ({ item_id: r.item_id, qty: r.qty, packaging: packs[r.item_id] || null })) },
       {
         onSuccess: () => {
           toast(`Order ${po} added — ${chosen.length} line${chosen.length === 1 ? "" : "s"}, ${t.boxes || 0} boxes`);
@@ -205,7 +219,13 @@ export default function NewOrderDrawer({ onClose }) {
               <DataTable serial section={(r) => r.head}
                 freeze={5}
                 columns={hidePriceCols([
-                  { key: "gd", w: 96, label: "GD code", render: (r) => <Mono>{r.gd}</Mono> },
+                  { key: "gd", w: 104, label: "GD code", render: (r) => (
+                    <span className="pack-cell">
+                      <Mono>{r.gd}</Mono>
+                      <PackTag item={itemById[r.item_id] || r} value={packs[r.item_id]}
+                        name={r.gd} onChange={(v) => setPack(r.item_id, v)} />
+                    </span>
+                  ) },
                   { key: "code", w: 92, label: "Code", render: (r) => <Mono>{r.code}</Mono> },
                   {
                     key: "sp", w: 190, label: "Supplier",

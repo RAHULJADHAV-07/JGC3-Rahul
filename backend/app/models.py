@@ -268,6 +268,11 @@ class PurchaseOrderLine(Base):
     value_mode = Column(String, nullable=True)    # piece | 100 | custom
     unit_fob100 = Column(Float, nullable=True)    # $, as agreed on this order
     fob_mode = Column(String, nullable=True)      # piece | 100 | custom
+    # How this line travels when it is not what the item would by itself
+    # (V-7.10.2): "bundle" | "carton". NULL = as the item goes — Setup →
+    # Additional settings → Packaging by length, else Setup → Items → Packaging.
+    # An invoice line that names none takes this from the orders it clears.
+    packaging = Column(String, nullable=True)
 
 
 class Invoice(Base):
@@ -340,6 +345,9 @@ class InvoiceLine(Base):
     # these boxes to those orders before any FIFO box is walked
     # (calc.compute_ledger), so a later or back-dated invoice cannot take them.
     po_alloc = Column(JSON(none_as_null=True), nullable=True)
+    # "bundle" | "carton" chosen for this line (V-7.10.2); NULL = as its
+    # orders say, else as the item goes (lib/packaging.js).
+    packaging = Column(String, nullable=True)
     invoice = relationship("Invoice", back_populates="lines")
 
 

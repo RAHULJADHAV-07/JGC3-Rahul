@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Globe, Truck, Download, Pencil, FileText, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { Modal, Btn, Seg, Pill, Mono, DataTable, Note, Spinner, ErrorState } from "../../components/ui/index.jsx";
 import { useItems, useBuyers, useSuppliers, usePoLines, useInvoices, useOptions } from "../../api/hooks.js";
+import PackTag from "../../components/ui/PackTag.jsx";
 import { useHiddenFields, useDocColumnRules } from "../../lib/columnPrefs.js";
 import { useToast } from "../../providers/ToastProvider.jsx";
 import { dmy, num } from "../../lib/format.js";
@@ -62,7 +63,7 @@ export default function InvoiceModal({ inv, onEditShip, onClose }) {
       const buyerRate = fobMode === "100" ? fob100 / 100 : fob100;
       const from = froms[li]; const to = from + boxes - 1;
       return {
-        it, supplierId: l.supplier_id, boxes, pieces,
+        it, supplierId: l.supplier_id, boxes, pieces, packaging: l.packaging || null,
         // The orders these boxes came off, from the same ledger the papers read.
         legs: (inv.po_legs || {})[l.item_id] || [],
         volume: boxes * (it.volume || 0), netWt: boxes * (it.net_per_box || 0),
@@ -82,14 +83,17 @@ export default function InvoiceModal({ inv, onEditShip, onClose }) {
     buyerAmt: a.buyerAmt + x.buyerAmt, supAmt: a.supAmt + x.supAmt,
   }), { boxes: 0, pieces: 0, volume: 0, buyerAmt: 0, supAmt: 0 });
 
-  const ctx = () => docCtx({ invoice: inv, items, buyers, suppliers, poLines, invoices, sequence, groups: itemGroups, hidden, colRules });
+  const ctx = () => docCtx({ invoice: inv, items, buyers, suppliers, poLines, invoices, sequence, groups: itemGroups, hidden, colRules, packRule: opts?.packaging_rules });
   const grab = (no) => { buildDocument(no, ctx()); toast(`${docFullTitle(no)} downloaded`); };
 
   /* Rates and amounts are held off screen like everywhere else; the invoice
      documents carry them in full. */
   const buyerCols = hidePriceCols([
     { key: "sr", w: 108, label: "Serial", render: (x) => <Mono>{x.range}</Mono> },
-    { key: "gd", w: 96, label: "GD code", render: (x) => <Mono>{x.it.gd}</Mono> },
+    { key: "gd", w: 104, label: "GD code", render: (x) => (
+      // How the line is packed and prints — Edit invoice changes it.
+      <span className="pack-cell"><Mono>{x.it.gd}</Mono><PackTag item={x.it} value={x.packaging} legs={x.legs} /></span>
+    ) },
     { key: "desc", w: 220, label: "Description", render: (x) => <span style={{ color: "var(--ink)", whiteSpace: "pre-line" }}>{x.it.description}</span> },
     { key: "sp", w: 92, label: "Supplier", render: (x) => <Pill>{supCode(x.supplierId)}</Pill> },
     { key: "boxes", w: 78, label: "Boxes", align: "r", strong: true, render: (x) => x.boxes },

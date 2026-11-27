@@ -806,3 +806,81 @@ test("leaving a screen with unsaved work asks it first, and goes on once it agre
   clearLeaveGuard(guard);
   assert.ok(!hasLeaveGuard());
 });
+
+/* ---- Packaging: line → orders → length → item → box family (V-7.10.2) ---- */
+import { cleanRules, fromOrders, itemPack, lengthMm, legsFromPlaced, linePack, packKind, rulePack } from "../src/lib/packaging.js";
+import { bundled, inBundles, isBundle } from "../src/lib/docs/common.js";
+
+const pipe = (length, packaging_type = "Cartons", extra = {}) => ({ code: "PP1512", gd: "PP1512", group: "15 MM", length, packaging_type, ...extra });
+const TYPES = ["Cartons", "Bundle", "Demo pack"];
+const RULES = [{ type: "Bundle", above_mm: 1000 }, { type: "Demo pack", above_mm: 3000 }];
+
+test("lengths read as millimetres, whatever is typed round them", () => {
+  assert.equal(lengthMm("1800"), 1800);
+  assert.equal(lengthMm("1,800 mm"), 1800);
+  assert.equal(lengthMm("457.5MM"), 457.5);
+  assert.equal(lengthMm(""), null);
+  assert.equal(lengthMm(undefined), null);
+  assert.equal(lengthMm("N/A"), null);
+});
+
+test("lengths per packaging type: one each, on the list, longest first", () => {
+  assert.deepEqual(cleanRules(RULES), [{ type: "Demo pack", above_mm: 3000 }, { type: "Bundle", above_mm: 1000 }]);
+  assert.deepEqual(cleanRules({ rules: RULES }), cleanRules(RULES));
+  assert.deepEqual(cleanRules({ type: "Bundle", above_mm: "900" }), [{ type: "Bundle", above_mm: 900 }]);
+  assert.deepEqual(cleanRules([{ type: "Bundle", above_mm: 0 }, { type: "", above_mm: 5 }, null]), []);
+  assert.deepEqual(cleanRules([{ type: "bundle", above_mm: 1000 }, { type: "Crate", above_mm: 9 }], TYPES), [{ type: "Bundle", above_mm: 1000 }]);
+  assert.deepEqual(cleanRules(null), []);
+});
+
+test("an item goes in the type of the longest length it passes, else its own", () => {
+  assert.equal(rulePack(pipe("1800"), RULES), "Bundle");
+  assert.equal(rulePack(pipe("3500"), RULES), "Demo pack");          // past both: the longer wins
+  assert.equal(rulePack(pipe("1000"), RULES), null);                 // not above
+  assert.equal(rulePack(pipe(""), RULES), null);                     // no length
+  assert.equal(itemPack(pipe("600", "Bundles"), RULES), "Bundles");  // the item's own
+  assert.equal(itemPack(pipe("600", "Demo pack"), RULES), "Demo pack");
+  assert.equal(itemPack(pipe("1800"), null), "Cartons");              // no rule: as before
+  assert.equal(itemPack({ packagingType: "Bundles", length: "300" }, null), "Bundles"); // document item
+  assert.equal(packKind("Bundle"), "bundle");
+  assert.equal(packKind("HDP BDL"), "bundle");
+  assert.equal(packKind("Demo pack"), "carton");
+  assert.equal(packKind(""), null);
+});
+
+test("a line's own choice wins, then its orders', then the lengths, the item, the boxes", () => {
+  const k = (...a) => { const x = linePack(...a); return [x.kind, x.source, x.bundle]; };
+  assert.deepEqual(k(pipe("1800"), RULES, "Cartons"), ["Cartons", "line", false]);
+  assert.deepEqual(k(pipe("300"), RULES, "Demo pack"), ["Demo pack", "line", false]);
+  assert.deepEqual(k(pipe("300"), RULES, null, [{ po: "A", boxes: 3, packaging: "Bundle" }]), ["Bundle", "order", true]);
+  assert.deepEqual(k(pipe("1800"), RULES, null, []), ["Bundle", "rule", true]);
+  assert.deepEqual(k(pipe("300", "Bundles"), RULES), ["Bundles", "item", true]);
+  assert.deepEqual(k(pipe("300", "Demo pack"), RULES), ["Demo pack", "item", false]);
+  assert.deepEqual(k({ code: "GD3", group: "CORRUGATED BOXES", length: "" }, RULES, null, null, TYPES), ["Bundle", "box", true]);
+  assert.deepEqual(k(pipe("300"), RULES), ["Cartons", "default", false]);
+});
+
+test("orders count only when every one the line clears agrees", () => {
+  assert.equal(fromOrders([{ po: "A", boxes: 2, packaging: "Bundle" }, { po: "B", boxes: 1, packaging: "bundle" }]), "Bundle");
+  assert.equal(fromOrders([{ po: "A", boxes: 2, packaging: "Bundle" }, { po: "B", boxes: 1 }]), null);
+  assert.equal(fromOrders([{ po: "A", boxes: 2, packaging: "Bundle" }, { po: "B", boxes: 1, packaging: "Cartons" }]), null);
+  assert.equal(fromOrders([]), null);
+  assert.equal(fromOrders(null), null);
+  assert.deepEqual(legsFromPlaced({ cells: { A: 2, B: 0 } }, [{ po: "A", packaging: "Bundle" }, { po: "B", packaging: "Cartons" }]),
+    [{ po: "A", boxes: 2, packaging: "Bundle" }]);
+});
+
+test("the papers: (BUNDLES) beside the length, and the HDP bundle count", () => {
+  const plain = { packagingType: "Cartons", code: "PP1512", group: "15 MM" };
+  assert.equal(inBundles(plain), false);
+  assert.equal(inBundles({ ...plain, packagingType: "Bundles" }), true);       // no `pack`: read as before
+  assert.equal(inBundles({ ...plain, pack: "bundle" }), true);                 // the rule
+  assert.equal(inBundles({ ...plain, packagingType: "Bundles", pack: "carton" }), false);
+  assert.equal(bundled("1800", { ...plain, pack: "bundle" }), "1800 (BUNDLES)");
+  assert.equal(bundled("1800", { ...plain, pack: "carton" }), "1800");
+  const box = { code: "GD3", group: "CORRUGATED BOXES", packagingType: "Cartons", pack: "carton" };
+  assert.equal(isBundle(box), true);                                          // boxes travel in HDP bundles
+  assert.equal(inBundles(box), false);                                        // without "(BUNDLES)" by their size
+  assert.equal(isBundle({ ...box, pack: "carton", packSet: true }), false);   // unless a line says cartons
+  assert.equal(isBundle({ ...plain, pack: "bundle", packSet: true }), true);
+});

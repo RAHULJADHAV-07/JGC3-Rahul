@@ -155,6 +155,8 @@ export default function DocumentsPage({ group }) {
   const pos = poq.data || [];
   const sequence = optionsQ.data?.item_sequence;
   const itemGroups = optionsQ.data?.item_groups;
+  // Setup → Additional settings → Packaging by length (V-7.10.2).
+  const packRule = optionsQ.data?.packaging_rules;
   /* A paper built before everything it reads has arrived would print with
      blanks where the items, the buyer or the sequence belong — so the page
      waits for all of it, and says which way it failed if one did not come. */
@@ -249,16 +251,16 @@ export default function DocumentsPage({ group }) {
   const invCtx = useMemo(
     () => (inv ? docCtx({
       invoice: inv, items, buyers, suppliers, poLines, transports, invoices,
-      supplierId: sup, sequence, groups: itemGroups, hidden, colRules,
+      supplierId: sup, sequence, groups: itemGroups, hidden, colRules, packRule,
     }) : null),
-    [inv, items, buyers, suppliers, poLines, transports, invoices, sup, sequence, itemGroups, hidden, colRules],
+    [inv, items, buyers, suppliers, poLines, transports, invoices, sup, sequence, itemGroups, hidden, colRules, packRule],
   );
   const orderCtx = useMemo(
     () => (po ? poCtx({
       po: po.po, items, buyers, suppliers, poLines, transports,
-      supplierId: sup, sequence, groups: itemGroups, hidden, colRules, supplierRefs,
+      supplierId: sup, sequence, groups: itemGroups, hidden, colRules, supplierRefs, packRule,
     }) : null),
-    [po, items, buyers, suppliers, poLines, transports, sup, sequence, itemGroups, hidden, colRules, supplierRefs],
+    [po, items, buyers, suppliers, poLines, transports, sup, sequence, itemGroups, hidden, colRules, supplierRefs, packRule],
   );
   const ctx = poMode ? orderCtx : invCtx;
 

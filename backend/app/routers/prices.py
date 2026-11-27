@@ -5,7 +5,10 @@ See app/prices.py for how a dated price is read. What these routes guarantee:
   * a save names the date its prices hold from — never a day still to come;
   * an order or invoice already on the book never moves (every line keeps the
     price it was placed or invoiced at; lines too old to have kept one are
-    given today's figures before the master changes);
+    given today's figures before the master changes) — unless the save says
+    `apply_to_orders`: then the orders dated from that day on that still have
+    boxes outstanding are restated, each at the prices in force on its own
+    date (V-7.10.2). Delivered boxes and invoices never move;
   * any revision can be withdrawn, and any earlier price gone back to, without
     losing the history — a withdrawal only clears `active`.
 """
@@ -180,6 +183,15 @@ def revisions(scope: str = Query("supplier", pattern="^(supplier|buyer)$"),
 # ---------------------------------------------------------------------------
 # Saving
 # ---------------------------------------------------------------------------
+@router.post("/reach", dependencies=[Depends(_read)])
+def reach(body: schemas.PriceReachIn, db: Session = Depends(get_db)):
+    """The open orders a change dated `effective` would restate if "apply to
+    orders" is ticked — shown before saving, never a surprise (V-7.10.2)."""
+    if body.buyer_id:
+        _buyer(db, body.buyer_id)
+    return P.orders_reached(db, body.item_ids, body.effective, body.buyer_id)
+
+
 @router.post("/supplier")
 def save_supplier(body: schemas.SupplierPricesIn, db: Session = Depends(get_db),
                   user: models.User = Depends(_write)):
@@ -206,7 +218,7 @@ def save_supplier(body: schemas.SupplierPricesIn, db: Session = Depends(get_db),
         if not _same(was, new):
             changes.append((it, new))
     if not changes:
-        return {"revision": None, "changed": 0, "items": []}
+        return {"revision": None, "changed": 0, "items": [], "repriced": 0, "pos": []}
 
     ids = [it.id for it, _ in changes]
     P.freeze_snapshots(db, ids)
@@ -220,8 +232,12 @@ def save_supplier(body: schemas.SupplierPricesIn, db: Session = Depends(get_db),
         db.add(models.PriceVersion(revision_id=rev.id, scope="supplier", item_id=it.id, effective=day,
                                    mode="set", active=True, created_at=now, created_by=who, **new))
     P.refresh_masters(db, ids)
+    # Orders placed from that day on and still open take the new prices too
+    # (V-7.10.2), each at what the lists give its own date.
+    applied = P.reprice_orders(db, ids, day) if body.apply_to_orders else {"updated": 0, "pos": []}
     db.commit()
-    return {"revision": rev.id, "changed": len(changes), "items": ids, "effective": day}
+    return {"revision": rev.id, "changed": len(changes), "items": ids, "effective": day,
+            "repriced": applied["updated"], "pos": applied["pos"]}
 
 
 @router.post("/buyer/{bid}")
@@ -268,7 +284,7 @@ def save_buyer(bid: str, body: schemas.BuyerPricesIn, db: Session = Depends(get_
                 continue
             changes.append((it, {"mode": "none", "margin_pct": None, **base}))
     if not changes:
-        return {"revision": None, "changed": 0, "items": []}
+        return {"revision": None, "changed": 0, "items": [], "repriced": 0, "pos": []}
 
     now, who = datetime.utcnow(), _who(user)
     rev = models.PriceRevision(scope="buyer", buyer_id=bid, effective=day, margin_pct=body.margin_pct,
@@ -278,8 +294,13 @@ def save_buyer(bid: str, body: schemas.BuyerPricesIn, db: Session = Depends(get_
     for it, new in changes:
         db.add(models.PriceVersion(revision_id=rev.id, scope="buyer", buyer_id=bid, item_id=it.id,
                                    effective=day, active=True, created_at=now, created_by=who, **new))
+    db.flush()
+    ids = [it.id for it, _ in changes]
+    # This buyer's orders from that day on, still open, take the new FOB too.
+    applied = P.reprice_orders(db, ids, day, buyer_id=bid) if body.apply_to_orders else {"updated": 0, "pos": []}
     db.commit()
-    return {"revision": rev.id, "changed": len(changes), "items": [it.id for it, _ in changes], "effective": day}
+    return {"revision": rev.id, "changed": len(changes), "items": ids, "effective": day,
+            "repriced": applied["updated"], "pos": applied["pos"]}
 
 
 # ---------------------------------------------------------------------------
