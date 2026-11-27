@@ -356,6 +356,10 @@ class PriceRevision(Base):
     effective = Column(String, nullable=False)                    # ISO date the prices hold from
     margin_pct = Column(Float, nullable=True)                     # buyer list: the margin asked for
     note = Column(String, default="")
+    # Supplier list: the supplier's own reference for these rates ("Your E-mail
+    # Dt 06.02.2023 …"). The supplier PO prints the latest one in force on its
+    # date as "Your Ref:" (V-7.10.1).
+    your_ref = Column(String, default="")
     created_at = Column(DateTime, default=datetime.utcnow)
     created_by = Column(String, default="")
 

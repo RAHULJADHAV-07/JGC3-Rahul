@@ -10,7 +10,7 @@ import {
 } from "../../components/ui/index.jsx";
 import DownloadMenu from "../../components/ui/DownloadMenu.jsx";
 import {
-  useInvoices, useItems, useBuyers, useSuppliers, useTransports, usePoLines,
+  useInvoices, useItems, useBuyers, useSuppliers, useTransports, usePoLines, useSupplierRefs,
   useInvoiceMutations, usePoList, useOptions,
 } from "../../api/hooks.js";
 import { useHiddenFields, useDocColumnRules } from "../../lib/columnPrefs.js";
@@ -144,6 +144,7 @@ export default function DocumentsPage({ group }) {
   const suppliersQ = useSuppliers();
   const transportsQ = useTransports();
   const poLinesQ = usePoLines();
+  const supplierRefs = useSupplierRefs().data;
   const optionsQ = useOptions();
   const items = itemsQ.data || [];
   const buyers = buyersQ.data || [];
@@ -255,9 +256,9 @@ export default function DocumentsPage({ group }) {
   const orderCtx = useMemo(
     () => (po ? poCtx({
       po: po.po, items, buyers, suppliers, poLines, transports,
-      supplierId: sup, sequence, groups: itemGroups, hidden, colRules,
+      supplierId: sup, sequence, groups: itemGroups, hidden, colRules, supplierRefs,
     }) : null),
-    [po, items, buyers, suppliers, poLines, transports, sup, sequence, itemGroups, hidden, colRules],
+    [po, items, buyers, suppliers, poLines, transports, sup, sequence, itemGroups, hidden, colRules, supplierRefs],
   );
   const ctx = poMode ? orderCtx : invCtx;
 

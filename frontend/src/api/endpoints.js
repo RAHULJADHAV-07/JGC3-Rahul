@@ -123,6 +123,8 @@ export const transports = {
 export const purchaseOrders = {
   list: () => apiGet("/api/purchase-orders"),
   lines: () => apiGet("/api/purchase-orders/lines"),
+  // The "Your Ref" each supplier rate change carries (V-7.10.1).
+  supplierRefs: () => apiGet("/api/purchase-orders/supplier-refs"),
   get: (po) => apiGet(`/api/purchase-orders/${encodeURIComponent(po)}`),
   create: (b) => apiPost("/api/purchase-orders", b),
   update: (po, b) => apiPut(`/api/purchase-orders/${encodeURIComponent(po)}`, b),

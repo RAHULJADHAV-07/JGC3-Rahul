@@ -259,7 +259,7 @@ def refresh_masters(db, item_ids) -> None:
     db.expire_all()
 
 
-def record_setup_change(db, item, before: dict, after: dict, since: str, who: str) -> None:
+def record_setup_change(db, item, before: dict, after: dict, since: str, who: str, your_ref: str = "") -> None:
     """A price changed in Setup → Items is a revision too, holding from
     `since`, so the price list and its history never disagree with the
     master — which then reads whatever is in force (refresh_masters)."""
@@ -271,7 +271,7 @@ def record_setup_change(db, item, before: dict, after: dict, since: str, who: st
         ))
     now = datetime.utcnow()
     rev = models.PriceRevision(scope="supplier", effective=since, note="Setup → Items",
-                               created_at=now, created_by=who)
+                               your_ref=(your_ref or "").strip(), created_at=now, created_by=who)
     db.add(rev)
     db.flush()
     db.add(models.PriceVersion(
@@ -279,3 +279,29 @@ def record_setup_change(db, item, before: dict, after: dict, since: str, who: st
         created_at=now, created_by=who, **after,
     ))
     refresh_masters(db, [item.id])
+
+
+def supplier_refs(db) -> list[dict]:
+    """Every "Your Ref" given with a supplier rate change, against each supplier
+    whose prices it moved and the day it holds from (V-7.10.1). A withdrawn
+    change no longer counts. The supplier PO prints the latest one dated on or
+    before the order."""
+    revs = db.query(models.PriceRevision).filter(models.PriceRevision.scope == "supplier",
+                                                 models.PriceRevision.your_ref.isnot(None),
+                                                 models.PriceRevision.your_ref != "").all()
+    if not revs:
+        return []
+    ids = [r.id for r in revs]
+    rows = (db.query(models.PriceVersion.revision_id, models.Item.supplier_id)
+            .join(models.Item, models.Item.id == models.PriceVersion.item_id)
+            .filter(models.PriceVersion.revision_id.in_(ids), models.PriceVersion.active.is_(True)).all())
+    sups: dict = {}
+    for rid, sid in rows:
+        if sid:
+            sups.setdefault(rid, set()).add(sid)
+    out = []
+    for r in revs:
+        for sid in sorted(sups.get(r.id, ())):
+            out.append({"supplier_id": sid, "effective": r.effective, "your_ref": r.your_ref,
+                        "created_at": r.created_at.isoformat() if r.created_at else ""})
+    return sorted(out, key=lambda x: (x["supplier_id"], x["effective"], x["created_at"]))

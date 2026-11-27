@@ -55,6 +55,13 @@ def list_po_lines(db: Session = Depends(get_db)):
     ]
 
 
+@router.get("/supplier-refs", dependencies=[Depends(_read)])
+def supplier_refs(db: Session = Depends(get_db)):
+    """The "Your Ref" each supplier rate change carries, and the day it holds
+    from — what the supplier PO prints (V-7.10.1)."""
+    return P.supplier_refs(db)
+
+
 # ---------------------------------------------------------------------------
 # Price sync — an order keeps the prices it was placed at (see models.py), so
 # editing an item in Setup only moves the orders you say it should.

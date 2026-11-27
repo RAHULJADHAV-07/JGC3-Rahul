@@ -63,3 +63,33 @@ class FobListDate(Prices):
 
     def test_never_priced_has_no_fob_date(self):
         self.assertIsNone(self.fob_of("PO1", 1))
+
+
+class YourRef(Prices):
+    """The supplier PO's "Your Ref" comes with a rate change (V-7.10.1)."""
+    def refs(self):
+        return self.ok(self.client.get("/api/purchase-orders/supplier-refs"))
+
+    def test_a_price_list_save_carries_its_ref_for_the_suppliers_it_moved(self):
+        self.ok(self.client.post("/api/prices/supplier", json={"effective": "2026-10-01", "your_ref": "Your E-mail Dt 01.10.2026",
+                                                              "rows": [{"item_id": self.i[1], "unit_value": 110.0},
+                                                                       {"item_id": self.i[5], "unit_value": 90.0}]}))
+        got = {(r["supplier_id"], r["effective"], r["your_ref"]) for r in self.refs()}
+        self.assertEqual(got, {(self.sup["id"], "2026-10-01", "Your E-mail Dt 01.10.2026"),
+                               (self.sup2["id"], "2026-10-01", "Your E-mail Dt 01.10.2026")})
+
+    def test_a_save_without_a_ref_adds_none(self):
+        self.set_supplier("2026-10-01", [{"item_id": self.i[1], "unit_value": 110.0}])
+        self.assertEqual(self.refs(), [])
+
+    def test_setup_items_price_change_carries_its_ref(self):
+        self.ok(self.client.put(f"/api/items/{self.i[2]}", json={"unit_value": 125.0, "price_from": "2026-11-01",
+                                                                 "price_ref": "Quotation 45 Dt 30.10.2026"}))
+        self.assertEqual([(r["supplier_id"], r["effective"], r["your_ref"]) for r in self.refs()],
+                         [(self.sup["id"], "2026-11-01", "Quotation 45 Dt 30.10.2026")])
+
+    def test_a_withdrawn_change_takes_its_ref_with_it(self):
+        out = self.ok(self.client.post("/api/prices/supplier", json={"effective": "2026-10-01", "your_ref": "Ref A",
+                                                                    "rows": [{"item_id": self.i[1], "unit_value": 110.0}]}))
+        self.ok(self.client.post(f"/api/prices/revisions/{out['revision']}/withdraw"))
+        self.assertEqual(self.refs(), [])

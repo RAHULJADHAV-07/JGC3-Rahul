@@ -132,6 +132,7 @@ def update_item(iid: str, body: schemas.ItemUpdate, db: Session = Depends(get_db
     before = P.master_prices(obj)
     edits = schemas.changes(body, schemas.Item)
     since = edits.pop("price_from", None) or P.today_iso()
+    your_ref = edits.pop("price_ref", None) or ""
     edits.pop("price_set_at", None)
     after = {**before, **{k: edits[k] for k in P.FIELDS if k in edits}}
     after = {"unit_value": float(after["unit_value"] or 0), "value_mode": after["value_mode"] or "piece",
@@ -152,7 +153,7 @@ def update_item(iid: str, body: schemas.ItemUpdate, db: Session = Depends(get_db
             setattr(obj, k, v)
     if moved:
         # A price changed here is a revision on the price list, from `since`.
-        P.record_setup_change(db, obj, before, after, since, (user.name or user.email or "").strip())
+        P.record_setup_change(db, obj, before, after, since, (user.name or user.email or "").strip(), your_ref)
     db.commit()
     db.refresh(obj)
     return _out(obj)

@@ -44,7 +44,7 @@ function crudHooks(key, resource, extraInvalidate = []) {
    that drift apart. */
 const LEDGER = ["dashboard", "badges", "po-list", "po-lines", "invoices", "item-detail", "balance",
   "supply-details", "order-lines", "master-2a", "master-7a", "price-drift", "pending-for-item",
-  "alloc-preview", "open-orders"];
+  "alloc-preview", "open-orders", "supplier-refs"];
 
 // Masters — mutations also refresh dependent computed views.
 const DERIVED = [...LEDGER, "item-groups", "items-grouped", "derive", "cost-preview"];
@@ -133,6 +133,8 @@ export const useSupplierMaster = (supplierId, range) =>
 // Purchase orders
 export const usePoList = () => useQuery({ queryKey: ["po-list"], queryFn: api.purchaseOrders.list });
 export const usePoLines = () => useQuery({ queryKey: ["po-lines"], queryFn: api.purchaseOrders.lines });
+// The supplier PO's "Your Ref", as given with each supplier rate change.
+export const useSupplierRefs = () => useQuery({ queryKey: ["supplier-refs"], queryFn: api.purchaseOrders.supplierRefs });
 export function usePoMutations() {
   const qc = useQueryClient();
   const invalidate = () => LEDGER.forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
@@ -376,7 +378,7 @@ export function useCostingMutations() {
    A supplier save moves the item master, so everything drawn from it is read
    again — the same as an item edit in Setup. A buyer save only changes what
    new orders for that buyer are placed at. */
-const PRICE_KEYS = ["prices-supplier", "prices-buyer", "prices-history", "prices-revisions"];
+const PRICE_KEYS = ["prices-supplier", "prices-buyer", "prices-history", "prices-revisions", "supplier-refs"];
 export const useSupplierPrices = (enabled = true) =>
   useQuery({ queryKey: ["prices-supplier"], queryFn: api.prices.supplier, enabled, ...LIVE });
 export const useBuyerPrices = (bid, on) =>

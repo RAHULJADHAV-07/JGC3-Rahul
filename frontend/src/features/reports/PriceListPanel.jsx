@@ -251,6 +251,7 @@ function RevisionsModal({ scope, buyerId, canEdit, onClose }) {
                       <span>{r.items} item{r.items === 1 ? "" : "s"}{r.status === "partly" ? ` · ${r.active} still on` : ""}</span>
                       {r.margin_pct != null && <span>margin {num(r.margin_pct, 1)}%</span>}
                       {r.note && <span className="pl-hmode">{r.note}</span>}
+                      {r.your_ref && <span className="pl-hmode">Your Ref: {r.your_ref}</span>}
                     </div>
                     <div className="pl-hact">
                       <Pill tone={tone[r.status]}>{word[r.status]}</Pill>
@@ -305,6 +306,7 @@ function SupplierPrices({ canEdit, sup, q }) {
   const toast = useToast();
   const [day, setDay] = useState("");
   const [note, setNote] = useState("");
+  const [yourRef, setYourRef] = useState("");
   const [draft, setDraft] = useState({});
   const [hist, setHist] = useState(null);
   const [revs, setRevs] = useState(false);
@@ -336,10 +338,11 @@ function SupplierPrices({ canEdit, sup, q }) {
   const save = async () => {
     setErr("");
     const res = await saveSupplier.mutateAsync({
-      effective: day, note,
+      effective: day, note, your_ref: yourRef,
       rows: changes.map(([it, c]) => ({ item_id: it.id, ...c })),
     });
     setDraft({});
+    setYourRef("");
     toast(res.changed
       ? `Prices saved — ${res.changed} item${res.changed === 1 ? "" : "s"}, holding from ${dmyNum(day)}`
       : "Nothing to save — those were already the prices on that day");
@@ -401,7 +404,17 @@ function SupplierPrices({ canEdit, sup, q }) {
   return (
     <>
       <SaveBar day={day} setDay={setDay} note={note} setNote={setNote} count={changes.length} hidden={hiddenCount}
-        saving={saveSupplier.isPending} canEdit={canEdit} onSave={onSave} onDiscard={discard} onRevisions={() => setRevs(true)} />
+        saving={saveSupplier.isPending} canEdit={canEdit} onSave={onSave} onDiscard={discard} onRevisions={() => setRevs(true)}
+        extra={(
+          /* The supplier's own reference for these rates — printed as "Your Ref"
+             on every supplier PO dated from this day until the next change
+             that gives one (V-7.10.1). */
+          <Field label="Your Ref" hint="Printed on the supplier PO from this date on">
+            <Input className="input-sm" style={{ width: 280 }} value={yourRef} maxLength={300}
+              onChange={(e) => setYourRef(e.target.value)} disabled={!canEdit}
+              placeholder="e.g. Your E-mail Dt 06.02.2023" aria-label="Your Ref" />
+          </Field>
+        )} />
       {err && <Note tone="amber" icon={AlertTriangle}>{err}</Note>}
       {behind.length > 0 && (
         <Note tone="amber" icon={CalendarDays}>

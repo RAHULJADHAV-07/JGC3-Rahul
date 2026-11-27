@@ -84,6 +84,18 @@ export const docSupplier = (s) => ({
   gstPct: s.gst_pct ?? null,
 });
 
+/* The supplier PO's "Your Ref" (V-7.10.1): the reference given with the
+   supplier's latest rate change dated on or before the order — it holds until
+   the next change that gives one. With none, Setup → Suppliers' own. */
+export function refOn(refs, supplierId, on) {
+  let best = null;
+  (refs || []).forEach((r) => {
+    if (r.supplier_id !== supplierId || !r.your_ref || (on && r.effective > on)) return;
+    if (!best || r.effective > best.effective || (r.effective === best.effective && (r.created_at || "") > (best.created_at || ""))) best = r;
+  });
+  return best ? best.your_ref : "";
+}
+
 export const docTransport = (t) => ({
   id: t.id, name: t.name, transportId: t.transport_id,
   supplierId: t.supplier_id, supplierIds: t.supplier_ids || [],
@@ -186,12 +198,13 @@ export function docCtx({
    that number as the order reference. */
 export function poCtx({
   po, items = [], buyers = [], suppliers = [], poLines = [], transports = [],
-  supplierId = "", sequence, groups, hidden, colRules,
+  supplierId = "", sequence, groups, hidden, colRules, supplierRefs = [],
 }) {
   const docItems = items.map((i) => docItem(i, hidden));
   const byId = Object.fromEntries(docItems.map((i) => [i.id, i]));
-  const sups = suppliers.map(docSupplier);
   const all = (poLines || []).filter((r) => r.po === po);
+  const poDate = all.reduce((min, r) => (!min || r.date < min ? r.date : min), null);
+  const sups = suppliers.map(docSupplier).map((s) => ({ ...s, yourReference: refOn(supplierRefs, s.id, poDate) || s.yourReference }));
   // Narrowed to one supplier, the order is that supplier's lines of it.
   const mine = supplierId ? all.filter((r) => byId[r.item_id]?.supplierId === supplierId) : all;
   const date = all.reduce((min, r) => (!min || r.date < min ? r.date : min), null);
