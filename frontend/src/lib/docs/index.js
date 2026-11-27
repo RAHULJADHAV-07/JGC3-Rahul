@@ -594,6 +594,13 @@ export const PREVIEW_CSS = `
   .docprev .evd .nt{vertical-align:top;}
   .docprev .evd .bx{border:1px solid #000;text-align:center;font-weight:700;}
   .docprev .evd tr.gap td{height:10px;}
+  /* The scanned signature block and the stamp (13–16A by air), sized as the
+     PDF sizes them (download.js · .sgrow): side by side, the block about 1¾",
+     the stamp about ¾" round — not each at its scan's own size (V-7.10.3). */
+  .docprev .dl .sgrow,.docprev .evd .sgrow{display:flex;align-items:center;gap:48px;margin:18px 0 8px;}
+  .docprev .dl .sgrow img.sgsig,.docprev .evd img.sgsig{width:44mm;max-width:none;height:auto;}
+  .docprev .dl .sgrow img.sgstp,.docprev .evd img.sgstp{width:19mm;max-width:none;height:auto;}
+  .docprev .evd tr.sgr td{height:52pt;vertical-align:middle;text-align:center;}
 
   /* 21 and 33 · the packing declaration — a typed form on the letterhead, its
      ten columns ruled only where their sheet rules them: a box against each

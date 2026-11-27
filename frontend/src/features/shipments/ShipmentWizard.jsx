@@ -237,7 +237,7 @@ export default function ShipmentWizard({ inv, onClose }) {
           {mismatchNote}
           {air ? (
             <div className="grid-2">
-              <Field label="Marks & Nos"><Input value={ship.marks || ""} onChange={(e) => setSh("marks", e.target.value)} placeholder="G.D.W / PERTH" /></Field>
+              <Field label="Shipping mark" hint="Just the mark — the papers add NOS and the carton numbers. Left empty, no mark is printed."><Input value={ship.marks || ""} onChange={(e) => setSh("marks", e.target.value)} placeholder="e.g. GDW / PERTH" /></Field>
               <Field label="No & kinds of pkgs"><Input value={ship.pkgs || ""} onChange={(e) => setSh("pkgs", e.target.value)} placeholder="10 CARTONS" /></Field>
               <Field label="No. of skids" hint="The pallets the cartons travel strapped to — printed as “(02 SKIDS)”.">
                 <Input type="number" min="0" step="1" value={ship.skids ?? ""} onChange={(e) => setSh("skids", e.target.value)} placeholder="0" />
@@ -257,7 +257,7 @@ export default function ShipmentWizard({ inv, onClose }) {
             <div className="grid-2">
               <Field label="Container No."><Input value={ship.container || ""} onChange={(e) => setSh("container", e.target.value)} placeholder="e.g. OOCU0793142" /></Field>
               <Field label="Seal No."><Input value={ship.seal || ""} onChange={(e) => setSh("seal", e.target.value)} placeholder="e.g. IND-0054079" /></Field>
-              <Field label="Marks & Nos"><Input value={ship.marks || ""} onChange={(e) => setSh("marks", e.target.value)} placeholder="GDW 2001-2421" /></Field>
+              <Field label="Shipping mark" hint="Just the mark — the papers add NOS and the carton numbers. Left empty, no mark is printed."><Input value={ship.marks || ""} onChange={(e) => setSh("marks", e.target.value)} placeholder="e.g. GDW" /></Field>
               <Field label="No & kinds of pkgs"><Input value={ship.pkgs || ""} onChange={(e) => setSh("pkgs", e.target.value)} placeholder="421 PACKAGES" /></Field>
               <Field label="Nett wt (kg)"><Input type="number" step="0.001" value={ship.netWt || ""} onChange={(e) => setSh("netWt", e.target.value)} placeholder="0.000" /></Field>
               <Field label="Gross wt (kg)"><Input type="number" step="0.001" value={ship.grossWt || ""} onChange={(e) => setSh("grossWt", e.target.value)} placeholder="0.000" /></Field>

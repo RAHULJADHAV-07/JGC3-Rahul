@@ -7,6 +7,19 @@
 
 export const RELEASES = [
   {
+    version: "7.10.3",
+    date: "2026-11-27",
+    notes: [
+      "Export value declaration: point 3 is ticked at \"Sale on consignment basis\", and point 4 (Method of valuation) has no box ticked — Rule 3 is no longer marked.",
+      "Suppliers details: NO OF PKGS shows the packages alone — \"519 Pkgs\" — without the cartons and bundles in brackets.",
+      "Fixed: the packing declaration counted its own cartons and HDP bundles in the brackets, which could differ from the invoice and packing list (438 Cartons & 81 HDP Bundles against 495 & 24). It now prints the \"No & kinds of pkgs\" the invoice and packing list print.",
+      "Despatch instruction: point 1 is a table — Item, No of Packages / Cartons and Shipping Marks (\"GDW Nos.: 12001-12184\"), a row for each group of the supplier's goods, with the Total under it — in place of the one long marking line.",
+      "Shipment → Shipping mark (was \"Marks & Nos\"): type just the mark — GDW, GDW / PERTH — and every paper adds NOS and the carton numbers itself. Nothing is put in for you any more: left empty, no mark prints (GDW used to fill in on its own).",
+      "Fixed: the on-screen preview of the signed air declarations (declaration of origin, export value declaration and the others) showed the signature and the stamp huge, one under the other. They now sit side by side at the size the PDF prints them.",
+      "Packing list: the marks read \"GDW NOS :\" over the carton numbers by sea, and \"GDW / PERTH\" over \"NOS : 1 - 10 / 10\" by air, as the invoice and the client's air file have them.",
+    ],
+  },
+  {
     version: "7.10.2",
     date: "2026-11-27",
     notes: [

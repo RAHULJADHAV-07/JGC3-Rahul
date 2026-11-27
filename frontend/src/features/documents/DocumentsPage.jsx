@@ -75,13 +75,13 @@ function PreShipPanel({ inv, onWizard }) {
   const F = mode === "air" ? [
     ["awbNo", "AWB No.", "text"], ["awbDate", "AWB Date", "date"], ["airline", "Airline", "text"],
     ["pol", "Port of loading", "text"], ["pod", "Ship to port (discharge)", "text"], ["terms", "Terms of delivery", "text"],
-    ["marks", "Marks & Nos", "text"], ["pkgs", "No & kinds of pkgs", "text"], ["skids", "No. of skids", "number"],
+    ["marks", "Shipping mark", "text"], ["pkgs", "No & kinds of pkgs", "text"], ["skids", "No. of skids", "number"],
     ["netWt", "Nett wt (kg)", "number"], ["grossWt", "Gross wt (kg)", "number"], ["skidWt", "Skid wt (kg)", "number"],
     ["freight", "Approx freight (US$)", "number"], ["exRate", "Exchange rate ₹/$", "number"],
   ] : [
     ["blNo", "BL No.", "text"], ["blDate", "BL Date", "date"], ["vessel", "Vessel / voyage", "text"],
     ["container", "Container No.", "text"], ["seal", "Seal No.", "text"], ["pod", "Ship to port (discharge)", "text"],
-    ["marks", "Marks & Nos", "text"], ["pkgs", "No & kinds of pkgs", "text"], ["terms", "Terms of delivery", "text"],
+    ["marks", "Shipping mark", "text"], ["pkgs", "No & kinds of pkgs", "text"], ["terms", "Terms of delivery", "text"],
     ["netWt", "Nett wt (kg)", "number"], ["grossWt", "Gross wt (kg)", "number"], ["exRate", "Exchange rate ₹/$", "number"],
   ];
 

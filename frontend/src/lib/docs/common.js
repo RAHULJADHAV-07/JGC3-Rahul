@@ -220,7 +220,7 @@ export function oneIfClose(sheet, slack = 1.15) {
    / "/ 10". */
 export const marksLines = (ctx, marks) => (airOf(ctx)
   ? [marks.prefix, `NOS : ${marks.start} - ${marks.end}`, `/ ${marks.end}`]
-  : [`${marks.prefix} NOS :`, `${marks.start} - ${marks.end}`, String(marks.end)]);
+  : [[marks.prefix, "NOS :"].filter(Boolean).join(" "), `${marks.start} - ${marks.end}`, String(marks.end)]);
 
 /* The exporter's GSTIN at the foot of an invoice. The air invoices state the
    date it runs from, as their file does. */
@@ -1713,17 +1713,18 @@ export const LETTER_DAY = (s) => {
 
 export const LETTER_DATE = (s) => (s ? new Date(s).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) : "");
 
-/* The marking line (V-7.10.1): the buyer's mark, then this supplier's carton
-   numbers group by group as its Packing (doc 7) numbers them — each group of
-   Setup → Item groups (Hansa-PP, Hansa-GRN …) with its own run, runs that follow
-   on merged into one — then this supplier's packages and their kinds. Nothing
-   of the rest of the shipment: the factory marks only its own boxes.
-     "All Packages to be marked as GDW NOS : 11362 – 11400 (PP) / 11401 – 11438
-      (NYLON) / 77 Packages (53 Cartons & 24 HDP Bundles)" */
-export function despatchMarks(ctx, arr) {
-  const s = ctx.inv.ship || {};
-  // The mark is what is typed before the first carton number: "GDW NOS : 1-9" → GDW.
-  const mark = String(s.marks || "").split(/\d/)[0].replace(/\bNOS\b|[:/\s.–-]+$/gi, " ").replace(/[\s:/–-]+$/, "").trim() || "G.D.W";
+/* The marking table (V-7.10.3), in place of the one marking line of 7.10.1:
+   a row for each group of this supplier's goods as its Packing (doc 7) numbers
+   them — the group's name from Setup → Item groups, its packages, and the mark
+   with its carton numbers, runs that follow on merged into one — then the
+   total. Nothing of the rest of the shipment: the factory marks only its own
+   boxes.
+     Item                                    | No of Packages / Cartons | Shipping Marks
+     PP EXTRUDED PIPES : BOTH SIDE THREADED  | 184                      | GDW Nos.: 12001-12184
+     Total                                   | 194                      |                      */
+export const DESPATCH_HEAD = ["Item", "No of Packages / Cartons", "Shipping Marks"];
+export function despatchTable(ctx, arr) {
+  const mark = shipMark(ctx);
   const runsOf = (rows) => {
     const spans = rows.filter((r) => r.boxes > 0).map((r) => String(r.range || "").split("-").map(Number))
       .filter((p) => p.length === 2 && p.every(Number.isFinite)).sort((x, y) => x[0] - y[0]);
@@ -1732,25 +1733,20 @@ export function despatchMarks(ctx, arr) {
       const last = runs[runs.length - 1];
       if (last && f <= last[1] + 1) last[1] = Math.max(last[1], t); else runs.push([f, t]);
     });
-    return runs.map(([f, t]) => `${f} – ${t}`).join(" / ");
+    return runs.map(([f, t]) => `${f}-${t}`).join(" / ");
   };
   const groups = [];
   arr.forEach((r) => {
     const key = r.block?.key || "";
     let g = groups.find((x) => x.key === key);
-    // A group named in Setup → Item groups goes by that name (PMF); the rest by its range.
-    const range = { "PP EXTRUDED PIPES": "PIPES", "NYLON MOULDED FITTINGS": "NYLON" }[ewGoods([r])] || "PP";
-    if (!g) groups.push(g = { key, rows: [], name: String(r.block?.name || "").trim() || range });
+    if (!g) groups.push(g = { key, rows: [], name: String(r.block?.name || "").trim() });
     g.rows.push(r);
   });
-  const nos = groups.map((g) => {
-    const runs = runsOf(g.rows);
-    return runs && groups.length > 1 ? `${runs} (${g.name})` : runs;
-  }).filter(Boolean).join(" / ");
-  const { cartons, bundles } = packageCounts(arr);
-  const kinds = [cartons && `${cartons} Cartons`, bundles && `${bundles} HDP Bundles`].filter(Boolean).join(" & ");
-  const pkgs = sum(arr, "boxes");
-  return `All Packages to be marked as ${mark} NOS : ${nos || "—"} / ${pkgs} Packages${kinds ? ` (${kinds})` : ""}`;
+  const rows = groups.map((g) => {
+    const nos = runsOf(g.rows);
+    return [g.name || ewGoods(g.rows), String(sum(g.rows, "boxes")), nos ? [mark, `Nos.: ${nos}`].filter(Boolean).join(" ") : ""];
+  }).filter((r) => r[1] !== "0" || r[2]);
+  return { rows, total: ["Total", String(sum(arr, "boxes")), ""] };
 }
 
 /* The letterhead itself — the name in Centaur maroon with the mark against the
@@ -1832,6 +1828,12 @@ export const signedHtml = (order = "sign-stamp") => {
   return `<div class="sgrow">${order === "stamp-sign" ? stamp + sign : sign + stamp}</div>`;
 };
 
+const despatchTableHtml = (ctx, arr) => {
+  const { rows, total } = despatchTable(ctx, arr);
+  const tr = (cells, b) => `<tr>${cells.map((v, i) => `<td class="${[i ? "mid" : "", b ? "b" : ""].filter(Boolean).join(" ")}">${esc(v) || "&nbsp;"}</td>`).join("")}</tr>`;
+  return `<table class="bx mk">${tr(DESPATCH_HEAD, true)}${rows.map((r) => tr(r)).join("")}${tr(total, true)}</table>`;
+};
+
 export function despatch11Block(ctx, sid, arr) {
   if (airOf(ctx)) return despatch11AirBlock(ctx, sid);
   const sp = supFor(ctx, sid);
@@ -1857,7 +1859,7 @@ export function despatch11Block(ctx, sid, arr) {
     <p>With reference to the above, we give hereunder the dispatch instructions:</p>
 
     <table class="ins">
-      ${step(1, esc(despatchMarks(ctx, arr)))}
+      ${step(1, `All Packages to be marked as under:${despatchTableHtml(ctx, arr)}`)}
       ${step(2, "Book the consignment for delivery at JNPT/Dhronagiri (Door Delivery)")}
       ${step(3, `Lorry receipt to be made in our name a/c. M/s. ${esc(CFS.agent)} Mumbai, on freight to pay.`)}
       ${step(4, "L/R to show goods for export")}
@@ -2306,7 +2308,17 @@ export function despatch11Sheet(ctx, sid, arr) {
   line("With reference to the above, we give hereunder the dispatch instructions:");
   gap();
 
-  step(1, despatchMarks(ctx, arr));
+  /* The marks as a table under the instruction: the item over two columns,
+     the packages in one, the marks over the last two. */
+  row([[1, { v: "1)", s: DL.step }], [5, { v: "All Packages to be marked as under:", s: DL.body }]]);
+  gap(2.25);
+  const { rows: mk, total } = despatchTable(ctx, arr);
+  const mid = { ...DL.bx, align: "center" }, midB = { ...DL.bxB, align: "center" };
+  [[DESPATCH_HEAD, true], ...mk.map((r) => [r, false]), [total, true]].forEach(([[item, pk, nos], b]) => {
+    row([[1, { v: "", s: DL.body }], [2, { v: item, s: b ? DL.bxB : DL.bx }], [1, { v: pk, s: b ? midB : mid }],
+      [2, { v: nos, s: b ? midB : mid }]]);
+  });
+  gap(6);
   step(2, "Book the consignment for delivery at JNPT/Dhronagiri (Door Delivery)");
   step(3, `Lorry receipt to be made in our name a/c. M/s. ${CFS.agent} Mumbai, on freight to pay.`);
   step(4, "L/R to show goods for export");
@@ -2435,11 +2447,13 @@ export function evd13Rows(ctx) {
     R([12, "2.  Invoice No. & Date.", "n"], [12, `: ${ctx.inv.invoiceNo} Dt. ${ddmm(ctx.inv.date)}`, "n"]),
     GAP,
     R([24, "3.  Nature of Transaction.", "n"]),
-    R([3, "Sale", "n"], tick(true), [9, "Sale on consignment basis", "n"], tick(false),
+    /* V-7.10.3: the X goes in the box after "Sale on consignment basis", and
+       the method of valuation is left for customs — no rule ticked. */
+    R([3, "Sale", "n"], tick(false), [9, "Sale on consignment basis", "n"], tick(true),
       [3, "Gift", "n"], tick(false), [6, "", "n"]),
     R([3, "Sample", "n"], tick(false), [3, "Other", "n"], tick(false), [16, "", "n"]),
     GAP,
-    R([10, "4.  Method of Valuation", "n"], [2, "Rule 3", "n"], tick(true), [2, "Rule 4", "n"], tick(false),
+    R([10, "4.  Method of Valuation", "n"], [2, "Rule 3", "n"], tick(false), [2, "Rule 4", "n"], tick(false),
       [2, "Rule 5", "n"], tick(false), [2, "Rule 6", "n"], tick(false), [2, "", "n"]),
     R([10, "", "n"], [14, "(See Export Valuation Rules)", "n"]),
     GAP,
@@ -2964,7 +2978,6 @@ export const numOrText = (v, s) => (/^\d+$/.test(String(v || "").trim())
   ? { v: Number(v), t: "n", s } : { v: String(v || ""), s });
 
 export const ciMarks = (ctx, rows) => {
-  const s = ctx.inv.ship || {};
   /* The marks are the whole consignment's — the container is marked once —
      so they run over every carton on the invoice, even when the paper has
      been narrowed to one supplier's goods. From the lowest carton number to
@@ -2978,13 +2991,16 @@ export const ciMarks = (ctx, rows) => {
     ? (ctx.inv.lines || []).reduce((n, l) => n + (Number(l.boxes) || 0), 0)
     : sum(rows, "boxes");
   const end = ends.length ? Math.max(...ends.map((p) => p[1])) : start + Math.max(0, boxes - 1);
-  /* The mark alone: the carton numbers out, and a "NOS" typed with them —
-     every form adds its own "NOS :", so "GDW NOS : 11001-11519" is "GDW", never
-     "GDW NOS NOS :" (V-7.10.1). */
-  const prefix = String(s.marks || "").replace(/[\d\-–\s]+/g, " ").trim()
-    .replace(/[^A-Za-z0-9.]+$/, "").replace(/\s*\bNOS\b\.?\s*:?$/i, "").replace(/[^A-Za-z0-9.]+$/, "").trim() || "GDW";
-  return { prefix, start, end };
+  return { prefix: shipMark(ctx), start, end };
 };
+
+/* The shipping mark typed on the shipment (Shipping mark — "GDW", "GDW / PERTH"),
+   alone: carton numbers typed with it out, and a "NOS" typed with them — every
+   form adds its own "NOS :", so "GDW NOS : 11001-11519" is "GDW", never
+   "GDW NOS NOS :" (V-7.10.1). Nothing typed prints no mark (V-7.10.3): the
+   papers no longer fall back to GDW. */
+export const shipMark = (ctx) => String(ctx.inv.ship?.marks || "").replace(/[\d\-–\s]+/g, " ").trim()
+  .replace(/[^A-Za-z0-9.]+$/, "").replace(/\s*\bNOS\b\.?\s*:?$/i, "").replace(/[^A-Za-z0-9.]+$/, "").trim();
 
 /* The letterhead mark on the customs books (18 and 19). Both files anchor it in
    the same place — just inside the top left corner of the form, three quarters
@@ -3636,7 +3652,7 @@ export function packagesText(ctx, rows) {
 export function marksNos(ctx, rows) {
   const marks = ciMarks(ctx, rows);
   const prefix = String(marks.prefix).replace(/[^A-Za-z0-9.]+$/, "");
-  return `${prefix} NOS : ${marks.start} - ${marks.end} / ${marks.end}`;
+  return `${[prefix, "NOS"].filter(Boolean).join(" ")} : ${marks.start} - ${marks.end} / ${marks.end}`;
 }
 
 /* The air papers count the packages by kind alone — "10 CARTONS", or
@@ -3652,8 +3668,10 @@ export function pkdPackages(ctx, rows) {
   /* By air the declaration counts what the invoices count — what was typed on
      the shipment, or the cartons — with the skids after it: "10 CARTONS
      (02 SKIDS)" (Docs/JG_Air_Docs/Packaging Declaration.xlsx). */
-  if (airOf(ctx)) return `${marksNos(ctx, rows)} - ${packagesText(ctx, rows)} CONTAINING `;
-  return `${marksNos(ctx, rows)} - ${packagesMade(rows)} CONTAINING `;
+  /* By sea too (V-7.10.3) it counts what the invoice and the packing list
+     count — the "No & kinds of pkgs" typed on the shipment, cartons and bundles
+     as typed — so the three never disagree. */
+  return `${marksNos(ctx, rows)} - ${packagesText(ctx, rows)} CONTAINING `;
 }
 
 /* The declaration, and the buyer's copy of it (33). Their two files are the
@@ -4147,6 +4165,14 @@ function supBand(ctx, band, R) {
   ];
 }
 
+/* The packages alone — "519 Pkgs" (V-7.10.3): the number the typed "No & kinds
+   of pkgs" starts with, or the boxes counted; the cartons-and-bundles split is
+   left to the other papers. */
+export function supPkgs(ctx) {
+  const n = /\d+/.exec(String(ctx.inv.ship?.pkgs || ""));
+  return `${n ? Number(n[0]) : sum(L(ctx), "boxes")} Pkgs`;
+}
+
 export function sup23Rows(ctx) {
   const s = ctx.inv.ship || {};
   const R = (...cells) => ({ cells });
@@ -4163,7 +4189,7 @@ export function sup23Rows(ctx) {
        and what the print engine would otherwise not do, measuring the same
        words a per cent or two wider than the spreadsheet does. */
     R([1, "Inv No & Dt", "- v"], [1, `${ctx.inv.invoiceNo || ""} DT ${ddmm(ctx.inv.date)}`, "- b v"],
-      [1, "NO OF PKGS", "- v"], [1, s.pkgs || String(sum(L(ctx), "boxes")), "- b c v"],
+      [1, "NO OF PKGS", "- v"], [1, supPkgs(ctx), "- b c v"],
       [1, "Shipment to", "- v"], [2, (s.pod || ctx.buyer.shipTo || "").toUpperCase(), "- b v"],
       [1, "", "-"]),
     BLANK,

@@ -1,5 +1,13 @@
 import { PL_ONE_BODY, airOf, fitsOnePage, L, PL_FORMS, bundled, PL_P2_TOP, PL_TOP, PL_WEIGHTS, PL_WT, addrLines, ciMarks, ddmm, esc, familyOf, fitSheet, formGrid, formLogo, lineRuns, numOrText, packingBands, packingDescribe, packingLayout, plOrderBox, plP2Body, proformaRefOf, rangeRefs, sum, wbFixed } from "./common.js";
 
+/* The marks over two lines, with the NOS the papers add to the mark typed on
+   the shipment (V-7.10.3). By sea "GDW NOS :" / "2001 - 2421 / 2421", as the
+   invoice heads them; by air the place stays on the mark and NOS goes with the
+   run — "GDW / PERTH" / "NOS : 1 - 10 / 10", as their air packing list has it. */
+const plMarks = (ctx, m) => (airOf(ctx)
+  ? [m.prefix, `NOS : ${m.start} - ${m.end} / ${m.end}`]
+  : [[m.prefix, "NOS :"].filter(Boolean).join(" "), `${m.start} - ${m.end} / ${m.end}`]);
+
 /* The break-up of weights by material is printed only when the consignment
    carries corrugated boxes — it exists to separate the cartons' weight from
    the goods'. Without them the foot carries the signature alone. */
@@ -132,13 +140,13 @@ export function packingListSheets(ctx, form) {
       [3, { v: boxLabel, s: { ...C.key, border: "lrt" } }]]);
     row([[3, { v: "Pre-Carraige by:", s: { ...C.lbl, border: "lt" } }],
       [1, { v: "Place of Receipt by Pre-Carraige", s: { ...C.lbl, border: "lrt" } }],
-      [2, { v: marks.prefix, s: { ...C.key, border: "l" } }],
+      [2, { v: plMarks(ctx, marks)[0], s: { ...C.key, border: "l" } }],
       [3, { v: boxValue, s: { ...C.key, border: "lr" } }]]);
     /* The marks their form types under the prefix: the range this consignment
        takes out of the running series, over the serial it ends on. */
     row([[3, { v: s.preCarriage || "", s: { ...C.txt, border: "lb" } }],
       [1, { v: s.receiptPlace || "", s: { ...C.txt, border: "lrb" } }],
-      [2, { v: `${marks.start} - ${marks.end} / ${marks.end}`, s: { ...C.txt, border: "l" } }],
+      [2, { v: plMarks(ctx, marks)[1], s: { ...C.txt, border: "l" } }],
       [3, { v: "", s: { ...C.key, border: "lrb" } }]]);
     row([[3, { v: "Shipped per:", s: { ...C.lbl, border: "lrt" } }],
       [1, { v: "Port of Loading:", s: { ...C.lbl, border: "lrt" } }],
@@ -471,9 +479,9 @@ export function packingListHtml(ctx, form) {
       ${vl((s.finalDest || b.country || "").toUpperCase(), "k rd lrb c", 2)}</tr>
     <tr>${td("", "lf rt0", 4)}${vl("Shipping Marks ", "k lb lf", 2)}${vl(boxLabel, "k lrt", 3)}</tr>
     <tr>${vl("Pre-Carraige by:", "k lb lt", 3)}${vl("Place of Receipt by Pre-Carraige", "k lb lrt")}
-      ${vl(marks.prefix, "k lf", 2)}${vl(boxValue, "k lf rt0", 3)}</tr>
+      ${vl(plMarks(ctx, marks)[0], "k lf", 2)}${vl(boxValue, "k lf rt0", 3)}</tr>
     <tr>${vl(s.preCarriage || "", "lf bb", 3)}${vl(s.receiptPlace || "", "lrb")}
-      ${vl(`${marks.start} - ${marks.end} / ${marks.end}`, "lf", 2)}${td("", "k lrb", 3)}</tr>
+      ${vl(plMarks(ctx, marks)[1], "lf", 2)}${td("", "k lrb", 3)}</tr>
     <tr>${vl("Shipped per:", "k lb lrt", 3)}${vl("Port of Loading:", "k lb lrt")}${td("", "lf rt0", 2)}
       ${vl(air ? "" : "SEAL NO : ", "k lf rt0", 3)}</tr>
     <tr>${vl(carrier, "lrb", 3)}${vl(s.pol || "", "k rd lrb c")}${td("", "lf rt0", 2)}
